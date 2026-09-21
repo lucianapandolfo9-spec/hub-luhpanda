@@ -12,54 +12,113 @@
 <div id="root">
   <div class="empty"><div class="spinner" style="margin:0 auto 12px;"></div>Carregando...</div>
 </div>
+<div id="modal-root"></div>
 
 <script src="config.js"></script>
 <script>
 const root = document.getElementById('root');
+const modalRoot = document.getElementById('modal-root');
 let session = null;
-let carteira = [];
-let catalogo = [];
+let carteira = [];   // cache pra popular <select> de cliente em formulários
 
-// ---------- helpers ----------
+// ============================================================
+// HELPERS
+// ============================================================
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg){
   const t = document.createElement('div');
   t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(()=>t.remove(), 2800);
+  setTimeout(()=>t.remove(), 3200);
 }
 function centavosToBRL(c){
   if(c==null) return '—';
-  return (c/100).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+  return (Number(c)/100).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
+}
+function centavosCompact(c){
+  const v = Number(c||0)/100;
+  if(v >= 1000) return 'R$' + (v/1000).toLocaleString('pt-BR',{maximumFractionDigits:1}) + 'k';
+  return 'R$' + v.toLocaleString('pt-BR',{maximumFractionDigits:0});
+}
+function brlInputToCentavos(v){
+  if(v === '' || v == null) return null;
+  return Math.round(parseFloat(String(v).replace(',','.')) * 100);
+}
+function centavosToInputValue(c){
+  if(c == null) return '';
+  return (Number(c)/100).toFixed(2);
+}
+function todayISO(){
+  return new Date().toLocaleDateString('sv-SE'); // yyyy-mm-dd no fuso local
+}
+function formatDateBR(iso){
+  if(!iso) return '—';
+  const [y,m,d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+}
+function monthLabel(competenciaISO){
+  const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+  const m = parseInt(competenciaISO.split('-')[1], 10) - 1;
+  return meses[m];
+}
+function slugify(s){
+  return (s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+    .replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
 }
 function statusLabel(s){
   return {
     prospect:'Prospect', ativo:'Ativo', pausado:'Pausado', encerrado:'Encerrado',
-    rascunho:'Rascunho', emitido:'Emitido', enviado:'Enviado', assinado:'Assinado', encerrado_c:'Encerrado'
+    rascunho:'Rascunho', emitido:'Emitido', enviado:'Enviado', assinado:'Assinado',
+    aberto:'Aberto', parcial:'Parcial', pago:'Pago', vencido:'Vencido',
   }[s] || s;
 }
 function contratoBadgeClass(status){
-  if(status === 'ativo' || status === 'assinado') return 'badge-ok';
-  if(status === 'rascunho') return 'badge-warn';
+  if(status === 'ativo' || status === 'assinado' || status === 'pago') return 'badge-ok';
+  if(status === 'rascunho' || status === 'parcial' || status === 'aberto') return 'badge-warn';
+  if(status === 'vencido') return 'badge-bad';
   return 'badge-muted';
 }
+function friendlyError(err){
+  const m = (err && err.message) || String(err);
+  if(m.includes('hub_contrato_ativo_exige_porta_saida')) return 'Não dá pra ativar o contrato sem porta de saída escrita.';
+  if(m.includes('acesso negado')) return 'Sessão sem permissão pra essa ação.';
+  return m;
+}
+async function rpc(name, params){
+  const { data, error } = await hubClient.rpc(name, params || {});
+  if(error){ toast(friendlyError(error)); throw error; }
+  return data;
+}
 
-// ---------- rota (hash) ----------
+// ---------- modal genérico ----------
+function openModal(titleHtml, bodyHtml){
+  modalRoot.innerHTML = `
+    <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
+      <div class="modal">
+        <h3>${titleHtml}</h3>
+        ${bodyHtml}
+      </div>
+    </div>`;
+}
+function closeModal(){ modalRoot.innerHTML = ''; }
+
+// ============================================================
+// ROTA (hash)
+// ============================================================
 function currentRoute(){
   const h = location.hash.replace(/^#\/?/, '');
   const [page, ...rest] = h.split('/');
-  return { page: page || 'carteira', param: rest.join('/') };
+  return { page: page || 'dash', param: rest.join('/') };
 }
 window.addEventListener('hashchange', render);
 
-// ---------- AUTH ----------
+// ============================================================
+// AUTH
+// ============================================================
 async function init(){
   const { data } = await hubClient.auth.getSession();
   session = data.session;
-  hubClient.auth.onAuthStateChange((_event, s) => {
-    session = s;
-    render();
-  });
+  hubClient.auth.onAuthStateChange((_event, s) => { session = s; render(); });
   render();
 }
 
@@ -87,10 +146,7 @@ async function doLogin(){
   msg.textContent = error ? 'Erro ao enviar. Tenta de novo.' : 'Link enviado — confere seu e-mail.';
 }
 
-async function logout(){
-  await hubClient.auth.signOut();
-  render();
-}
+async function logout(){ await hubClient.auth.signOut(); render(); }
 
 function renderAcessoNegado(){
   root.innerHTML = `
@@ -104,10 +160,15 @@ function renderAcessoNegado(){
   </div>`;
 }
 
-// ---------- shell ----------
+// ============================================================
+// SHELL
+// ============================================================
 function shell(activePage, bodyHtml){
   const tabs = [
+    ['dash','Dash'],
     ['carteira','Carteira'],
+    ['financeiro','Financeiro'],
+    ['custos','Custos'],
     ['catalogo','Catálogo'],
   ];
   return `
@@ -126,13 +187,161 @@ function shell(activePage, bodyHtml){
   <div class="wrap">${bodyHtml}</div>`;
 }
 
-// ---------- CARTEIRA ----------
-async function loadCarteira(){
-  const { data, error } = await hubClient.rpc('hub_rpc_carteira');
-  if(error){ toast('Erro ao carregar carteira: ' + error.message); return []; }
-  return data || [];
+// ============================================================
+// DASH
+// ============================================================
+async function loadCarteiraCache(){
+  if(!carteira.length) carteira = await rpc('hub_rpc_carteira').catch(()=>[]);
+  return carteira;
 }
 
+function velocimetroMEI(v){
+  const entrado = Number(v.entrado_ano_centavos||0);
+  const teto = Number(v.teto_centavos||8100000);
+  const pct = Math.min((entrado/teto)*100, 100);
+  const cls = entrado >= teto ? 'bad' : (pct >= 80 ? 'warn' : '');
+  return `
+  <div class="card">
+    <div class="row-between">
+      <div class="label" style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);">Teto MEI — ${new Date().getFullYear()}</div>
+      <div class="muted" style="font-size:12.5px;">${centavosToBRL(entrado)} de ${centavosToBRL(teto)}</div>
+    </div>
+    <div class="veloc">
+      <div class="veloc-track"><div class="veloc-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="veloc-labels"><span>0</span><span>${pct.toFixed(0)}%</span><span>R$ 81.000</span></div>
+    </div>
+  </div>`;
+}
+
+function chartReceitaPorMes(porMes){
+  if(!porMes.length) return `<div class="empty">Sem dados ainda.</div>`;
+  const W = 640, H = 220, padL = 8, padR = 8, padT = 24, padB = 34;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxVal = Math.max(...porMes.map(m => Math.max(m.previsto_centavos||0, m.entrado_centavos||0)), 1) * 1.15;
+  const n = porMes.length;
+  const slot = plotW / n;
+  const barW = Math.min(28, slot * 0.42);
+
+  const bars = porMes.map((m, i) => {
+    const cx = padL + slot * i + slot/2;
+    const entradoH = (Number(m.entrado_centavos||0)/maxVal) * plotH;
+    const previstoY = padT + plotH - (Number(m.previsto_centavos||0)/maxVal) * plotH;
+    const barY = padT + plotH - entradoH;
+    const label = centavosCompact(m.entrado_centavos);
+    return `
+      <g>
+        <rect x="${(cx-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(entradoH,1).toFixed(1)}"
+          rx="4" fill="var(--blue)">
+          <title>${monthLabel(m.competencia)}: entrou ${centavosToBRL(m.entrado_centavos)} de ${centavosToBRL(m.previsto_centavos)} previsto</title>
+        </rect>
+        <line x1="${(cx-barW/2-3).toFixed(1)}" y1="${previstoY.toFixed(1)}" x2="${(cx+barW/2+3).toFixed(1)}" y2="${previstoY.toFixed(1)}"
+          stroke="var(--muted)" stroke-width="2" stroke-dasharray="3,3">
+          <title>Previsto: ${centavosToBRL(m.previsto_centavos)}</title>
+        </line>
+        ${entradoH > 16 ? `<text x="${cx.toFixed(1)}" y="${(barY-6).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--text)" font-weight="600">${label}</text>` : ''}
+        <text x="${cx.toFixed(1)}" y="${H-12}" text-anchor="middle" font-size="11" fill="var(--muted)">${monthLabel(m.competencia)}</text>
+      </g>`;
+  }).join('');
+
+  const gridlines = [0,0.25,0.5,0.75,1].map(f => {
+    const y = padT + plotH * (1-f);
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+  }).join('');
+
+  const tableRows = porMes.map(m => `
+    <tr>
+      <td data-label="Mês">${monthLabel(m.competencia)}</td>
+      <td data-label="Previsto" class="money">${centavosToBRL(m.previsto_centavos)}</td>
+      <td data-label="Entrou" class="money">${centavosToBRL(m.entrado_centavos)}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="chart-wrap">
+      <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+        ${gridlines}
+        ${bars}
+      </svg>
+    </div>
+    <div class="chart-caption">
+      <span class="key"><span class="swatch bar"></span> Quanto entrou</span>
+      <span class="key"><span class="swatch target"></span> Previsto no mês</span>
+    </div>
+    <button class="chart-toggle" onclick="this.nextElementSibling.classList.toggle('open')">ver como tabela ▾</button>
+    <div class="chart-table tablewrap">
+      <table><thead><tr><th>Mês</th><th>Previsto</th><th>Entrou</th></tr></thead><tbody>${tableRows}</tbody></table>
+    </div>`;
+}
+
+async function renderDash(){
+  root.innerHTML = shell('dash', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  let dash;
+  try { dash = await rpc('hub_rpc_dash'); }
+  catch(e){ root.innerHTML = shell('dash', `<div class="empty">Não consegui carregar o dash.</div>`); return; }
+
+  const mesAtual = dash.hoje.slice(0,7) + '-01';
+  const doMes = (dash.por_mes || []).find(m => m.competencia === mesAtual) || {previsto_centavos:0, entrado_centavos:0};
+  const falta = Number(doMes.previsto_centavos||0) - Number(doMes.entrado_centavos||0);
+  const vencidos = dash.vencidos_hoje_ou_antes || [];
+  const semVenc = dash.sem_vencimento || [];
+
+  const alertHtml = (vencidos.length + semVenc.length) ? `
+    <h2 class="section-title" style="margin-top:28px;">Precisa de atenção</h2>
+    <div class="alertlist">
+      ${vencidos.map(v => `
+        <div class="alertrow" onclick="location.hash='#/cliente/${esc(v.cliente_slug)}'">
+          <span>🔴 <b>${esc(v.cliente_nome)}</b> venceu ${v.vence_em ? 'em '+formatDateBR(v.vence_em) : ''}</span>
+          <span class="money">${centavosToBRL(v.falta_centavos)}</span>
+        </div>`).join('')}
+      ${semVenc.map(v => `
+        <div class="alertrow muted-alert" onclick="location.hash='#/cliente/${esc(v.cliente_slug)}'">
+          <span>🟡 <b>${esc(v.cliente_nome)}</b> sem dia de vencimento definido</span>
+          <span class="money">${centavosToBRL(v.falta_centavos)}</span>
+        </div>`).join('')}
+    </div>` : '';
+
+  root.innerHTML = shell('dash', `
+    <h2 class="section-title">Receita por mês</h2>
+    <div class="card chart-card">${chartReceitaPorMes(dash.por_mes || [])}</div>
+
+    <div class="kpis">
+      <div class="kpi">
+        <div class="label">Clientes ativos</div>
+        <div class="value">${dash.clientes_ativos}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Entrou este mês</div>
+        <div class="value">${centavosToBRL(doMes.entrado_centavos)}</div>
+      </div>
+      <div class="kpi ${falta>0?'warn':''}">
+        <div class="label">Falta este mês</div>
+        <div class="value">${centavosToBRL(falta)}</div>
+      </div>
+      <div class="kpi ${vencidos.length?'bad':''}">
+        <div class="label">Vencidos hoje/antes</div>
+        <div class="value">${vencidos.length}</div>
+      </div>
+    </div>
+
+    ${velocimetroMEI(dash.velocimetro_mei || {})}
+
+    <div class="kpis" style="margin-top:14px;">
+      <div class="kpi">
+        <div class="label">Custos fixos — negócio</div>
+        <div class="value">${centavosToBRL(dash.custos_fixos?.negocio_centavos)}</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Custos fixos — pessoal</div>
+        <div class="value">${centavosToBRL(dash.custos_fixos?.pessoal_centavos)}</div>
+      </div>
+    </div>
+
+    ${alertHtml}
+  `);
+}
+
+// ============================================================
+// CARTEIRA
+// ============================================================
 function kpisCarteira(rows){
   const recorrentes = rows.filter(r => r.valor_mensal_centavos != null);
   const totalMensal = recorrentes.reduce((s,r) => s + Number(r.valor_mensal_centavos), 0);
@@ -140,36 +349,24 @@ function kpisCarteira(rows){
   const semContrato = rows.filter(r => !r.tem_contrato).length;
   return `
   <div class="kpis">
-    <div class="kpi">
-      <div class="label">Clientes ativos</div>
-      <div class="value">${rows.length}</div>
-    </div>
-    <div class="kpi">
-      <div class="label">Recorrente mensal</div>
-      <div class="value">${centavosToBRL(totalMensal)}</div>
-    </div>
-    <div class="kpi ${semVencimento ? 'bad' : ''}">
-      <div class="label">Sem dia de vencimento</div>
-      <div class="value">${semVencimento}</div>
-    </div>
-    <div class="kpi ${semContrato ? 'warn' : ''}">
-      <div class="label">Sem contrato formal</div>
-      <div class="value">${semContrato}</div>
-    </div>
+    <div class="kpi"><div class="label">Clientes ativos</div><div class="value">${rows.length}</div></div>
+    <div class="kpi"><div class="label">Recorrente mensal</div><div class="value">${centavosToBRL(totalMensal)}</div></div>
+    <div class="kpi ${semVencimento ? 'bad' : ''}"><div class="label">Sem dia de vencimento</div><div class="value">${semVencimento}</div></div>
+    <div class="kpi ${semContrato ? 'warn' : ''}"><div class="label">Sem contrato formal</div><div class="value">${semContrato}</div></div>
   </div>`;
 }
 
 async function renderCarteira(){
   root.innerHTML = shell('carteira', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
-  carteira = await loadCarteira();
+  carteira = await rpc('hub_rpc_carteira').catch(()=>[]);
 
   const rowsHtml = carteira.map(c => `
     <tr onclick="location.hash='#/cliente/${esc(c.slug)}'">
-      <td><b>${esc(c.nome)}</b></td>
-      <td class="muted">${esc(c.servico || '—')}</td>
-      <td class="money">${centavosToBRL(c.valor_mensal_centavos)}</td>
-      <td>${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : '<span class="flag">🔴 sem vencimento</span>'}</td>
-      <td>
+      <td data-label="Cliente"><b>${esc(c.nome)}</b></td>
+      <td data-label="Serviço" class="muted">${esc(c.servico || '—')}</td>
+      <td data-label="Valor mensal" class="money">${centavosToBRL(c.valor_mensal_centavos)}</td>
+      <td data-label="Vencimento">${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : '<span class="flag">🔴 sem vencimento</span>'}</td>
+      <td data-label="Contrato">
         <span class="badge ${contratoBadgeClass(c.contrato_status)}">${statusLabel(c.contrato_status)}</span>
         ${!c.tem_contrato ? '<span class="flag">🔴 sem contrato</span>' : ''}
       </td>
@@ -177,7 +374,10 @@ async function renderCarteira(){
   `).join('');
 
   root.innerHTML = shell('carteira', `
-    <h2 class="section-title">Carteira</h2>
+    <div class="row-between" style="margin-bottom:14px;">
+      <h2 class="section-title" style="margin:0;">Carteira</h2>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovoCliente()">+ Novo cliente</button>
+    </div>
     ${kpisCarteira(carteira)}
     <div class="tablewrap">
       <table>
@@ -188,28 +388,67 @@ async function renderCarteira(){
   `);
 }
 
-// ---------- CATÁLOGO ----------
-async function loadCatalogo(){
-  const { data, error } = await hubClient.rpc('hub_rpc_catalogo');
-  if(error){ toast('Erro ao carregar catálogo: ' + error.message); return []; }
-  return data || [];
+async function abrirNovoCliente(){
+  const empresas = await rpc('hub_rpc_empresas').catch(()=>[]);
+  const empresaId = empresas[0]?.id || '';
+  openModal('Novo cliente', `
+    <form onsubmit="return salvarCliente(event)">
+      <input type="hidden" id="f-empresa-id" value="${esc(empresaId)}">
+      <div class="field"><label>Nome</label><input id="f-nome" required oninput="document.getElementById('f-slug').value = slugify(this.value)"></div>
+      <div class="field"><label>Slug (identificador único)</label><input id="f-slug" required></div>
+      <div class="field"><label>Segmento</label><input id="f-segmento" placeholder="ex: Restaurante, Tráfego..."></div>
+      <div class="field"><label>Status</label>
+        <select id="f-status">
+          <option value="prospect">Prospect</option>
+          <option value="ativo" selected>Ativo</option>
+          <option value="pausado">Pausado</option>
+        </select>
+      </div>
+      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2"></textarea></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`);
+}
+async function salvarCliente(ev){
+  ev.preventDefault();
+  try{
+    await rpc('hub_rpc_salvar_cliente', { p: {
+      empresa_id: document.getElementById('f-empresa-id').value,
+      nome: document.getElementById('f-nome').value,
+      slug: document.getElementById('f-slug').value,
+      segmento: document.getElementById('f-segmento').value || null,
+      status: document.getElementById('f-status').value,
+      observacao: document.getElementById('f-observacao').value || null,
+    }});
+    closeModal(); toast('Cliente salvo.'); carteira = []; renderCarteira();
+  } catch(e){}
+  return false;
 }
 
+// ============================================================
+// CATÁLOGO
+// ============================================================
 async function renderCatalogo(){
   root.innerHTML = shell('catalogo', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
-  catalogo = await loadCatalogo();
+  const catalogo = await rpc('hub_rpc_catalogo').catch(()=>[]);
+  window.__catalogo = catalogo;
 
-  const rowsHtml = catalogo.map(s => `
-    <tr>
-      <td><b>${esc(s.nome)}</b>${s.observacao ? `<div class="muted" style="font-size:12px;margin-top:2px;">${esc(s.observacao)}</div>` : ''}</td>
-      <td class="muted">${esc(s.modalidade)}</td>
-      <td class="money">${s.preco_referencia_centavos != null ? centavosToBRL(s.preco_referencia_centavos) + (s.unidade ? '/' + esc(s.unidade) : '') : 'negociado'}</td>
-      <td>${s.ativo ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge badge-muted">Inativo</span>'}</td>
+  const rowsHtml = catalogo.map((s,i) => `
+    <tr onclick="abrirEditarServico(${i})">
+      <td data-label="Serviço"><b>${esc(s.nome)}</b>${s.observacao ? `<div class="muted" style="font-size:12px;margin-top:2px;">${esc(s.observacao)}</div>` : ''}</td>
+      <td data-label="Modalidade" class="muted">${esc(s.modalidade)}</td>
+      <td data-label="Preço" class="money">${s.preco_referencia_centavos != null ? centavosToBRL(s.preco_referencia_centavos) + (s.unidade ? '/' + esc(s.unidade) : '') : 'negociado'}</td>
+      <td data-label="Status">${s.ativo ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge badge-muted">Inativo</span>'}</td>
     </tr>
   `).join('');
 
   root.innerHTML = shell('catalogo', `
-    <h2 class="section-title">Catálogo de serviços</h2>
+    <div class="row-between" style="margin-bottom:14px;">
+      <h2 class="section-title" style="margin:0;">Catálogo de serviços</h2>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovoServico()">+ Novo serviço</button>
+    </div>
     <div class="tablewrap">
       <table>
         <thead><tr><th>Serviço</th><th>Modalidade</th><th>Preço de tabela</th><th></th></tr></thead>
@@ -219,36 +458,334 @@ async function renderCatalogo(){
   `);
 }
 
-// ---------- FICHA DO CLIENTE ----------
+function formServico(s){
+  s = s || {};
+  return `
+    <form onsubmit="return salvarServico(event)">
+      <input type="hidden" id="f-id" value="${esc(s.id||'')}">
+      <div class="field"><label>Nome</label><input id="f-nome" required value="${esc(s.nome||'')}"></div>
+      <div class="field"><label>Slug</label><input id="f-slug" required value="${esc(s.slug||'')}"></div>
+      <div class="field"><label>Modalidade</label>
+        <select id="f-modalidade">
+          ${['recorrente','projeto','bloco_horas','por_evento','hospedagem'].map(m =>
+            `<option value="${m}" ${s.modalidade===m?'selected':''}>${m}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Preço de referência (R$, deixe vazio se negociado)</label>
+        <input id="f-preco" type="number" step="0.01" value="${centavosToInputValue(s.preco_referencia_centavos)}"></div>
+      <div class="field"><label>Unidade</label><input id="f-unidade" value="${esc(s.unidade||'')}" placeholder="mês, hora..."></div>
+      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(s.observacao||'')}</textarea></div>
+      <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-ativo" ${s.ativo!==false?'checked':''}> <label for="f-ativo">Ativo</label></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`;
+}
+function abrirNovoServico(){ openModal('Novo serviço', formServico()); }
+function abrirEditarServico(i){ openModal('Editar serviço', formServico(window.__catalogo[i])); }
+async function salvarServico(ev){
+  ev.preventDefault();
+  try{
+    await rpc('hub_rpc_salvar_servico', { p: {
+      id: document.getElementById('f-id').value || undefined,
+      nome: document.getElementById('f-nome').value,
+      slug: document.getElementById('f-slug').value,
+      modalidade: document.getElementById('f-modalidade').value,
+      preco_referencia_centavos: brlInputToCentavos(document.getElementById('f-preco').value),
+      unidade: document.getElementById('f-unidade').value || null,
+      observacao: document.getElementById('f-observacao').value || null,
+      ativo: document.getElementById('f-ativo').checked,
+    }});
+    closeModal(); toast('Serviço salvo.'); renderCatalogo();
+  } catch(e){}
+  return false;
+}
+
+// ============================================================
+// FINANCEIRO (recebíveis)
+// ============================================================
+let financeiroCompetencia = null;
+let financeiroCache = [];
+
+async function renderFinanceiro(){
+  if(!financeiroCompetencia) financeiroCompetencia = todayISO().slice(0,7) + '-01';
+  root.innerHTML = shell('financeiro', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  const rows = await rpc('hub_rpc_recebiveis', { p_competencia: financeiroCompetencia }).catch(()=>[]);
+  financeiroCache = rows;
+
+  const totalPrevisto = rows.reduce((s,r)=>s+Number(r.valor_centavos),0);
+  const totalEntrada = rows.reduce((s,r)=>s+Number(r.entrada_centavos),0);
+
+  const rowsHtml = rows.map((r,i) => `
+    <tr>
+      <td data-label="Cliente" onclick="location.hash='#/cliente/${esc(r.cliente_slug)}'" style="cursor:pointer;"><b>${esc(r.cliente_nome)}</b></td>
+      <td data-label="Descrição" class="muted">${esc(r.descricao)}</td>
+      <td data-label="Valor" class="money">${centavosToBRL(r.valor_centavos)}</td>
+      <td data-label="Falta" class="money">${centavosToBRL(r.falta_centavos)}</td>
+      <td data-label="Vencimento">${r.vence_em ? formatDateBR(r.vence_em) : '<span class="flag">🔴 sem venc.</span>'}</td>
+      <td data-label="Status"><span class="badge ${contratoBadgeClass(r.status)}">${statusLabel(r.status)}</span></td>
+      <td data-label="Ações" onclick="event.stopPropagation()">
+        <div class="row" style="justify-content:flex-end;gap:6px;">
+          ${r.falta_centavos>0 ? `<button class="btn btn-sm btn-primary" onclick="abrirMarcarPago(${i})">Marcar pago</button>` : ''}
+          <button class="btn btn-sm btn-outline" onclick="abrirEditarRecebivel(${i})">Editar</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+
+  root.innerHTML = shell('financeiro', `
+    <div class="row-between" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+      <h2 class="section-title" style="margin:0;">Financeiro — ${monthLabel(financeiroCompetencia)}/${financeiroCompetencia.slice(0,4)}</h2>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovoRecebivel()">+ Novo recebível</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Previsto</div><div class="value">${centavosToBRL(totalPrevisto)}</div></div>
+      <div class="kpi"><div class="label">Entrou</div><div class="value">${centavosToBRL(totalEntrada)}</div></div>
+      <div class="kpi ${totalPrevisto-totalEntrada>0?'warn':''}"><div class="label">Falta</div><div class="value">${centavosToBRL(totalPrevisto-totalEntrada)}</div></div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Cliente</th><th>Descrição</th><th>Valor</th><th>Falta</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="7" class="empty">Nenhum recebível nesse mês.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+async function abrirMarcarPago(i){
+  const r = financeiroCache[i];
+  openModal(`Marcar pago — ${esc(r.cliente_nome)}`, `
+    <form onsubmit="return confirmarPagamento(event, '${r.id}')">
+      <p class="muted" style="margin-top:0;">Falta: <b>${centavosToBRL(r.falta_centavos)}</b></p>
+      <div class="field"><label>Valor recebido (R$)</label>
+        <input id="f-valor" type="number" step="0.01" required value="${centavosToInputValue(r.falta_centavos)}"></div>
+      <div class="field"><label>Data</label><input id="f-data" type="date" required value="${todayISO()}"></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Confirmar</button>
+      </div>
+    </form>`);
+}
+async function confirmarPagamento(ev, id){
+  ev.preventDefault();
+  try{
+    const valor = brlInputToCentavos(document.getElementById('f-valor').value);
+    const data = document.getElementById('f-data').value;
+    await rpc('hub_rpc_marcar_pago', { p_id: id, p_valor_centavos: valor, p_data: data });
+    closeModal(); toast('Pagamento registrado.'); renderFinanceiro();
+  } catch(e){}
+  return false;
+}
+
+function formRecebivel(r){
+  r = r || {};
+  const opts = carteira.map(c => `<option value="${esc(c.cliente_id)}" ${r.cliente_id===c.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('');
+  return `
+    <form onsubmit="return salvarRecebivel(event)">
+      <input type="hidden" id="f-id" value="${esc(r.id||'')}">
+      <div class="field"><label>Cliente</label><select id="f-cliente" required>${opts}</select></div>
+      <div class="field"><label>Competência</label><input id="f-competencia" type="date" required value="${r.competencia||financeiroCompetencia}"></div>
+      <div class="field"><label>Descrição</label><input id="f-descricao" required value="${esc(r.descricao||'')}"></div>
+      <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" required value="${centavosToInputValue(r.valor_centavos)}"></div>
+      <div class="field"><label>Vence em</label><input id="f-vence" type="date" value="${r.vence_em||''}"></div>
+      <div class="field"><label>Origem</label>
+        <select id="f-origem">
+          ${['contrato','extra','comissao','aula','evento'].map(o => `<option value="${o}" ${r.origem===o?'selected':''}>${o}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(r.observacao||'')}</textarea></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`;
+}
+async function abrirNovoRecebivel(){ await loadCarteiraCache(); openModal('Novo recebível', formRecebivel()); }
+function abrirEditarRecebivel(i){ openModal('Editar recebível', formRecebivel(financeiroCache[i])); }
+async function salvarRecebivel(ev){
+  ev.preventDefault();
+  try{
+    await rpc('hub_rpc_salvar_recebivel', { p: {
+      id: document.getElementById('f-id').value || undefined,
+      cliente_id: document.getElementById('f-cliente').value,
+      competencia: document.getElementById('f-competencia').value,
+      descricao: document.getElementById('f-descricao').value,
+      valor_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
+      vence_em: document.getElementById('f-vence').value || null,
+      origem: document.getElementById('f-origem').value,
+      observacao: document.getElementById('f-observacao').value || null,
+    }});
+    closeModal(); toast('Recebível salvo.'); renderFinanceiro();
+  } catch(e){}
+  return false;
+}
+
+// ============================================================
+// CUSTOS FIXOS
+// ============================================================
+let custosCache = [];
+async function renderCustos(){
+  root.innerHTML = shell('custos', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  custosCache = await rpc('hub_rpc_custos').catch(()=>[]);
+
+  const total = custosCache.filter(c=>c.ativo).reduce((s,c)=>s+Number(c.valor_centavos),0);
+  const negocio = custosCache.filter(c=>c.ativo && c.categoria==='negocio').reduce((s,c)=>s+Number(c.valor_centavos),0);
+
+  const rowsHtml = custosCache.map((c,i) => `
+    <tr onclick="abrirEditarCusto(${i})">
+      <td data-label="Nome"><b>${esc(c.nome)}</b>${c.funcao?`<div class="muted" style="font-size:12px;">${esc(c.funcao)}</div>`:''}</td>
+      <td data-label="Categoria"><span class="badge ${c.categoria==='negocio'?'badge-ok':'badge-muted'}">${c.categoria}</span></td>
+      <td data-label="Valor" class="money">${centavosToBRL(c.valor_centavos)}</td>
+      <td data-label="Vencimento">${c.dia_vencimento ? 'dia '+c.dia_vencimento : '—'}</td>
+      <td data-label="Status">${c.ativo ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge badge-muted">Inativo</span>'}</td>
+    </tr>
+  `).join('');
+
+  root.innerHTML = shell('custos', `
+    <div class="row-between" style="margin-bottom:14px;">
+      <h2 class="section-title" style="margin:0;">Custos fixos</h2>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovoCusto()">+ Novo custo</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="label">Total ativo</div><div class="value">${centavosToBRL(total)}</div></div>
+      <div class="kpi"><div class="label">Negócio</div><div class="value">${centavosToBRL(negocio)}</div></div>
+      <div class="kpi"><div class="label">Pessoal</div><div class="value">${centavosToBRL(total-negocio)}</div></div>
+    </div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Nome</th><th>Categoria</th><th>Valor</th><th>Vencimento</th><th>Status</th></tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="5" class="empty">Nenhum custo cadastrado.</td></tr>`}</tbody>
+      </table>
+    </div>
+  `);
+}
+
+function formCusto(c){
+  c = c || {};
+  return `
+    <form onsubmit="return salvarCusto(event)">
+      <input type="hidden" id="f-id" value="${esc(c.id||'')}">
+      <div class="field"><label>Nome</label><input id="f-nome" required value="${esc(c.nome||'')}"></div>
+      <div class="field"><label>Função</label><input id="f-funcao" value="${esc(c.funcao||'')}"></div>
+      <div class="field"><label>Categoria</label>
+        <select id="f-categoria">
+          <option value="negocio" ${c.categoria==='negocio'?'selected':''}>Negócio</option>
+          <option value="pessoal" ${c.categoria!=='negocio'?'selected':''}>Pessoal</option>
+        </select>
+      </div>
+      <div class="field"><label>Valor mensal (R$)</label><input id="f-valor" type="number" step="0.01" required value="${centavosToInputValue(c.valor_centavos)}"></div>
+      <div class="field"><label>Dia de vencimento (opcional)</label><input id="f-dia" type="number" min="1" max="31" value="${c.dia_vencimento||''}"></div>
+      <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-ativo" ${c.ativo!==false?'checked':''}> <label for="f-ativo">Ativo</label></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`;
+}
+function abrirNovoCusto(){ openModal('Novo custo fixo', formCusto()); }
+function abrirEditarCusto(i){ openModal('Editar custo fixo', formCusto(custosCache[i])); }
+async function salvarCusto(ev){
+  ev.preventDefault();
+  try{
+    await rpc('hub_rpc_salvar_custo', { p: {
+      id: document.getElementById('f-id').value || undefined,
+      nome: document.getElementById('f-nome').value,
+      funcao: document.getElementById('f-funcao').value || null,
+      categoria: document.getElementById('f-categoria').value,
+      valor_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
+      dia_vencimento: document.getElementById('f-dia').value || null,
+      ativo: document.getElementById('f-ativo').checked,
+    }});
+    closeModal(); toast('Custo salvo.'); renderCustos();
+  } catch(e){}
+  return false;
+}
+
+// ============================================================
+// FICHA DO CLIENTE (abas por pilar)
+// ============================================================
+let clienteAtual = null;
+let pilarAtivo = 'financeiro';
+
 async function renderCliente(slug){
   root.innerHTML = shell('carteira', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
-  const { data, error } = await hubClient.rpc('hub_rpc_cliente', { p_slug: slug });
-  if(error || !data){
-    root.innerHTML = shell('carteira', `<div class="empty">Cliente não encontrado.</div>`);
-    return;
-  }
+  const data = await rpc('hub_rpc_cliente', { p_slug: slug }).catch(()=>null);
+  if(!data){ root.innerHTML = shell('carteira', `<div class="empty">Cliente não encontrado.</div>`); return; }
+  clienteAtual = data;
+  pilarAtivo = 'financeiro';
+  desenharFichaCliente();
+}
 
+function desenharFichaCliente(){
+  const data = clienteAtual;
   const c = data.cliente;
+
+  root.innerHTML = shell('carteira', `
+    <div style="margin-bottom:18px;">
+      <a href="#/carteira" class="muted" style="text-decoration:none;font-size:13px;">← voltar pra carteira</a>
+    </div>
+    <div class="row-between" style="align-items:flex-start;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h1 style="margin:0 0 4px;font-size:24px;">${esc(c.nome)}</h1>
+        <span class="badge ${c.status==='ativo'?'badge-ok':'badge-muted'}">${statusLabel(c.status)}</span>
+        ${c.segmento ? `<span class="muted" style="margin-left:8px;">${esc(c.segmento)}</span>` : ''}
+      </div>
+      <button class="btn btn-outline btn-sm" onclick="abrirEditarClienteFicha()">Editar cliente</button>
+    </div>
+    ${c.observacao ? `<div class="card" style="margin:14px 0;"><span class="muted">${esc(c.observacao)}</span></div>` : ''}
+
+    <div class="pilartabs">
+      <div class="pilartab ${pilarAtivo==='financeiro'?'active':''}" onclick="trocarPilar('financeiro', event)">Financeiro</div>
+      <div class="pilartab ${pilarAtivo==='marketing'?'active':''}" onclick="trocarPilar('marketing', event)">Marketing</div>
+      <div class="pilartab ${pilarAtivo==='comercial'?'active':''}" onclick="trocarPilar('comercial', event)">Comercial</div>
+    </div>
+    <div id="pilar-body">${renderPilar()}</div>
+  `);
+}
+function trocarPilar(p, ev){
+  pilarAtivo = p;
+  document.getElementById('pilar-body').innerHTML = renderPilar();
+  document.querySelectorAll('.pilartab').forEach(el=>el.classList.remove('active'));
+  if(ev && ev.target) ev.target.classList.add('active');
+}
+
+function renderPilar(){
+  if(pilarAtivo === 'marketing') return `<div class="pilar-empty">Em construção — próxima fase do hub.</div>`;
+  if(pilarAtivo === 'comercial') return `<div class="pilar-empty">Em construção — próxima fase do hub.</div>`;
+  return renderPilarFinanceiro();
+}
+
+function renderPilarFinanceiro(){
+  const data = clienteAtual;
   const contatos = data.contatos || [];
   const contratos = data.contratos || [];
 
-  const contatosHtml = contatos.length ? contatos.map(ct => `
-    <div class="row" style="justify-content:space-between;padding:8px 0;border-top:1px solid var(--line);">
-      <div><b>${esc(ct.nome)}</b> <span class="muted">${esc(ct.papel||'')}</span></div>
-      <div class="muted">${esc(ct.whatsapp_e164 || ct.email || '')}</div>
+  const contatosHtml = contatos.length ? contatos.map((ct,i) => `
+    <div class="row-between" style="padding:9px 0;border-top:1px solid var(--line);">
+      <div><b>${esc(ct.nome)}</b> <span class="muted">${esc(ct.papel||'')}</span>
+        <div class="muted" style="font-size:12px;">${esc(ct.whatsapp_e164 || '')} ${ct.email?'· '+esc(ct.email):''}</div>
+      </div>
+      <div class="row">
+        ${ct.is_principal ? '<span class="badge badge-ok">Principal</span>' : ''}
+        <button class="btn btn-sm btn-outline" onclick="abrirEditarContato(${i})">Editar</button>
+      </div>
     </div>`).join('') : `<div class="muted">Nenhum contato cadastrado.</div>`;
 
-  const contratosHtml = contratos.length ? contratos.map(item => {
+  const contratosHtml = contratos.length ? contratos.map((item,i) => {
     const co = item.contrato;
     const itens = item.itens || [];
     return `
     <div class="card" style="margin-bottom:12px;">
-      <div class="row-between">
+      <div class="row-between" style="flex-wrap:wrap;gap:8px;">
         <div>
           <span class="badge ${contratoBadgeClass(co.status)}">${statusLabel(co.status)}</span>
           ${co.numero ? `<span class="muted" style="margin-left:8px;">nº ${esc(co.numero)}</span>` : ''}
         </div>
-        <div class="money">${centavosToBRL(co.valor_mensal_centavos)}${co.dia_vencimento ? ' · dia '+co.dia_vencimento : ''}</div>
+        <div class="row">
+          <div class="money">${centavosToBRL(co.valor_mensal_centavos)}${co.dia_vencimento ? ' · dia '+co.dia_vencimento : ''}</div>
+          <button class="btn btn-sm btn-outline" onclick="abrirEditarContrato(${i})">Editar</button>
+        </div>
       </div>
       ${itens.length ? `<ul style="margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13px;">
         ${itens.map(it => `<li>${esc(it.descricao)} — ${centavosToBRL(it.valor_centavos)}</li>`).join('')}
@@ -260,36 +797,182 @@ async function renderCliente(slug){
     </div>`;
   }).join('') : `<div class="muted">Nenhum contrato registrado.</div>`;
 
-  root.innerHTML = shell('carteira', `
-    <div style="margin-bottom:18px;">
-      <a href="#/carteira" class="muted" style="text-decoration:none;font-size:13px;">← voltar pra carteira</a>
+  return `
+    <div class="row-between" style="margin-bottom:12px;">
+      <h2 class="section-title" style="margin:0;">Contratos</h2>
+      <button class="btn btn-sm btn-outline" onclick="abrirNovoContrato()">+ Novo contrato</button>
     </div>
-    <div class="row-between" style="align-items:flex-start;margin-bottom:20px;">
-      <div>
-        <h1 style="margin:0 0 4px;font-size:24px;">${esc(c.nome)}</h1>
-        <span class="badge ${c.status==='ativo'?'badge-ok':'badge-muted'}">${statusLabel(c.status)}</span>
-        ${c.segmento ? `<span class="muted" style="margin-left:8px;">${esc(c.segmento)}</span>` : ''}
-      </div>
-    </div>
-    ${c.observacao ? `<div class="card" style="margin-bottom:20px;"><span class="muted">${esc(c.observacao)}</span></div>` : ''}
-
-    <h2 class="section-title">Contratos</h2>
     ${contratosHtml}
 
-    <h2 class="section-title" style="margin-top:28px;">Contatos</h2>
-    <div class="card">${contatosHtml}</div>
-  `);
+    <div class="row-between" style="margin-top:28px;margin-bottom:12px;">
+      <h2 class="section-title" style="margin:0;">Contatos</h2>
+      <button class="btn btn-sm btn-outline" onclick="abrirNovoContato()">+ Novo contato</button>
+    </div>
+    <div class="card">${contatosHtml}</div>`;
 }
 
-// ---------- router ----------
+// ---- editar cliente ----
+function abrirEditarClienteFicha(){
+  const c = clienteAtual.cliente;
+  openModal('Editar cliente', `
+    <form onsubmit="return salvarClienteFicha(event)">
+      <input type="hidden" id="f-id" value="${esc(c.id)}">
+      <input type="hidden" id="f-empresa-id" value="${esc(c.empresa_id)}">
+      <div class="field"><label>Nome</label><input id="f-nome" required value="${esc(c.nome)}"></div>
+      <div class="field"><label>Slug</label><input id="f-slug" required value="${esc(c.slug)}"></div>
+      <div class="field"><label>Segmento</label><input id="f-segmento" value="${esc(c.segmento||'')}"></div>
+      <div class="field"><label>Status</label>
+        <select id="f-status">
+          ${['prospect','ativo','pausado','encerrado'].map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="3">${esc(c.observacao||'')}</textarea></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`);
+}
+async function salvarClienteFicha(ev){
+  ev.preventDefault();
+  try{
+    await rpc('hub_rpc_salvar_cliente', { p: {
+      id: document.getElementById('f-id').value,
+      empresa_id: document.getElementById('f-empresa-id').value,
+      nome: document.getElementById('f-nome').value,
+      slug: document.getElementById('f-slug').value,
+      segmento: document.getElementById('f-segmento').value || null,
+      status: document.getElementById('f-status').value,
+      observacao: document.getElementById('f-observacao').value || null,
+    }});
+    const novoSlug = document.getElementById('f-slug').value;
+    closeModal(); toast('Cliente salvo.');
+    location.hash = '#/cliente/' + novoSlug;
+    renderCliente(novoSlug);
+  } catch(e){}
+  return false;
+}
+
+// ---- contrato ----
+function abrirNovoContrato(){
+  openModal('Novo contrato', formContrato({ cliente_id: clienteAtual.cliente.id }));
+}
+function abrirEditarContrato(i){
+  openModal('Editar contrato', formContrato(clienteAtual.contratos[i].contrato));
+}
+function formContrato(co){
+  co = co || {};
+  const jaTemPortaSaida = !!co.porta_saida_escrita_em;
+  return `
+    <form onsubmit="return salvarContrato(event)">
+      <input type="hidden" id="f-id" value="${esc(co.id||'')}">
+      <input type="hidden" id="f-cliente-id" value="${esc(co.cliente_id||'')}">
+      <div class="field"><label>Número</label><input id="f-numero" value="${esc(co.numero||'')}"></div>
+      <div class="field"><label>Status</label>
+        <select id="f-status">
+          ${['rascunho','emitido','enviado','assinado','ativo','encerrado'].map(s=>`<option value="${s}" ${co.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Valor mensal (R$)</label><input id="f-valor" type="number" step="0.01" value="${centavosToInputValue(co.valor_mensal_centavos)}"></div>
+      <div class="field"><label>Dia de vencimento</label><input id="f-dia" type="number" min="1" max="28" value="${co.dia_vencimento||''}"></div>
+      <div class="field"><label>Início</label><input id="f-inicio" type="date" value="${co.inicio_em||''}"></div>
+      <div class="field"><label>Fim mínimo</label><input id="f-fim" type="date" value="${co.fim_minimo_em||''}"></div>
+      <div class="field"><label>Porta de saída</label>
+        <select id="f-porta-tipo">
+          <option value="">— nenhuma escolhida —</option>
+          <option value="manutencao_mensal" ${co.porta_saida_tipo==='manutencao_mensal'?'selected':''}>Manutenção mensal</option>
+          <option value="desligamento_build_30" ${co.porta_saida_tipo==='desligamento_build_30'?'selected':''}>Desligamento (build + 30%)</option>
+          <option value="nenhuma" ${co.porta_saida_tipo==='nenhuma'?'selected':''}>Nenhuma (ex: tráfego com vigência mínima)</option>
+        </select>
+      </div>
+      <div class="checkrow" style="margin-bottom:12px;">
+        <input type="checkbox" id="f-porta-escrita" ${jaTemPortaSaida?'checked':''}>
+        <label for="f-porta-escrita">Porta de saída já escrita/definida</label>
+      </div>
+      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(co.observacao||'')}</textarea></div>
+      <p class="muted" style="font-size:12px;">🔒 O banco recusa deixar o contrato "Ativo" sem a porta de saída marcada.</p>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`;
+}
+async function salvarContrato(ev){
+  ev.preventDefault();
+  try{
+    const portaEscrita = document.getElementById('f-porta-escrita').checked;
+    await rpc('hub_rpc_salvar_contrato', { p: {
+      id: document.getElementById('f-id').value || undefined,
+      cliente_id: document.getElementById('f-cliente-id').value,
+      numero: document.getElementById('f-numero').value || null,
+      status: document.getElementById('f-status').value,
+      valor_mensal_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
+      dia_vencimento: document.getElementById('f-dia').value || null,
+      inicio_em: document.getElementById('f-inicio').value || null,
+      fim_minimo_em: document.getElementById('f-fim').value || null,
+      porta_saida_tipo: document.getElementById('f-porta-tipo').value || null,
+      porta_saida_escrita_em: portaEscrita ? new Date().toISOString() : null,
+      observacao: document.getElementById('f-observacao').value || null,
+    }});
+    closeModal(); toast('Contrato salvo.');
+    const slug = clienteAtual.cliente.slug;
+    renderCliente(slug);
+  } catch(e){}
+  return false;
+}
+
+// ---- contato ----
+function abrirNovoContato(){ openModal('Novo contato', formContato({ cliente_id: clienteAtual.cliente.id })); }
+function abrirEditarContato(i){ openModal('Editar contato', formContato(clienteAtual.contatos[i])); }
+function formContato(ct){
+  ct = ct || {};
+  return `
+    <form onsubmit="return salvarContato(event)">
+      <input type="hidden" id="f-id" value="${esc(ct.id||'')}">
+      <input type="hidden" id="f-cliente-id" value="${esc(ct.cliente_id||'')}">
+      <div class="field"><label>Nome</label><input id="f-nome" required value="${esc(ct.nome||'')}"></div>
+      <div class="field"><label>Papel</label><input id="f-papel" value="${esc(ct.papel||'')}" placeholder="dono, financeiro..."></div>
+      <div class="field"><label>WhatsApp (formato 55DDDNÚMERO)</label><input id="f-whatsapp" value="${esc(ct.whatsapp_e164||'')}" placeholder="5584999998888"></div>
+      <div class="field"><label>E-mail</label><input id="f-email" type="email" value="${esc(ct.email||'')}"></div>
+      <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-principal" ${ct.is_principal?'checked':''}> <label for="f-principal">Contato principal</label></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`;
+}
+async function salvarContato(ev){
+  ev.preventDefault();
+  try{
+    await rpc('hub_rpc_salvar_contato', { p: {
+      id: document.getElementById('f-id').value || undefined,
+      cliente_id: document.getElementById('f-cliente-id').value,
+      nome: document.getElementById('f-nome').value,
+      papel: document.getElementById('f-papel').value || null,
+      whatsapp_e164: document.getElementById('f-whatsapp').value || null,
+      email: document.getElementById('f-email').value || null,
+      is_principal: document.getElementById('f-principal').checked,
+    }});
+    closeModal(); toast('Contato salvo.');
+    renderCliente(clienteAtual.cliente.slug);
+  } catch(e){}
+  return false;
+}
+
+// ============================================================
+// ROUTER
+// ============================================================
 async function render(){
   if(!session){ renderLogin(); return; }
   if((session.user.email||'').toLowerCase() !== HUB_ADMIN_EMAIL.toLowerCase()){ renderAcessoNegado(); return; }
 
   const { page, param } = currentRoute();
   if(page === 'cliente' && param) return renderCliente(param);
+  if(page === 'carteira') return renderCarteira();
   if(page === 'catalogo') return renderCatalogo();
-  return renderCarteira();
+  if(page === 'financeiro') return renderFinanceiro();
+  if(page === 'custos') return renderCustos();
+  return renderDash();
 }
 
 init();
