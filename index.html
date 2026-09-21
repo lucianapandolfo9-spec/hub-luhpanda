@@ -66,6 +66,7 @@ function slugify(s){
     .replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
 }
 function statusLabel(s){
+  if(!s) return '—';
   return {
     prospect:'Prospect', ativo:'Ativo', pausado:'Pausado', encerrado:'Encerrado',
     rascunho:'Rascunho', emitido:'Emitido', enviado:'Enviado', assinado:'Assinado',
