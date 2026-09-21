@@ -5,18 +5,20 @@ num lugar só. Documento mestre — ler antes de mexer em qualquer coisa.
 
 ## O que é
 
-Fase 1 de um hub maior (desenho completo aprovado em Artifact, ver histórico de sessão).
-Esta fase entrega: **carteira de clientes** com contrato, valor, vencimento e as guardas
-de negócio embutidas no banco (nunca em lembrete).
+Painel de operação — Fase 1 (Fundação + Carteira) e Fase 2 (Financeiro: dash, recebíveis,
+custos fixos, cobrança automática) no ar. Desenho completo do sistema inteiro está no
+Artifact aprovado (fluxograma) e no Obsidian Canvas dela (`Luh Panda/HUB - Canva Design.canvas`).
 
 ## Stack
 
 HTML/JS vanilla + Supabase, mesmo padrão do `aprovi-ai` e do `arroba-certa` — sem build,
-sem framework, publica no GitHub Pages.
+sem framework, publica no GitHub Pages. n8n na VPS Hostinger faz o trabalho pesado
+(cobrança automática, espelho na planilha).
 
-- `index.html` — a SPA inteira (login + rotas por hash: `#/carteira`, `#/catalogo`, `#/cliente/:slug`)
+- `index.html` — a SPA inteira (login + rotas por hash: `#/dash` (padrão), `#/carteira`,
+  `#/financeiro`, `#/custos`, `#/catalogo`, `#/cliente/:slug` com abas por pilar)
 - `config.js` — URL e chave anon do Supabase (públicas por design; a proteção real é RLS + RPC)
-- `style.css` — design system dark (mesmos tokens do fluxograma aprovado)
+- `style.css` — design system dark, **responsivo** (tabelas viram cards < 720px via `data-label`)
 - `migrations/` — SQL versionado, na ordem em que foi aplicado
 
 ## Banco
@@ -58,13 +60,54 @@ Fonte: `Luh Panda - Financeiro`, id `1XGvkY3nwH-6wV8nKcezseLKmPIwUYbGOQWeX0IKRNq
 **Só quem está na planilha entra aqui.** Capitalize, Bolão Fácil e Além Mar são projeto
 (não mensalidade) e ficam de fora até ela decidir incluir.
 
-8 clientes · 10 serviços de catálogo · 8 contratos (só Imperio Ruby formal) · 9 itens.
+8 clientes · 10 serviços de catálogo · 8 contratos (só Imperio Ruby formal) · 9 recebíveis
+Set/2026 · 8 custos fixos.
 
-## A planilha continua mandando
+## A planilha — agora é o hub que manda (Fase 2, decisão nova)
 
-O hub **espelha** a planilha financeira, nunca o contrário — decisão explícita dela.
-Nenhuma automação escreve nas colunas `Falta` e `Status` da planilha (são fórmula). Isso
-é trabalho de fase futura (régua de cobrança); por ora o hub só lê o que já está decidido.
+Fase 1 decidiu "hub espelha a planilha". **Na entrevista da Fase 2 ela decidiu o contrário
+pro status de pagamento**: o bot de cobrança precisa saber *na hora* quem já pagou, e não
+dá pra depender de alguém lembrar de atualizar uma planilha. Então:
+
+- **O hub é a fonte pra "pagou ou não"** — ela marca pago na tela (`#/financeiro`),
+  `hub.recebiveis.entrada_centavos`/`entrou_em` são a verdade.
+- **O workflow `HUB — Espelho Planilha` escreve de volta** na aba do mês (só `Entrada` e
+  `Data que entrou` — nunca `Falta`/`Status`, que são fórmula). Ela continua podendo abrir
+  o Google Sheets pra olhar, só não digita mais lá.
+- Isso só cobre a aba **Set 2026** por enquanto (decisão "só setembro" da Fase 2). Quando
+  Out/Nov/Dez entrarem, o workflow precisa de um mapa competência→aba.
+
+## As esteiras n8n (Fase 2)
+
+Dois workflows na VPS (`mcp.luhpanda.com.br`), **criados INATIVOS de propósito** — regra
+dela: confirmação antes de produção, primeiro disparo sempre assistido.
+
+### `HUB — Cobrança Automática` (id `f18z9gLSG8yfyIUY`)
+Diário 08h America/Recife → `hub_bot_cobrancas_do_dia` → régua D-3/D0/D+2/D+7 pro cliente
+via WhatsApp (Evolution, instância `LuhPessoal`, credencial `Custom Auth account` reusada)
+com a chave Pix no texto → se vencido +7 dias, sem vencimento ou sem WhatsApp cadastrado,
+escala pra ELA em vez do cliente → `hub_bot_registrar_envio` trava duplicata (nunca manda
+o mesmo lembrete duas vezes) → nunca cobra no fim de semana (escalação continua valendo).
+Testado com pinData: as duas mensagens (cobrança e escalação) saem com tom e valor certos.
+
+**Antes de ativar** (checklist no sticky do próprio workflow):
+1. Colar o segredo do bot no node "Configuração" (ela recebeu o valor no chat)
+2. Colar a chave Pix Itaú no mesmo node
+3. Preencher a credencial n8n "Supabase Hub Anon" (httpTemplatedCustomAuth) com a chave anon
+4. Confirmar fuso America/Recife nas Settings do workflow (já setado, só conferir)
+5. Rodar execução manual e olhar o resultado antes de publicar/ativar
+
+### `HUB — Espelho Planilha` (id `JbFQYb7Jy6vdnFOn`)
+A cada hora → `hub_bot_pagamentos_pendentes_sync` → lê a aba Set 2026 → casa cada pagamento
+pendente com a linha certa por nome do cliente (**por prefixo normalizado**, não igualdade
+exata — "Pandoka" no hub tem o nome completo "Pandoka (eventos da família)", a planilha só
+tem "Pandoka"; testado com pinData incluindo o caso das DUAS linhas "Pandoka" na planilha,
+desambiguado pela que ainda está `Status ≠ Pago`) → escreve só `Entrada`/`Data que entrou`
+via Sheets API `batchUpdate` (nunca toca `Falta`/`Status`/`Vence dia`) → confirma sync.
+Mesma checklist de segredo/credencial antes de ativar.
+
+**Segredo do bot**: gerado uma vez, guardado só como hash SHA-256 em `hub.config` — o valor
+em claro só existe no n8n (nos dois workflows) e foi entregue a ela fora do código/repo.
 
 ## Deploy
 
@@ -73,9 +116,10 @@ grátis; sem segredo real no código, a chave anon é pública por design e a pr
 
 ## O que NÃO está nesta fase
 
-Recebíveis/régua de cobrança, sentinela de infra, projetos/fases, funil de venda,
-esteiras de conteúdo/tráfego, portal do cliente, domínio próprio. Ver o desenho completo
-(Artifact do fluxograma) para o roadmap inteiro.
+Sentinela de infra, projetos/fases, funil de venda, esteiras de conteúdo/tráfego, portal
+do cliente, domínio próprio, Meetily→escopo→preço, importar Out-Dez. Ver o desenho completo
+(Artifact do fluxograma) para o roadmap inteiro. Próximo passo natural: grill-me do módulo
+Comercial, a partir do Canvas dela.
 
 ## Convenções
 
