@@ -323,6 +323,9 @@ function chartReceitaPeriodo(serie){
   const n = serie.length;
   const slot = plotW / n;
   const barW = Math.min(28, slot * 0.42);
+  // com muitos pontos (ex: 30 dias) o rótulo "DD/MM" de cada barra some;
+  // mostra só ~10 rótulos espaçados pra não sobrepor um no outro.
+  const rotuloStep = Math.max(1, Math.ceil(n / 10));
 
   const bars = serie.map((m, i) => {
     const cx = padL + slot * i + slot/2;
@@ -342,7 +345,7 @@ function chartReceitaPeriodo(serie){
           <title>Previsto: ${centavosToBRL(m.previsto_centavos)}</title>
         </line>
         ${mostraLabel ? `<text x="${cx.toFixed(1)}" y="${(barY-6).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--texto)" font-weight="600">${label}</text>` : ''}
-        ${n <= 31 ? `<text x="${cx.toFixed(1)}" y="${H-12}" text-anchor="middle" font-size="10.5" fill="var(--fraco)">${esc(m.rotulo)}</text>` : ''}
+        ${(i % rotuloStep === 0 || i === n-1) ? `<text x="${cx.toFixed(1)}" y="${H-12}" text-anchor="middle" font-size="10.5" fill="var(--fraco)">${esc(m.rotulo)}</text>` : ''}
       </g>`;
   }).join('');
 
