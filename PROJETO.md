@@ -160,8 +160,8 @@ workspace; (b) textos da régua de cobrança nascem **placeholder** (RASCUNHO �
 node Configuração do workflow `HUB — Cobrança Automática` antes de ativar o bot); (c)
 Kanban **sem drag-and-drop** — mover de coluna é ação na ficha do prospect.
 
-⚠️ **Migrations 010/011/012 nasceram como rascunho não aplicado** (sessão sem Supabase MCP,
-mesmo caso das anteriores). Checklist de aplicação no cabeçalho de cada arquivo. Resumo:
+**As 3 migrations foram aplicadas em produção** (`arroba-certa`, via `apply_migration`) e
+verificadas logada de verdade no Chrome. Resumo:
 
 - `010_multitenant.sql` — `hub.workspaces` (+ seed "Luh Panda") e coluna `workspace_id`
   retroativa em `empresas`/`clientes`/`contatos`/`servicos`/`contratos`/`contrato_itens`/
@@ -172,23 +172,30 @@ mesmo caso das anteriores). Checklist de aplicação no cabeçalho de cada arqui
   salvar, apagar, `rpc_converter_prospect_em_cliente`). `#/crm` (kanban) e `#/prospect/:id`
   (ficha) no front, portados de `vCRM`/`vProspect`/`KCOLS`/`ONBOARD` do
   `mockup-v2-frontend.html`.
-- `012_cobranca_config.sql` — `hub.cobranca_config` (por cliente: método pix/mp_link, dia
-  de vencimento, WhatsApp), `hub.cobranca_mensagens` (régua D-3/D0/D+2/D+7, texto
-  placeholder) e `hub.cobranca_envios` (log, vazio até o bot ligar). Tela `#/cobrancas`
-  **sem mockup de referência** — desenhada no design system das telas `#/custos`/
-  `#/catalogo` (cards + modal). Não ativa o bot (D19/D20 continuam pendentes: chip
-  dedicado + disparo assistido).
+- `012_cobranca_config.sql` — **reescrita antes de aplicar**: a versão inicial tentava
+  recriar `hub.cobranca_envios`, mas essa tabela já existe desde a Fase 2 (log real do bot,
+  por `recebivel_id`+`bucket`). Versão final: `hub.cobranca_config` guarda só `metodo`
+  (pix/mp_link) e `ativo` — vencimento e WhatsApp aparecem na tela ao vivo, via join com
+  `hub.contratos`/`hub.contatos` (mesma fonte que o bot usa), não copiados.
+  `hub.cobranca_mensagens` (régua, texto placeholder) usa a mesma convenção de etapa do
+  bucket do bot (`d_menos_3`/`d0`/`d_mais_2`/`d_mais_7`). `rpc_cobranca_envios_recentes`
+  lê o log real e traduz pra cliente, sem duplicar tabela. Tela `#/cobrancas` **sem mockup
+  de referência** — desenhada no design system das telas `#/custos`/`#/catalogo` (cards +
+  modal). Não ativa o bot (D19/D20 continuam pendentes: chip dedicado + disparo assistido).
 
 CRM e Cobranças saíram de `soon:false` pra `true` na sidebar (Contratos e Reuniões
 continuam "em breve" — blocos C13/C15 seguintes).
 
-**Verificado nesta sessão** (sem Supabase/Chrome MCP): sintaxe do `index.html` inteiro
-parseada com sucesso (`new Function`), CSS com chaves balanceadas, e as funções de render
-(`desenharCRM`, `desenharProspect` nos estados etapa-0/etapa-5-fechado/perdido,
-`desenharCobrancas` vazio e com envio, todos os modais de prospect e de cobrança) rodadas
-num harness Node com dados mock — nenhuma lançou exceção. **Isso não substitui a
-verificação real**: falta aplicar as 3 migrations, testar as RPCs contra o banco de
-verdade e navegar logada no Chrome (checklist completo no `Hub Dev.md`).
+**Verificado logada no Chrome** (`lucianapandolfo9@gmail.com`): CRM ponta a ponta (criar
+prospect → avançar pelas 6 etapas → converter em cliente real → apagar prospect de teste,
+com auditoria conferida) e Cobranças (tela com os 8 clientes reais e vencimento/WhatsApp ao
+vivo, configurar método de um cliente, editar texto da régua) — sem erro de console.
+`get_advisors` sem alerta novo introduzido pelas tabelas/funções do Bloco B. Mobile do
+Kanban não verificado de verdade nesta rodada (limitação do `resize_window` do Chrome MCP
+nesta sessão, não do código) — fica pendente pra confirmação visual futura.
+
+Antes de D19/D20: substituir os 4 textos placeholder de `hub.cobranca_mensagens` pelo texto
+real do node "Configuração" do workflow `HUB — Cobrança Automática` (precisa n8n MCP).
 
 ## Convenções
 
