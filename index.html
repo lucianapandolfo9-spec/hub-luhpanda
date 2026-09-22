@@ -206,10 +206,10 @@ const NAV_GROUPS = [
     ['carteira','Carteira', NAV_ICONS.carteira, true],
     ['custos','Custos', NAV_ICONS.custos, true],
     ['catalogo','Preços & Serviços', NAV_ICONS.catalogo, true],
-    ['cobrancas','Cobranças', NAV_ICONS.cobr, false],
+    ['cobrancas','Cobranças', NAV_ICONS.cobr, true],
   ]},
   { label: 'Comercial', items: [
-    ['crm','CRM', NAV_ICONS.crm, false],
+    ['crm','CRM', NAV_ICONS.crm, true],
     ['contratos','Contratos', NAV_ICONS.contratos, false],
     ['reunioes','Reuniões', NAV_ICONS.reunioes, false],
   ]},
@@ -1598,6 +1598,414 @@ async function salvarContato(ev){
 }
 
 // ============================================================
+// CRM — funil de prospects, kanban de 6 colunas (Fase 3, Bloco B)
+// Decisão da Luciana (22/09): SEM drag-and-drop. Mover de coluna é ação
+// dentro da ficha do prospect (#/prospect/:id), não arrastar o cartão —
+// mais simples de construir e funciona no celular. Onboarding de 7 passos
+// é derivado da coluna, igual ao mockup-v2-frontend.html (vCRM/vProspect).
+// ============================================================
+const KCOLS = ['Reunião marcada','Reunião feita','Precificando','Orçamento enviado','Contrato emitido','Cliente aberto'];
+const ONBOARD = ['Reunião com cliente','Gravação no Meetily','Precificação','Criar PDF do orçamento','Enviar pro cliente via WhatsApp','Emitir contrato','Abrir cliente + serviços'];
+let prospectsCache = [];
+let prospectAtual = null;
+
+async function renderCRM(){
+  root.innerHTML = shell('crm', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  prospectsCache = await rpc('hub_rpc_prospects').catch(()=>[]);
+  desenharCRM();
+}
+
+function desenharCRM(){
+  const ativos = prospectsCache.filter(p=>!p.perdido);
+  const perdidos = prospectsCache.length - ativos.length;
+  const emNegociacao = ativos.filter(p=>p.coluna<5 && p.valor_estimado_centavos).reduce((s,p)=>s+Number(p.valor_estimado_centavos),0);
+  const mesAtual = todayISO().slice(0,7);
+  const fechadosMes = ativos.filter(p=>p.coluna===5 && p.fechado_em && p.fechado_em.slice(0,7)===mesAtual).length;
+
+  const cols = KCOLS.map((titulo,i)=>{
+    const doColuna = ativos.filter(p=>p.coluna===i);
+    const cards = doColuna.map(p=>`
+      <div class="kcard" onclick="location.hash='#/prospect/${p.id}'">
+        <div class="nome">${esc(p.nome)}</div>
+        <div class="meta"><span>${formatDateBR(p.entrou_em)}${p.gravacao?' · 🎥':''}</span>${p.valor_estimado_centavos?`<span class="valor">${centavosCompact(p.valor_estimado_centavos)}</span>`:''}</div>
+      </div>`).join('');
+    return `<div class="kcol">
+      <div class="kcol-head"><span class="kcol-title">${esc(titulo)}</span><span class="kcol-count">${doColuna.length}</span></div>
+      ${cards || '<div class="dim" style="font-size:11.5px;text-align:center;padding:18px 0">vazio</div>'}
+    </div>`;
+  }).join('');
+
+  root.innerHTML = shell('crm', `
+    <div class="row-between" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+      <h2 class="section-title" style="margin:0;">CRM — funil de prospects</h2>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovoProspect()">+ Novo prospect</button>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-head">${KPI_ICONS.userCheck}<span class="label">No funil</span></div><div class="value">${ativos.length}</div></div>
+      <div class="kpi"><div class="kpi-head">${KPI_ICONS.wallet}<span class="label">Em negociação</span></div><div class="value">${centavosToBRL(emNegociacao)}</div></div>
+      <div class="kpi ok"><div class="kpi-head">${KPI_ICONS.check}<span class="label">Fechados no mês</span></div><div class="value">${fechadosMes}</div></div>
+      ${perdidos ? `<div class="kpi"><div class="kpi-head">${KPI_ICONS.warn}<span class="label">Perdidos</span></div><div class="value">${perdidos}</div></div>` : ''}
+    </div>
+    <div class="kanban">${cols}</div>
+    <p class="dim" style="font-size:12px;margin-top:14px;">Mover de coluna é uma ação dentro da ficha — clique no cartão pra abrir.</p>
+  `);
+}
+
+function formProspect(p){
+  p = p || {};
+  return `
+    <form onsubmit="return salvarProspect(event)">
+      <input type="hidden" id="f-id" value="${esc(p.id||'')}">
+      <div class="field"><label>Nome</label><input id="f-nome" required value="${esc(p.nome||'')}"></div>
+      <div class="field"><label>Origem</label><input id="f-origem" value="${esc(p.origem||'')}" placeholder="indicação, orgânico, anúncio..."></div>
+      <div class="field"><label>WhatsApp</label><input id="f-whatsapp" value="${esc(p.contato_whatsapp||'')}" placeholder="5584999998888"></div>
+      <div class="field"><label>E-mail</label><input id="f-email" type="email" value="${esc(p.contato_email||'')}"></div>
+      <div class="field"><label>Etapa</label>
+        <select id="f-coluna">
+          ${KCOLS.map((t,i)=>`<option value="${i}" ${(p.coluna||0)===i?'selected':''}>${esc(t)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>Valor estimado (R$, opcional)</label><input id="f-valor" type="number" step="0.01" value="${centavosToInputValue(p.valor_estimado_centavos)}"></div>
+      <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-gravacao" ${p.gravacao?'checked':''}> <label for="f-gravacao">Tem gravação no Meetily</label></div>
+      <div class="field"><label>Nota</label><textarea id="f-nota" rows="3">${esc(p.nota||'')}</textarea></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`;
+}
+function abrirNovoProspect(){ openModal('Novo prospect', formProspect()); }
+function abrirEditarProspect(){ openModal('Editar prospect', formProspect(prospectAtual)); }
+async function salvarProspect(ev){
+  ev.preventDefault();
+  const id = document.getElementById('f-id').value || undefined;
+  try{
+    const novoId = await rpc('hub_rpc_salvar_prospect', { p: {
+      id,
+      nome: document.getElementById('f-nome').value,
+      origem: document.getElementById('f-origem').value || null,
+      contato_whatsapp: document.getElementById('f-whatsapp').value || null,
+      contato_email: document.getElementById('f-email').value || null,
+      coluna: parseInt(document.getElementById('f-coluna').value, 10),
+      valor_estimado_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
+      gravacao: document.getElementById('f-gravacao').checked,
+      nota: document.getElementById('f-nota').value || null,
+      // passthrough — upsert sobrescreve tudo, mesma lição do cliente (Bloco 1.5)
+      perdido: prospectAtual && prospectAtual.id===id ? prospectAtual.perdido : false,
+      motivo_perda: prospectAtual && prospectAtual.id===id ? prospectAtual.motivo_perda : null,
+      fechado_em: prospectAtual && prospectAtual.id===id ? prospectAtual.fechado_em : null,
+      entrou_em: prospectAtual && prospectAtual.id===id ? prospectAtual.entrou_em : undefined,
+    }});
+    closeModal(); toast('Prospect salvo.');
+    prospectsCache = [];
+    if(id){ renderProspect(id); } else { location.hash = '#/prospect/' + novoId; }
+  } catch(e){}
+  return false;
+}
+
+async function renderProspect(id){
+  root.innerHTML = shell('crm', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  const p = await rpc('hub_rpc_prospect', { p_id: id }).catch(()=>null);
+  if(!p){ root.innerHTML = shell('crm', `<div class="empty">Prospect não encontrado.</div>`); return; }
+  prospectAtual = p;
+  desenharProspect();
+}
+
+function desenharProspect(){
+  const p = prospectAtual;
+  const steps = ONBOARD.map((t,i)=>{
+    const done = i <= p.coluna, now = i === p.coluna + 1 && !p.perdido;
+    let acao = '';
+    if(now){
+      const rotulo = i===2?'Precificar':i===3?'Gerar PDF do orçamento':i===4?'Enviar via WhatsApp':i===5?'Emitir contrato':'Avançar';
+      const dica = i===5 ? "toast('Emitir contrato entra no próximo bloco (Contratos).')" : 'avancarEtapaProspect()';
+      acao = `<div class="step-act"><button class="btn btn-sm btn-primary" onclick="${dica}">${rotulo}</button></div>`;
+    }
+    return `<div class="step ${done?'done':''} ${now?'now':''}">
+      <div class="step-dot">${done?'✓':i+1}</div>
+      <div class="step-body">
+        <div class="step-title">${esc(t)}</div>
+        ${i===1 && p.gravacao ? '<div class="step-sub">gravação no Meetily — sync automático entra em fase futura</div>' : ''}
+        ${i===2 && p.valor_estimado_centavos ? `<div class="step-sub">valor estimado: ${centavosToBRL(p.valor_estimado_centavos)}</div>` : ''}
+        ${acao}
+      </div>
+    </div>`;
+  }).join('');
+
+  root.innerHTML = shell('crm', `
+    <span class="back" onclick="location.hash='#/crm'">← voltar pro CRM</span>
+    <div class="row-between" style="align-items:flex-start;margin-bottom:6px;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h1 style="margin:0 0 4px;font-size:24px;">${esc(p.nome)}</h1>
+        <span class="badge ${p.perdido?'badge-bad':'badge-muted'}">${p.perdido?'Perdido':esc(KCOLS[p.coluna])}</span>
+        ${p.origem ? `<span class="muted" style="margin-left:8px;">${esc(p.origem)}</span>` : ''}
+      </div>
+      <div class="row" style="gap:8px;flex-wrap:wrap;">
+        ${!p.perdido && p.coluna<5 ? `<button class="btn btn-outline btn-sm" onclick="avancarEtapaProspect()">Avançar etapa</button>` : ''}
+        ${!p.perdido && p.coluna===5 ? `<button class="btn btn-primary btn-sm" onclick="abrirConverterProspect()">Converter em cliente</button>` : ''}
+        <button class="btn btn-outline btn-sm" onclick="abrirEditarProspect()">Editar</button>
+        ${p.perdido
+          ? `<button class="btn btn-outline btn-sm" onclick="confirmarReabrirProspect()">Reabrir</button>`
+          : `<button class="btn btn-danger btn-sm" onclick="abrirMarcarPerdidoProspect()">Marcar como perdido</button>`}
+        <button class="btn btn-danger btn-sm" onclick="abrirApagarProspect()">Apagar</button>
+      </div>
+    </div>
+    ${p.perdido ? `<div class="card" style="margin:14px 0;border-color:rgba(255,92,122,.35);"><span class="muted">Perdido${p.motivo_perda?': '+esc(p.motivo_perda):''}. Nada foi apagado — dá pra reabrir quando quiser.</span></div>` : ''}
+    <div class="grid2">
+      <div class="card">
+        <p class="eyebrow" style="color:var(--fraco)">Onboarding</p>
+        <div class="steps">${steps}</div>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:14px;">
+          <p class="eyebrow" style="color:var(--fraco)">Resumo</p>
+          <p class="muted" style="margin:0;font-size:13.5px;">${esc(p.nota || 'Sem nota.')}</p>
+          <div class="row" style="margin-top:12px;flex-wrap:wrap;">
+            ${p.valor_estimado_centavos ? `<span class="badge badge-roxo">${centavosToBRL(p.valor_estimado_centavos)}</span>` : ''}
+            ${p.gravacao ? '<span class="badge badge-roxo">🎥 Meetily</span>' : ''}
+            <span class="badge badge-muted">${formatDateBR(p.entrou_em)}</span>
+          </div>
+        </div>
+        <div class="card">
+          <p class="eyebrow" style="color:var(--fraco)">Contato</p>
+          <div class="muted" style="font-size:13px;">${p.contato_whatsapp ? esc(p.contato_whatsapp) : 'sem WhatsApp'}${p.contato_email ? ' · '+esc(p.contato_email) : ''}</div>
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+async function avancarEtapaProspect(){
+  const p = prospectAtual;
+  if(p.coluna >= 5) return;
+  try{
+    await rpc('hub_rpc_salvar_prospect', { p: {
+      id: p.id, nome: p.nome, origem: p.origem, contato_whatsapp: p.contato_whatsapp,
+      contato_email: p.contato_email, coluna: p.coluna + 1,
+      valor_estimado_centavos: p.valor_estimado_centavos, gravacao: p.gravacao, nota: p.nota,
+      entrou_em: p.entrou_em, perdido: false, motivo_perda: null, fechado_em: p.fechado_em,
+    }});
+    toast('Avançou pra "' + KCOLS[p.coluna+1] + '".');
+    prospectsCache = [];
+    renderProspect(p.id);
+  } catch(e){}
+}
+function abrirMarcarPerdidoProspect(){
+  openModal(`Marcar como perdido — ${esc(prospectAtual.nome)}`, `
+    <p class="muted" style="margin-top:0;">Sai do funil ativo mas continua guardado — dá pra reabrir depois.</p>
+    <div class="field"><label>Motivo (opcional)</label><input id="f-motivo"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarMarcarPerdidoProspect()">Marcar como perdido</button>
+    </div>`);
+}
+async function confirmarMarcarPerdidoProspect(){
+  const p = prospectAtual;
+  const motivo = document.getElementById('f-motivo').value.trim();
+  try{
+    await rpc('hub_rpc_salvar_prospect', { p: {
+      id: p.id, nome: p.nome, origem: p.origem, contato_whatsapp: p.contato_whatsapp,
+      contato_email: p.contato_email, coluna: p.coluna, valor_estimado_centavos: p.valor_estimado_centavos,
+      gravacao: p.gravacao, nota: p.nota, entrou_em: p.entrou_em, fechado_em: p.fechado_em,
+      perdido: true, motivo_perda: motivo || null,
+    }});
+    closeModal(); toast('Prospect marcado como perdido.');
+    prospectsCache = [];
+    renderProspect(p.id);
+  } catch(e){}
+}
+async function confirmarReabrirProspect(){
+  const p = prospectAtual;
+  try{
+    await rpc('hub_rpc_salvar_prospect', { p: {
+      id: p.id, nome: p.nome, origem: p.origem, contato_whatsapp: p.contato_whatsapp,
+      contato_email: p.contato_email, coluna: p.coluna, valor_estimado_centavos: p.valor_estimado_centavos,
+      gravacao: p.gravacao, nota: p.nota, entrou_em: p.entrou_em, fechado_em: p.fechado_em,
+      perdido: false, motivo_perda: null,
+    }});
+    toast('Prospect reaberto.');
+    prospectsCache = [];
+    renderProspect(p.id);
+  } catch(e){}
+}
+function abrirApagarProspect(){
+  openModal(`Apagar prospect — ${esc(prospectAtual.nome)}`, `
+    <p class="muted" style="margin-top:0;">Isso apaga o prospect de vez do funil. O registro do que existia fica guardado na auditoria.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarApagarProspect()">Apagar</button>
+    </div>`);
+}
+async function confirmarApagarProspect(){
+  try{
+    await rpc('hub_rpc_apagar_prospect', { p_id: prospectAtual.id });
+    closeModal(); toast('Prospect apagado.');
+    prospectsCache = [];
+    location.hash = '#/crm';
+  } catch(e){}
+}
+function abrirConverterProspect(){
+  const p = prospectAtual;
+  openModal('Converter em cliente', `
+    <form onsubmit="return confirmarConverterProspect(event)">
+      <div class="field"><label>Nome do cliente</label><input id="f-nome" required value="${esc(p.nome)}"></div>
+      <div class="field"><label>Slug</label><input id="f-slug" required value="${esc(slugify(p.nome))}"></div>
+      <div class="field"><label>Segmento</label><input id="f-segmento"></div>
+      <div class="field"><label>Razão social (opcional)</label><input id="f-razao"></div>
+      <div class="field"><label>Documento (opcional)</label><input id="f-documento"></div>
+      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(p.nota||'')}</textarea></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Abrir cliente</button>
+      </div>
+    </form>`);
+}
+async function confirmarConverterProspect(ev){
+  ev.preventDefault();
+  const p = prospectAtual;
+  const slug = document.getElementById('f-slug').value;
+  try{
+    await rpc('hub_rpc_converter_prospect_em_cliente', { p: {
+      prospect_id: p.id,
+      nome: document.getElementById('f-nome').value,
+      slug,
+      segmento: document.getElementById('f-segmento').value || null,
+      razao_social: document.getElementById('f-razao').value || null,
+      documento: document.getElementById('f-documento').value || null,
+      observacao: document.getElementById('f-observacao').value || null,
+    }});
+    closeModal(); toast('Cliente aberto!');
+    carteira = []; prospectsCache = [];
+    location.hash = '#/cliente/' + slug;
+  } catch(e){}
+  return false;
+}
+
+// ============================================================
+// COBRANÇAS — configuração por cliente + textos da régua (Fase 3, Bloco B)
+// Sem mockup de referência (vCobrancas() do mockup é a fila do bot, não o
+// editor de config) — desenhado no design system das telas #/custos e
+// #/catalogo. O bot (HUB — Cobrança Automática) segue INATIVO nesta rodada
+// — "Últimos envios" fica vazio até D19/D20 ligarem de verdade.
+// ============================================================
+let cobrancaConfigCache = [];
+let cobrancaMensagensCache = [];
+let cobrancaEnviosCache = [];
+const ETAPA_LABEL = {'d-3':'D-3 · 3 dias antes','d0':'D0 · dia do vencimento','d+2':'D+2 · 2 dias de atraso','d+7':'D+7 · último aviso'};
+
+async function renderCobrancas(){
+  root.innerHTML = shell('cobrancas', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  await loadCarteiraCache();
+  [cobrancaConfigCache, cobrancaMensagensCache, cobrancaEnviosCache] = await Promise.all([
+    rpc('hub_rpc_cobranca_config_lista').catch(()=>[]),
+    rpc('hub_rpc_cobranca_mensagens').catch(()=>[]),
+    rpc('hub_rpc_cobranca_envios_recentes', { p_limit: 20 }).catch(()=>[]),
+  ]);
+  desenharCobrancas();
+}
+
+function desenharCobrancas(){
+  const naRegua = cobrancaConfigCache.filter(c=>c.ativo && c.dia_vencimento).length;
+  const semConfig = cobrancaConfigCache.filter(c=>!c.config_id).length;
+
+  const linhas = cobrancaConfigCache.map((c,i) => `
+    <tr onclick="abrirEditarCobrancaConfig(${i})">
+      <td data-label="Cliente"><b>${esc(c.cliente_nome)}</b></td>
+      <td data-label="Método">${c.config_id ? (c.metodo==='mp_link'?'Link Mercado Pago':'Pix') : '<span class="dim">não configurado</span>'}</td>
+      <td data-label="Vencimento">${c.dia_vencimento ? 'dia '+c.dia_vencimento : '—'}</td>
+      <td data-label="WhatsApp">${c.whatsapp_e164 ? esc(c.whatsapp_e164) : '<span class="dim">sem WhatsApp — escala pra você</span>'}</td>
+      <td data-label="Status">${c.config_id ? (c.ativo ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge badge-muted">Pausado</span>') : ''}</td>
+    </tr>`).join('');
+
+  const reguaCards = cobrancaMensagensCache.map((m,i) => `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="row-between" style="margin-bottom:8px;">
+        <span class="eyebrow" style="margin:0;">${esc(ETAPA_LABEL[m.etapa] || m.etapa)}</span>
+        <button class="btn btn-sm btn-outline" onclick="salvarCobrancaMensagem(${i})">Salvar</button>
+      </div>
+      <textarea id="regua-${i}" rows="3" class="regua-texto">${esc(m.texto)}</textarea>
+      ${m.texto.startsWith('RASCUNHO') ? '<div class="flag" style="margin-top:8px;">🟡 rascunho — copiar do node Configuração do workflow antes de ativar o bot</div>' : ''}
+    </div>`).join('');
+
+  const envios = cobrancaEnviosCache.length ? cobrancaEnviosCache.map(e => {
+    const cli = (carteira.find(c=>c.cliente_id===e.cliente_id)||{}).nome || 'Cliente';
+    return `<div class="rowcard"><div class="l"><div class="t">${esc(cli)}</div><div class="s">${esc(ETAPA_LABEL[e.etapa]||e.etapa)} · ${formatDateBR(e.enviado_em.slice(0,10))}</div></div><div class="r"><span class="badge ${e.status==='enviado'?'badge-ok':'badge-bad'}">${esc(e.status)}</span></div></div>`;
+  }).join('') : `<div class="muted">Nenhum envio ainda — o bot está inativo (falta chip dedicado + disparo assistido, ver Hub Dev.md).</div>`;
+
+  root.innerHTML = shell('cobrancas', `
+    <h2 class="section-title" style="margin:0 0 6px;">Cobranças — bot automático</h2>
+    <p class="muted" style="margin:0 0 18px;font-size:13px;">Configuração por cliente pro bot de cobrança — ele ainda está inativo (falta chip dedicado e disparo assistido).</p>
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-head">${KPI_ICONS.calendar}<span class="label">Na régua</span></div><div class="value">${naRegua}</div></div>
+      <div class="kpi ${semConfig?'warn':''}"><div class="kpi-head">${KPI_ICONS.warn}<span class="label">Sem configuração</span></div><div class="value">${semConfig}</div></div>
+      <div class="kpi"><div class="kpi-head">${KPI_ICONS.check}<span class="label">Envios (log)</span></div><div class="value">${cobrancaEnviosCache.length}</div></div>
+    </div>
+
+    <h2 class="section-title" style="margin:24px 0 12px;">Configuração por cliente</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Cliente</th><th>Método</th><th>Vencimento</th><th>WhatsApp</th><th>Status</th></tr></thead>
+        <tbody>${linhas || `<tr><td colspan="5" class="empty">Nenhum cliente ativo.</td></tr>`}</tbody>
+      </table>
+    </div>
+
+    <h2 class="section-title" style="margin:28px 0 12px;">Textos da régua</h2>
+    ${reguaCards}
+
+    <h2 class="section-title" style="margin:28px 0 12px;">Últimos envios</h2>
+    <div>${envios}</div>
+  `);
+}
+
+function formCobrancaConfig(c){
+  return `
+    <form onsubmit="return salvarCobrancaConfig(event)">
+      <input type="hidden" id="f-cliente-id" value="${esc(c.cliente_id)}">
+      <div class="field"><label>Método</label>
+        <select id="f-metodo">
+          <option value="pix" ${c.metodo!=='mp_link'?'selected':''}>Pix</option>
+          <option value="mp_link" ${c.metodo==='mp_link'?'selected':''}>Link Mercado Pago</option>
+        </select>
+      </div>
+      <div class="field"><label>Dia de vencimento</label><input id="f-dia" type="number" min="1" max="28" value="${c.dia_vencimento||''}"></div>
+      <div class="field"><label>WhatsApp (formato 55DDDNÚMERO)</label><input id="f-whatsapp" value="${esc(c.whatsapp_e164||'')}" placeholder="5584999998888"></div>
+      <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-ativo" ${c.config_id ? (c.ativo?'checked':'') : 'checked'}> <label for="f-ativo">Ativo na régua</label></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`;
+}
+function abrirEditarCobrancaConfig(i){
+  openModal(`Cobrança — ${esc(cobrancaConfigCache[i].cliente_nome)}`, formCobrancaConfig(cobrancaConfigCache[i]));
+}
+async function salvarCobrancaConfig(ev){
+  ev.preventDefault();
+  try{
+    await rpc('hub_rpc_salvar_cobranca_config', { p: {
+      cliente_id: document.getElementById('f-cliente-id').value,
+      metodo: document.getElementById('f-metodo').value,
+      dia_vencimento: document.getElementById('f-dia').value || null,
+      whatsapp_e164: document.getElementById('f-whatsapp').value || null,
+      ativo: document.getElementById('f-ativo').checked,
+    }});
+    closeModal(); toast('Configuração de cobrança salva.');
+    renderCobrancas();
+  } catch(e){}
+  return false;
+}
+async function salvarCobrancaMensagem(i){
+  const m = cobrancaMensagensCache[i];
+  const texto = document.getElementById('regua-'+i).value.trim();
+  if(!texto){ toast('Texto não pode ficar vazio.'); return; }
+  try{
+    await rpc('hub_rpc_salvar_cobranca_mensagem', { p: { etapa: m.etapa, texto } });
+    toast('Texto da régua salvo.');
+    renderCobrancas();
+  } catch(e){}
+}
+
+// ============================================================
 // ROUTER
 // ============================================================
 async function render(){
@@ -1610,7 +2018,10 @@ async function render(){
   if(page === 'catalogo') return renderCatalogo();
   if(page === 'financeiro') return renderFinanceiro();
   if(page === 'custos') return renderCustos();
-  if(['cobrancas','crm','contratos','reunioes','posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
+  if(page === 'crm') return renderCRM();
+  if(page === 'prospect' && param) return renderProspect(param);
+  if(page === 'cobrancas') return renderCobrancas();
+  if(['contratos','reunioes','posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
   return renderDash();
 }
 

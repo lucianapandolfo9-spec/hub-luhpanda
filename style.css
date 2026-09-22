@@ -294,6 +294,47 @@ h2.section-title{
 .preco-card.selecionavel{cursor:pointer}
 .preco-card.selecionado{border-color:rgba(255,107,53,.6);box-shadow:0 0 0 1px rgba(255,107,53,.35)}
 
+/* ---------- CRM — kanban de prospects (portado do mockup v2, Bloco B) ---------- */
+.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(215px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px}
+.kcol{background:rgba(26,14,36,.55);border:1px solid var(--borda);border-radius:13px;padding:12px;min-height:220px}
+.kcol-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:0 2px}
+.kcol-title{font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--suave)}
+.kcol-count{font-size:10.5px;color:var(--fraco);background:var(--superficie);border:1px solid var(--borda);border-radius:999px;padding:1px 7px;font-variant-numeric:tabular-nums}
+.kcard{background:var(--superficie);border:1px solid var(--borda-forte);border-radius:11px;padding:11px 12px;margin-bottom:8px;cursor:pointer;transition:all .15s var(--ease)}
+.kcard:hover{border-color:var(--laranja);transform:translateY(-1px)}
+.kcard .nome{font-weight:600;font-size:13px;letter-spacing:-.01em}
+.kcard .meta{font-size:11.5px;color:var(--fraco);margin-top:3px;display:flex;justify-content:space-between;gap:6px}
+.kcard .valor{color:var(--laranja);font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ---------- steps — onboarding do prospect ---------- */
+.steps{display:flex;flex-direction:column;margin:6px 0}
+.step{display:flex;gap:12px;position:relative;padding-bottom:16px}
+.step::before{content:"";position:absolute;left:11px;top:26px;bottom:2px;width:2px;background:var(--borda)}
+.step:last-child::before{display:none}
+.step-dot{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  background:var(--superficie);border:2px solid var(--borda-forte);color:var(--fraco);font-size:11px;z-index:1}
+.step.done .step-dot{background:rgba(37,211,102,.15);border-color:var(--ok);color:var(--ok)}
+.step.now .step-dot{background:rgba(255,107,53,.15);border-color:var(--laranja);color:var(--laranja);box-shadow:0 0 0 4px rgba(255,107,53,.1)}
+.step-body{padding-top:2px;flex:1}
+.step-title{font-weight:600;font-size:13.5px}
+.step.done .step-title{color:var(--suave)}
+.step-sub{font-size:12px;color:var(--fraco)}
+.step-act{margin-top:6px}
+
+/* ---------- listas ricas (últimos envios de cobrança etc.) ---------- */
+.rowcard{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--superficie);
+  border:1px solid var(--borda);border-radius:12px;padding:13px 16px;margin-bottom:9px}
+.rowcard .l{min-width:0;flex:1}
+.rowcard .t{font-weight:600;font-size:13.5px;letter-spacing:-.01em}
+.rowcard .s{font-size:12px;color:var(--fraco);margin-top:1px}
+.rowcard .r{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+
+.back{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--fraco);text-decoration:none;margin-bottom:14px;cursor:pointer}
+.back:hover{color:var(--texto)}
+
+/* ---------- Cobranças — textarea da régua (Bloco B) ---------- */
+.regua-texto{width:100%;resize:vertical}
+
 /* ---------- apresentação (PDF client-side via diálogo de impressão) ---------- */
 .apres-overlay{
   position:fixed;inset:0;z-index:70;overflow:auto;

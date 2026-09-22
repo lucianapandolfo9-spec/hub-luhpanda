@@ -151,6 +151,45 @@ Seis ajustes pedidos depois do Bloco A no ar (detalhe no plano
 mesmo caso da 006 no Bloco A). O front degrada com aviso amigável até aplicarem. Checklist
 de aplicação no cabeçalho de cada arquivo.
 
+## Fase 3, Bloco B — CRM (Kanban) + configuração de cobrança (22/09/2026)
+
+Plano de 7 blocos, seção B (`~/.claude/plans/users-luhpanda-quero-q-puxe-shimmying-grove.md`).
+Decisões da Luciana nesta rodada: (a) multi-tenant **opção mínima** — só coluna
+`workspace_id` (default = workspace dela), sem `workspace_members` nem policy por
+workspace; (b) textos da régua de cobrança nascem **placeholder** (RASCUNHO — copiar do
+node Configuração do workflow `HUB — Cobrança Automática` antes de ativar o bot); (c)
+Kanban **sem drag-and-drop** — mover de coluna é ação na ficha do prospect.
+
+⚠️ **Migrations 010/011/012 nasceram como rascunho não aplicado** (sessão sem Supabase MCP,
+mesmo caso das anteriores). Checklist de aplicação no cabeçalho de cada arquivo. Resumo:
+
+- `010_multitenant.sql` — `hub.workspaces` (+ seed "Luh Panda") e coluna `workspace_id`
+  retroativa em `empresas`/`clientes`/`contatos`/`servicos`/`contratos`/`contrato_itens`/
+  `demandas`, via `hub.default_workspace_id()`. RLS não muda.
+- `011_crm_prospects.sql` — `hub.prospects` (kanban de 6 colunas: Reunião marcada →
+  Reunião feita → Precificando → Orçamento enviado → Contrato emitido → Cliente aberto;
+  onboarding de 7 passos derivado da `coluna`, sem tabela extra) + RPCs (listar, detalhe,
+  salvar, apagar, `rpc_converter_prospect_em_cliente`). `#/crm` (kanban) e `#/prospect/:id`
+  (ficha) no front, portados de `vCRM`/`vProspect`/`KCOLS`/`ONBOARD` do
+  `mockup-v2-frontend.html`.
+- `012_cobranca_config.sql` — `hub.cobranca_config` (por cliente: método pix/mp_link, dia
+  de vencimento, WhatsApp), `hub.cobranca_mensagens` (régua D-3/D0/D+2/D+7, texto
+  placeholder) e `hub.cobranca_envios` (log, vazio até o bot ligar). Tela `#/cobrancas`
+  **sem mockup de referência** — desenhada no design system das telas `#/custos`/
+  `#/catalogo` (cards + modal). Não ativa o bot (D19/D20 continuam pendentes: chip
+  dedicado + disparo assistido).
+
+CRM e Cobranças saíram de `soon:false` pra `true` na sidebar (Contratos e Reuniões
+continuam "em breve" — blocos C13/C15 seguintes).
+
+**Verificado nesta sessão** (sem Supabase/Chrome MCP): sintaxe do `index.html` inteiro
+parseada com sucesso (`new Function`), CSS com chaves balanceadas, e as funções de render
+(`desenharCRM`, `desenharProspect` nos estados etapa-0/etapa-5-fechado/perdido,
+`desenharCobrancas` vazio e com envio, todos os modais de prospect e de cobrança) rodadas
+num harness Node com dados mock — nenhuma lançou exceção. **Isso não substitui a
+verificação real**: falta aplicar as 3 migrations, testar as RPCs contra o banco de
+verdade e navegar logada no Chrome (checklist completo no `Hub Dev.md`).
+
 ## Convenções
 
 - Dinheiro sempre em **centavos** (`bigint`), nunca `numeric`/`float`.
