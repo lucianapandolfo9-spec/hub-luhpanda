@@ -71,6 +71,7 @@ function statusLabel(s){
     prospect:'Prospect', ativo:'Ativo', pausado:'Pausado', encerrado:'Encerrado',
     rascunho:'Rascunho', emitido:'Emitido', enviado:'Enviado', assinado:'Assinado',
     aberto:'Aberto', parcial:'Parcial', pago:'Pago', vencido:'Vencido',
+    aberta:'Aberta', fazendo:'Fazendo', entregue:'Entregue',
   }[s] || s;
 }
 function contratoBadgeClass(status){
@@ -83,6 +84,7 @@ function friendlyError(err){
   const m = (err && err.message) || String(err);
   if(m.includes('hub_contrato_ativo_exige_porta_saida')) return 'Não dá pra ativar o contrato sem porta de saída escrita.';
   if(m.includes('acesso negado')) return 'Sessão sem permissão pra essa ação.';
+  if(m.includes('Could not find the function')) return 'Essa função ainda não está instalada no banco — migration pendente de aplicação.';
   return m;
 }
 async function rpc(name, params){
@@ -101,7 +103,7 @@ function openModal(titleHtml, bodyHtml){
       </div>
     </div>`;
 }
-function closeModal(){ modalRoot.innerHTML = ''; }
+function closeModal(){ modalRoot.innerHTML = ''; document.body.classList.remove('apres-print-mode'); }
 
 // ============================================================
 // ROTA (hash)
@@ -203,7 +205,7 @@ const NAV_GROUPS = [
     ['financeiro','Recebíveis', NAV_ICONS.financeiro, true],
     ['carteira','Carteira', NAV_ICONS.carteira, true],
     ['custos','Custos', NAV_ICONS.custos, true],
-    ['catalogo','Catálogo', NAV_ICONS.catalogo, true],
+    ['catalogo','Preços & Serviços', NAV_ICONS.catalogo, true],
     ['cobrancas','Cobranças', NAV_ICONS.cobr, false],
   ]},
   { label: 'Comercial', items: [
@@ -379,8 +381,9 @@ function chartReceitaPeriodo(serie){
 }
 
 // ---------- filtro de período do dash ----------
-// modo: '7d' | '30d' | 'mes' | 'personalizado'
-let dashFiltro = { modo: 'mes', mes: todayISO().slice(0,7) + '-01', desde: null, ate: null };
+// modo: 'ano' (padrão — receita mês a mês, série por_mes do hub_rpc_dash,
+// como no mockup aprovado) | '7d' | '30d' | 'mes' | 'personalizado'
+let dashFiltro = { modo: 'ano', mes: todayISO().slice(0,7) + '-01', desde: null, ate: null };
 let dashCacheGlobal = null; // hub_rpc_dash() — MEI/custos/alertas, sempre não-filtrado
 
 function addMeses(iso, n){
@@ -407,11 +410,24 @@ function periodoAtual(){
   return { desde: dashFiltro.mes, ate: fimDoMes(dashFiltro.mes) };
 }
 function rotuloPeriodo(){
+  if(dashFiltro.modo === 'ano') return 'mês a mês';
   if(dashFiltro.modo === '7d') return 'Últimos 7 dias';
   if(dashFiltro.modo === '30d') return 'Últimos 30 dias';
   if(dashFiltro.modo === 'personalizado' && dashFiltro.desde && dashFiltro.ate)
     return `${formatDateBR(dashFiltro.desde)} — ${formatDateBR(dashFiltro.ate)}`;
   return monthLabel(dashFiltro.mes) + '/' + dashFiltro.mes.slice(0,4);
+}
+// Série mensal que já vem pronta no hub_rpc_dash (por_mes) — é a visão
+// padrão "Receita por mês" do mockup, com a linha tracejada de meta
+// (previsto) que o chartReceitaPeriodo já desenha por bucket.
+function periodoDoAno(dash, vencidos){
+  const porMes = dash.por_mes || [];
+  return {
+    previsto_centavos: porMes.reduce((s,m)=>s+Number(m.previsto_centavos||0),0),
+    entrado_centavos: porMes.reduce((s,m)=>s+Number(m.entrado_centavos||0),0),
+    vencidos_count: vencidos.length,
+    serie: porMes.map(m => ({ rotulo: monthLabel(m.competencia)+'/'+m.competencia.slice(2,4), previsto_centavos: m.previsto_centavos, entrado_centavos: m.entrado_centavos })),
+  };
 }
 function setFiltroDash(modo){
   dashFiltro.modo = modo;
@@ -438,9 +454,10 @@ function chipsPeriodo(){
       <button class="btn btn-ico" title="Mês anterior" onclick="mudarMesDash(-1)">‹</button>
       <button class="chip on" style="cursor:default;">${monthLabel(dashFiltro.mes)}/${dashFiltro.mes.slice(0,4)}</button>
       <button class="btn btn-ico" title="Mês seguinte" onclick="mudarMesDash(1)">›</button>
-    </span>` : chip('mes', 'Mês a mês');
+    </span>` : chip('mes', 'Mês');
   return `
     <div class="chips">
+      ${chip('ano','Ano')}
       ${chip('7d','7 dias')}
       ${chip('30d','30 dias')}
       ${navMes}
@@ -480,23 +497,23 @@ async function renderDashBody(){
   const semVenc = dash.sem_vencimento || [];
 
   let periodo;
-  try {
-    // chamada direta (sem o wrapper rpc()) — se a migration 006 ainda não foi
-    // aplicada, isso falha silenciosamente e cai no fallback abaixo, sem
-    // empurrar o erro cru do Postgres pra ela em toast a cada visita ao dash.
-    const { data, error } = await hubClient.rpc('hub_rpc_dash_periodo', { p_desde: desde, p_ate: ate });
-    if(error) throw error;
-    periodo = data;
-  } catch(e){
-    // RPC nova ainda não aplicada no banco (pendência de migration) — cai pro
-    // agregado mensal já existente no hub_rpc_dash pra não deixar o dash vazio.
-    const porMes = dash.por_mes || [];
-    periodo = {
-      previsto_centavos: porMes.reduce((s,m)=>s+Number(m.previsto_centavos||0),0),
-      entrado_centavos: porMes.reduce((s,m)=>s+Number(m.entrado_centavos||0),0),
-      vencidos_count: vencidos.length,
-      serie: porMes.map(m => ({ rotulo: monthLabel(m.competencia)+'/'+m.competencia.slice(0,4), previsto_centavos: m.previsto_centavos, entrado_centavos: m.entrado_centavos })),
-    };
+  if(dashFiltro.modo === 'ano'){
+    // visão padrão: receita mês a mês — a série por_mes já vem no
+    // hub_rpc_dash, não precisa de chamada extra nem de RPC nova.
+    periodo = periodoDoAno(dash, vencidos);
+  } else {
+    try {
+      // chamada direta (sem o wrapper rpc()) — se a migration 006 ainda não foi
+      // aplicada, isso falha silenciosamente e cai no fallback abaixo, sem
+      // empurrar o erro cru do Postgres pra ela em toast a cada visita ao dash.
+      const { data, error } = await hubClient.rpc('hub_rpc_dash_periodo', { p_desde: desde, p_ate: ate });
+      if(error) throw error;
+      periodo = data;
+    } catch(e){
+      // RPC nova ainda não aplicada no banco (pendência de migration) — cai pro
+      // agregado mensal já existente no hub_rpc_dash pra não deixar o dash vazio.
+      periodo = periodoDoAno(dash, vencidos);
+    }
   }
   const falta = Number(periodo.previsto_centavos||0) - Number(periodo.entrado_centavos||0);
 
@@ -518,7 +535,7 @@ async function renderDashBody(){
   root.innerHTML = shell('dash', `
     ${chipsPeriodo()}
 
-    <h2 class="section-title">Receita — ${esc(rotuloPeriodo())}</h2>
+    <h2 class="section-title">${dashFiltro.modo==='ano' ? 'Receita por mês' : 'Receita — ' + esc(rotuloPeriodo())}</h2>
     <div class="card chart-card">${chartReceitaPeriodo(periodo.serie || [])}</div>
 
     <div class="kpis">
@@ -527,15 +544,15 @@ async function renderDashBody(){
         <div class="value">${dash.clientes_ativos}</div>
       </div>
       <div class="kpi">
-        <div class="label">Entrou no período</div>
+        <div class="label">Entrou ${dashFiltro.modo==='ano'?'no ano':'no período'}</div>
         <div class="value">${centavosToBRL(periodo.entrado_centavos)}</div>
       </div>
       <div class="kpi ${falta>0?'warn':''}">
-        <div class="label">Falta no período</div>
+        <div class="label">Falta ${dashFiltro.modo==='ano'?'no ano':'no período'}</div>
         <div class="value">${centavosToBRL(falta)}</div>
       </div>
       <div class="kpi ${(periodo.vencidos_count||vencidos.length)?'bad':''}">
-        <div class="label">Vencidos no período</div>
+        <div class="label">Vencidos</div>
         <div class="value">${periodo.vencidos_count!=null ? periodo.vencidos_count : vencidos.length}</div>
       </div>
     </div>
@@ -575,19 +592,28 @@ function kpisCarteira(rows){
   </div>`;
 }
 
+// Arquivado = status 'encerrado' (CHECK que já existe em hub.clientes).
+// Nada é apagado: arquivar guarda, reativar traz de volta — sem DELETE.
+let carteiraVista = 'ativos'; // 'ativos' | 'arquivados'
+function setCarteiraVista(v){ carteiraVista = v; renderCarteira(); }
+
 async function renderCarteira(){
   root.innerHTML = shell('carteira', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
   carteira = await rpc('hub_rpc_carteira').catch(()=>[]);
 
-  const rowsHtml = carteira.map(c => `
+  const ativos = carteira.filter(c => c.status !== 'encerrado');
+  const arquivados = carteira.filter(c => c.status === 'encerrado');
+  const visiveis = carteiraVista === 'arquivados' ? arquivados : ativos;
+
+  const rowsHtml = visiveis.map(c => `
     <tr onclick="location.hash='#/cliente/${esc(c.slug)}'">
-      <td data-label="Cliente"><b>${esc(c.nome)}</b></td>
+      <td data-label="Cliente"><b>${esc(c.nome)}</b>${c.status!=='ativo' ? ` <span class="badge badge-muted" style="margin-left:6px;">${statusLabel(c.status)}</span>` : ''}</td>
       <td data-label="Serviço" class="muted">${esc(c.servico || '—')}</td>
       <td data-label="Valor mensal" class="money">${centavosToBRL(c.valor_mensal_centavos)}</td>
-      <td data-label="Vencimento">${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : '<span class="flag">🔴 sem vencimento</span>'}</td>
+      <td data-label="Vencimento">${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : (carteiraVista==='arquivados' ? '—' : '<span class="flag">🔴 sem vencimento</span>')}</td>
       <td data-label="Contrato">
         <span class="badge ${contratoBadgeClass(c.contrato_status)}">${statusLabel(c.contrato_status)}</span>
-        ${!c.tem_contrato ? '<span class="flag">🔴 sem contrato</span>' : ''}
+        ${!c.tem_contrato && carteiraVista!=='arquivados' ? '<span class="flag">🔴 sem contrato</span>' : ''}
       </td>
     </tr>
   `).join('');
@@ -597,11 +623,15 @@ async function renderCarteira(){
       <h2 class="section-title" style="margin:0;">Carteira</h2>
       <button class="btn btn-primary btn-sm" onclick="abrirNovoCliente()">+ Novo cliente</button>
     </div>
-    ${kpisCarteira(carteira)}
+    ${kpisCarteira(ativos)}
+    <div class="chips">
+      <button class="chip ${carteiraVista==='ativos'?'on':''}" onclick="setCarteiraVista('ativos')">Ativos (${ativos.length})</button>
+      <button class="chip ${carteiraVista==='arquivados'?'on':''}" onclick="setCarteiraVista('arquivados')">Arquivados (${arquivados.length})</button>
+    </div>
     <div class="tablewrap">
       <table>
         <thead><tr><th>Cliente</th><th>Serviço</th><th>Valor mensal</th><th>Vencimento</th><th>Contrato</th></tr></thead>
-        <tbody>${rowsHtml || `<tr><td colspan="5" class="empty">Nenhum cliente cadastrado ainda.</td></tr>`}</tbody>
+        <tbody>${rowsHtml || `<tr><td colspan="5" class="empty">${carteiraVista==='arquivados' ? 'Nenhum cliente arquivado.' : 'Nenhum cliente cadastrado ainda.'}</td></tr>`}</tbody>
       </table>
     </div>
   `);
@@ -647,34 +677,117 @@ async function salvarCliente(ev){
 }
 
 // ============================================================
-// CATÁLOGO
+// PREÇOS & SERVIÇOS (rota #/catalogo — só o rótulo mudou)
 // ============================================================
+// MENSAL = cobra todo mês (recorrente, hospedagem); ÚNICO = cobra uma vez
+// (projeto, bloco de horas, por evento) — derivado da modalidade.
+function tipoServico(s){
+  return (s.modalidade === 'recorrente' || s.modalidade === 'hospedagem') ? 'MENSAL' : 'ÚNICO';
+}
+function precoServico(s){
+  if(s.preco_referencia_centavos == null) return 'negociado';
+  return centavosToBRL(s.preco_referencia_centavos) + (s.unidade ? '/' + s.unidade : '');
+}
+
+let precosSelecao = false;                 // modo "montar apresentação"
+let precosSelecionados = new Set();        // ids dos serviços marcados
+
+const EDIT_ICON = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`;
+
 async function renderCatalogo(){
   root.innerHTML = shell('catalogo', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
   const catalogo = await rpc('hub_rpc_catalogo').catch(()=>[]);
   window.__catalogo = catalogo;
+  desenharCatalogo();
+}
 
-  const rowsHtml = catalogo.map((s,i) => `
-    <tr onclick="abrirEditarServico(${i})">
-      <td data-label="Serviço"><b>${esc(s.nome)}</b>${s.observacao ? `<div class="muted" style="font-size:12px;margin-top:2px;">${esc(s.observacao)}</div>` : ''}</td>
-      <td data-label="Modalidade" class="muted">${esc(s.modalidade)}</td>
-      <td data-label="Preço" class="money">${s.preco_referencia_centavos != null ? centavosToBRL(s.preco_referencia_centavos) + (s.unidade ? '/' + esc(s.unidade) : '') : 'negociado'}</td>
-      <td data-label="Status">${s.ativo ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge badge-muted">Inativo</span>'}</td>
-    </tr>
-  `).join('');
+function desenharCatalogo(){
+  const catalogo = window.__catalogo || [];
+  const n = precosSelecionados.size;
+
+  const cards = catalogo.map((s,i) => {
+    const sel = precosSelecionados.has(s.id);
+    return `
+    <div class="preco-card ${s.ativo?'':'inativo'} ${precosSelecao?'selecionavel':''} ${sel?'selecionado':''}"
+      ${precosSelecao ? `onclick="toggleServicoSelecionado('${esc(s.id)}')"` : ''}>
+      ${precosSelecao
+        ? `<input type="checkbox" class="selbox" ${sel?'checked':''} tabindex="-1" onclick="event.stopPropagation();toggleServicoSelecionado('${esc(s.id)}')">`
+        : `<span class="edit"><button class="btn btn-ico" title="Editar serviço" onclick="abrirEditarServico(${i})">${EDIT_ICON}</button></span>`}
+      <span class="tipo">${tipoServico(s)}${s.ativo?'':' · inativo'}</span>
+      <span class="nome">${esc(s.nome)}</span>
+      <span class="valor">${esc(precoServico(s))}</span>
+      ${s.inclui ? `<span class="inclui">${esc(s.inclui)}</span>` : ''}
+      ${s.observacao ? `<span class="obs">${esc(s.observacao)}</span>` : ''}
+    </div>`;
+  }).join('');
+
+  const acoes = precosSelecao ? `
+      ${n ? `<button class="btn btn-primary btn-sm" onclick="gerarApresentacao()">Gerar PDF (${n})</button>` : `<span class="muted" style="font-size:12.5px;">Marca os serviços que entram na apresentação</span>`}
+      <button class="btn btn-outline btn-sm" onclick="sairModoSelecao()">Cancelar</button>` : `
+      <button class="btn btn-outline btn-sm" onclick="entrarModoSelecao()">Montar apresentação</button>
+      <button class="btn btn-primary btn-sm" onclick="abrirNovoServico()">+ Novo serviço</button>`;
 
   root.innerHTML = shell('catalogo', `
-    <div class="row-between" style="margin-bottom:14px;">
-      <h2 class="section-title" style="margin:0;">Catálogo de serviços</h2>
-      <button class="btn btn-primary btn-sm" onclick="abrirNovoServico()">+ Novo serviço</button>
+    <div class="row-between" style="margin-bottom:8px;flex-wrap:wrap;gap:10px;">
+      <h2 class="section-title" style="margin:0;">Preços & Serviços</h2>
+      <div class="row" style="gap:8px;">${acoes}</div>
     </div>
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th>Serviço</th><th>Modalidade</th><th>Preço de tabela</th><th></th></tr></thead>
-        <tbody>${rowsHtml || `<tr><td colspan="4" class="empty">Nenhum serviço cadastrado ainda.</td></tr>`}</tbody>
-      </table>
-    </div>
+    <p class="muted" style="margin:0 0 18px;font-size:13px;">Preço de tabela — ponto de partida da negociação, não valor travado.</p>
+    <div class="gridcards">${cards || `<div class="empty">Nenhum serviço cadastrado ainda.</div>`}</div>
+    <p class="dim" style="font-size:12px;margin-top:16px;">Lembrete: todo sistema entregue sai com manutenção contratada — mensal ou avulsa. Nunca vender hora avulsa sem bloco fechado por escrito.</p>
   `);
+}
+
+function entrarModoSelecao(){ precosSelecao = true; precosSelecionados = new Set(); desenharCatalogo(); }
+function sairModoSelecao(){ precosSelecao = false; precosSelecionados = new Set(); desenharCatalogo(); }
+function toggleServicoSelecionado(id){
+  if(precosSelecionados.has(id)) precosSelecionados.delete(id);
+  else precosSelecionados.add(id);
+  desenharCatalogo();
+}
+
+// ---------- apresentação em PDF (100% client-side: @media print + window.print) ----------
+function gerarApresentacao(){
+  const escolhidos = (window.__catalogo || []).filter(s => precosSelecionados.has(s.id));
+  if(!escolhidos.length){ toast('Nenhum serviço selecionado.'); return; }
+
+  const itens = escolhidos.map(s => `
+    <div class="apres-item">
+      <div class="tipo">${tipoServico(s)}</div>
+      <div class="nome">${esc(s.nome)}</div>
+      <div class="valor">${esc(precoServico(s))}</div>
+      ${s.inclui ? `<div class="inclui">${esc(s.inclui)}</div>` : ''}
+    </div>`).join('');
+
+  const hoje = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+
+  modalRoot.innerHTML = `
+    <div class="apres-overlay">
+      <div class="apres-toolbar">
+        <button class="btn btn-primary btn-sm" onclick="window.print()">Imprimir / Salvar PDF</button>
+        <button class="btn btn-outline btn-sm" onclick="fecharApresentacao()">Fechar</button>
+      </div>
+      <div class="apres-page">
+        <div class="apres-head">
+          <span class="apres-logo">🐼</span>
+          <div>
+            <div class="apres-marca">Luh Panda</div>
+            <div class="apres-tag">Automação &amp; IA para negócios</div>
+          </div>
+        </div>
+        <div class="apres-titulo">Serviços &amp; investimento — ${esc(hoje)}</div>
+        ${itens}
+        <div class="apres-foot">
+          <span><b>Luciana Pandolfo</b> · Luh Panda</span>
+          <span>WhatsApp (84) 99412-7476 · luhpanda.com.br · lucianapandolfo9@gmail.com</span>
+        </div>
+      </div>
+    </div>`;
+  document.body.classList.add('apres-print-mode');
+}
+function fecharApresentacao(){
+  document.body.classList.remove('apres-print-mode');
+  modalRoot.innerHTML = '';
 }
 
 function formServico(s){
@@ -693,6 +806,7 @@ function formServico(s){
       <div class="field"><label>Preço de referência (R$, deixe vazio se negociado)</label>
         <input id="f-preco" type="number" step="0.01" value="${centavosToInputValue(s.preco_referencia_centavos)}"></div>
       <div class="field"><label>Unidade</label><input id="f-unidade" value="${esc(s.unidade||'')}" placeholder="mês, hora..."></div>
+      <div class="field"><label>Inclui (o que está dentro do preço)</label><textarea id="f-inclui" rows="2" placeholder="ex: gestão de campanhas + relatório mensal + otimização semanal">${esc(s.inclui||'')}</textarea></div>
       <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(s.observacao||'')}</textarea></div>
       <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-ativo" ${s.ativo!==false?'checked':''}> <label for="f-ativo">Ativo</label></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
@@ -713,6 +827,7 @@ async function salvarServico(ev){
       modalidade: document.getElementById('f-modalidade').value,
       preco_referencia_centavos: brlInputToCentavos(document.getElementById('f-preco').value),
       unidade: document.getElementById('f-unidade').value || null,
+      inclui: document.getElementById('f-inclui').value || null,
       observacao: document.getElementById('f-observacao').value || null,
       ativo: document.getElementById('f-ativo').checked,
     }});
@@ -993,6 +1108,13 @@ async function renderCliente(slug){
   root.innerHTML = shell('carteira', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
   const data = await rpc('hub_rpc_cliente', { p_slug: slug }).catch(()=>null);
   if(!data){ root.innerHTML = shell('carteira', `<div class="empty">Cliente não encontrado.</div>`); return; }
+  // demandas vêm de RPC própria (migration 007) — chamada direta sem o
+  // wrapper rpc() pra não estourar toast enquanto a migration não estiver
+  // aplicada; `null` = função ainda não existe no banco, a seção avisa.
+  try {
+    const { data: dem, error } = await hubClient.rpc('hub_rpc_demandas_cliente', { p_cliente_id: data.cliente.id });
+    data.demandas = error ? null : (dem || []);
+  } catch(e){ data.demandas = null; }
   clienteAtual = data;
   pilarAtivo = 'financeiro';
   desenharFichaCliente();
@@ -1001,6 +1123,7 @@ async function renderCliente(slug){
 function desenharFichaCliente(){
   const data = clienteAtual;
   const c = data.cliente;
+  const arquivado = c.status === 'encerrado';
 
   root.innerHTML = shell('carteira', `
     <div style="margin-bottom:18px;">
@@ -1012,8 +1135,16 @@ function desenharFichaCliente(){
         <span class="badge ${c.status==='ativo'?'badge-ok':'badge-muted'}">${statusLabel(c.status)}</span>
         ${c.segmento ? `<span class="muted" style="margin-left:8px;">${esc(c.segmento)}</span>` : ''}
       </div>
-      <button class="btn btn-outline btn-sm" onclick="abrirEditarClienteFicha()">Editar cliente</button>
+      <div class="row" style="gap:8px;flex-wrap:wrap;">
+        ${arquivado
+          ? `<button class="btn btn-primary btn-sm" onclick="abrirReativarCliente()">Reativar</button>`
+          : `<button class="btn btn-danger btn-sm" onclick="abrirArquivarCliente()">Arquivar</button>`}
+        <button class="btn btn-outline btn-sm" onclick="abrirEditarClienteFicha()">Editar cliente</button>
+      </div>
     </div>
+    ${arquivado ? `<div class="card" style="margin:14px 0;border-color:rgba(242,193,78,.35);">
+      <span class="muted">📦 Cliente arquivado${c.saiu_em ? ' em ' + formatDateBR(c.saiu_em) : ''}${c.motivo_saida ? ' — ' + esc(c.motivo_saida) : ''}. Nada foi apagado — o histórico continua todo aqui, e dá pra reativar quando quiser.</span>
+    </div>` : ''}
     ${c.observacao ? `<div class="card" style="margin:14px 0;"><span class="muted">${esc(c.observacao)}</span></div>` : ''}
 
     <div class="pilartabs">
@@ -1022,6 +1153,12 @@ function desenharFichaCliente(){
       <div class="pilartab ${pilarAtivo==='comercial'?'active':''}" onclick="trocarPilar('comercial', event)">Comercial</div>
     </div>
     <div id="pilar-body">${renderPilar()}</div>
+
+    <div class="row-between" style="margin-top:32px;margin-bottom:12px;">
+      <h2 class="section-title" style="margin:0;">Demandas</h2>
+      ${data.demandas !== null ? `<button class="btn btn-sm btn-outline" onclick="abrirNovaDemanda()">+ Nova demanda</button>` : ''}
+    </div>
+    ${renderDemandas()}
   `);
 }
 function trocarPilar(p, ev){
@@ -1063,9 +1200,10 @@ function renderPilarFinanceiro(){
           <span class="badge ${contratoBadgeClass(co.status)}">${statusLabel(co.status)}</span>
           ${co.numero ? `<span class="muted" style="margin-left:8px;">nº ${esc(co.numero)}</span>` : ''}
         </div>
-        <div class="row">
+        <div class="row" style="flex-wrap:wrap;gap:6px;">
           <div class="money">${centavosToBRL(co.valor_mensal_centavos)}${co.dia_vencimento ? ' · dia '+co.dia_vencimento : ''}</div>
           <button class="btn btn-sm btn-outline" onclick="abrirEditarContrato(${i})">Editar</button>
+          <button class="btn btn-sm btn-danger" onclick="abrirApagarContrato(${i})">Apagar</button>
         </div>
       </div>
       ${itens.length ? `<ul style="margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13px;">
@@ -1116,6 +1254,7 @@ function abrirEditarClienteFicha(){
 }
 async function salvarClienteFicha(ev){
   ev.preventDefault();
+  const c = clienteAtual.cliente;
   try{
     await rpc('hub_rpc_salvar_cliente', { p: {
       id: document.getElementById('f-id').value,
@@ -1125,6 +1264,11 @@ async function salvarClienteFicha(ev){
       segmento: document.getElementById('f-segmento').value || null,
       status: document.getElementById('f-status').value,
       observacao: document.getElementById('f-observacao').value || null,
+      // passthrough obrigatório: o upsert do banco sobrescreve TODAS as
+      // colunas — sem repassar o que a ficha não edita, salvar apagaria
+      // razão social, documento, origem e as datas de entrada/saída.
+      razao_social: c.razao_social, documento: c.documento, origem: c.origem,
+      entrou_em: c.entrou_em, saiu_em: c.saiu_em, motivo_saida: c.motivo_saida,
     }});
     const novoSlug = document.getElementById('f-slug').value;
     closeModal(); toast('Cliente salvo.');
@@ -1132,6 +1276,153 @@ async function salvarClienteFicha(ev){
     renderCliente(novoSlug);
   } catch(e){}
   return false;
+}
+
+// ---- arquivar / reativar (item 2 do Bloco 1.5) ----
+// Arquivar NUNCA apaga: usa o status 'encerrado' que já existe no CHECK de
+// hub.clientes + saiu_em/motivo_saida. Reversível pelo botão "Reativar".
+async function salvarClientePatch(patch, msg){
+  const c = clienteAtual.cliente;
+  await rpc('hub_rpc_salvar_cliente', { p: {
+    id: c.id, empresa_id: c.empresa_id, nome: c.nome, slug: c.slug,
+    razao_social: c.razao_social, documento: c.documento, segmento: c.segmento,
+    origem: c.origem, status: c.status, entrou_em: c.entrou_em,
+    saiu_em: c.saiu_em, motivo_saida: c.motivo_saida, observacao: c.observacao,
+    ...patch,
+  }});
+  closeModal(); toast(msg);
+  renderCliente(c.slug);
+}
+function abrirArquivarCliente(){
+  const c = clienteAtual.cliente;
+  openModal(`Arquivar — ${esc(c.nome)}`, `
+    <p class="muted" style="margin-top:0;">O cliente sai da lista de ativos mas <b>nada é apagado</b> — contratos, recebíveis e histórico continuam guardados, e dá pra reativar quando quiser.</p>
+    <div class="field"><label>Motivo (opcional)</label><input id="f-motivo" placeholder="ex: encerrou o contrato, pausa por tempo indeterminado..."></div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarArquivarCliente()">Arquivar</button>
+    </div>`);
+}
+async function confirmarArquivarCliente(){
+  const motivo = document.getElementById('f-motivo').value.trim();
+  try{
+    await salvarClientePatch(
+      { status:'encerrado', saiu_em: todayISO(), motivo_saida: motivo || null },
+      'Cliente arquivado — reversível pelo botão Reativar.');
+  } catch(e){}
+}
+function abrirReativarCliente(){
+  const c = clienteAtual.cliente;
+  openModal(`Reativar — ${esc(c.nome)}`, `
+    <p class="muted" style="margin-top:0;">O cliente volta pra lista de ativos, com todo o histórico intacto.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarReativarCliente()">Reativar</button>
+    </div>`);
+}
+async function confirmarReativarCliente(){
+  try{
+    await salvarClientePatch(
+      { status:'ativo', saiu_em: null, motivo_saida: null },
+      'Cliente reativado.');
+  } catch(e){}
+}
+
+// ---- demandas (item 3 do Bloco 1.5 — tabela hub.demandas, migration 007) ----
+function demandaBadgeClass(status){
+  if(status === 'entregue') return 'badge-ok';
+  if(status === 'fazendo') return 'badge-warn';
+  return 'badge-muted';
+}
+function renderDemandas(){
+  const dems = clienteAtual.demandas;
+  if(dems === null) return `<div class="card"><span class="dim" style="font-size:12.5px;">Demandas ainda não estão instaladas no banco — migration <code>007_demandas.sql</code> pendente de aplicação (sessão com Supabase MCP).</span></div>`;
+  if(!dems.length) return `<div class="card"><span class="muted">Nenhuma demanda deste cliente.</span></div>`;
+
+  const hoje = todayISO();
+  const rows = dems.map((d,i) => {
+    const atrasada = d.entrega_em && d.entrega_em < hoje && d.status !== 'entregue';
+    return `
+    <div class="row-between" style="padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap;gap:8px;">
+      <div style="min-width:0;">
+        <b>${esc(d.titulo)}</b>
+        <span class="badge ${demandaBadgeClass(d.status)}" style="margin-left:8px;">${statusLabel(d.status)}</span>
+        ${atrasada ? '<span class="flag">🔴 atrasada</span>' : ''}
+        ${d.descricao ? `<div class="muted" style="font-size:12.5px;margin-top:2px;">${esc(d.descricao)}</div>` : ''}
+        <div class="dim" style="font-size:12px;margin-top:2px;">${d.entrega_em ? 'entrega ' + formatDateBR(d.entrega_em) : 'sem data de entrega'}</div>
+      </div>
+      <div class="row" style="gap:6px;flex-wrap:wrap;">
+        ${d.status !== 'entregue' ? `<button class="btn btn-sm btn-primary" onclick="marcarDemandaEntregue(${i})">Entregue</button>` : ''}
+        <button class="btn btn-sm btn-outline" onclick="abrirEditarDemanda(${i})">Editar</button>
+        <button class="btn btn-sm btn-danger" onclick="abrirApagarDemanda(${i})">Apagar</button>
+      </div>
+    </div>`;
+  }).join('');
+  return `<div class="card">${rows}</div>`;
+}
+function formDemanda(d){
+  d = d || {};
+  return `
+    <form onsubmit="return salvarDemanda(event)">
+      <input type="hidden" id="f-id" value="${esc(d.id||'')}">
+      <div class="field"><label>Título</label><input id="f-titulo" required value="${esc(d.titulo||'')}"></div>
+      <div class="field"><label>Descrição</label><textarea id="f-descricao" rows="2">${esc(d.descricao||'')}</textarea></div>
+      <div class="field"><label>Data de entrega</label><input id="f-entrega" type="date" value="${d.entrega_em||''}"></div>
+      <div class="field"><label>Status</label>
+        <select id="f-status">
+          ${['aberta','fazendo','entregue'].map(s=>`<option value="${s}" ${d.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>`;
+}
+function abrirNovaDemanda(){ openModal('Nova demanda', formDemanda()); }
+function abrirEditarDemanda(i){ openModal('Editar demanda', formDemanda(clienteAtual.demandas[i])); }
+async function salvarDemanda(ev){
+  ev.preventDefault();
+  try{
+    await rpc('hub_rpc_salvar_demanda', { p: {
+      id: document.getElementById('f-id').value || undefined,
+      cliente_id: clienteAtual.cliente.id,
+      titulo: document.getElementById('f-titulo').value,
+      descricao: document.getElementById('f-descricao').value || null,
+      entrega_em: document.getElementById('f-entrega').value || null,
+      status: document.getElementById('f-status').value,
+    }});
+    closeModal(); toast('Demanda salva.');
+    renderCliente(clienteAtual.cliente.slug);
+  } catch(e){}
+  return false;
+}
+async function marcarDemandaEntregue(i){
+  const d = clienteAtual.demandas[i];
+  try{
+    await rpc('hub_rpc_salvar_demanda', { p: {
+      id: d.id, cliente_id: d.cliente_id, titulo: d.titulo,
+      descricao: d.descricao, entrega_em: d.entrega_em, status: 'entregue',
+    }});
+    toast('Demanda marcada como entregue.');
+    renderCliente(clienteAtual.cliente.slug);
+  } catch(e){}
+}
+function abrirApagarDemanda(i){
+  const d = clienteAtual.demandas[i];
+  openModal(`Apagar demanda — ${esc(d.titulo)}`, `
+    <p class="muted" style="margin-top:0;">Isso apaga a demanda de vez da lista. O registro do que existia fica guardado na auditoria.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarApagarDemanda('${d.id}')">Apagar</button>
+    </div>`);
+}
+async function confirmarApagarDemanda(id){
+  try{
+    await rpc('hub_rpc_apagar_demanda', { p_id: id });
+    closeModal(); toast('Demanda apagada.');
+    renderCliente(clienteAtual.cliente.slug);
+  } catch(e){}
 }
 
 // ---- contrato ----
@@ -1200,6 +1491,32 @@ async function salvarContrato(ev){
     renderCliente(slug);
   } catch(e){}
   return false;
+}
+
+// ---- apagar contrato (item 4 do Bloco 1.5 — RPC na migration 008) ----
+// Delete real: hub.contrato_itens cascateia (on delete cascade da 002) e o
+// trigger de auditoria grava o dados_antes inteiro antes de sumir.
+function abrirApagarContrato(i){
+  const item = clienteAtual.contratos[i];
+  const co = item.contrato;
+  const nItens = (item.itens || []).length;
+  openModal(`Apagar contrato — ${esc(clienteAtual.cliente.nome)}`, `
+    <p class="muted" style="margin-top:0;">
+      Isso apaga de vez o contrato ${co.numero ? '<b>nº ' + esc(co.numero) + '</b>' : '<b>sem número</b>'}
+      (${statusLabel(co.status)}${co.valor_mensal_centavos != null ? ' · ' + centavosToBRL(co.valor_mensal_centavos) : ''})${nItens ? ` e ${nItens === 1 ? 'o item dele' : 'os ' + nItens + ' itens dele'}` : ''}.
+      O que existia fica registrado na auditoria, mas o contrato some da ficha.
+    </p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarApagarContrato('${co.id}')">Apagar contrato</button>
+    </div>`);
+}
+async function confirmarApagarContrato(id){
+  try{
+    await rpc('hub_rpc_apagar_contrato', { p_id: id });
+    closeModal(); toast('Contrato apagado — rastro guardado na auditoria.');
+    renderCliente(clienteAtual.cliente.slug);
+  } catch(e){}
 }
 
 // ---- contato ----

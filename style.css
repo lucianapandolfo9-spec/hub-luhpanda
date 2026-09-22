@@ -277,6 +277,69 @@ h2.section-title{
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 @media(max-width:980px){.grid2,.grid3{grid-template-columns:1fr}}
 
+/* ---------- Preços & Serviços — cards (portado do mockup v2) ---------- */
+.gridcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:14px}
+.preco-card{background:var(--superficie);border:1px solid var(--borda);border-radius:14px;padding:17px 18px;
+  display:flex;flex-direction:column;gap:7px;transition:border-color .15s var(--ease);position:relative}
+.preco-card:hover{border-color:var(--borda-forte)}
+.preco-card .tipo{font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--fraco)}
+.preco-card .nome{font-weight:600;font-size:14px;letter-spacing:-.01em;padding-right:30px}
+.preco-card .valor{font-size:19px;font-weight:600;color:var(--laranja);font-variant-numeric:tabular-nums}
+.preco-card .inclui{font-size:12px;color:var(--suave);line-height:1.45}
+.preco-card .obs{font-size:11px;color:var(--fraco);border-top:1px solid var(--borda);padding-top:7px;margin-top:2px}
+.preco-card .edit{position:absolute;top:12px;right:12px}
+.preco-card.inativo{opacity:.55}
+.preco-card .selbox{position:absolute;top:14px;right:14px;width:18px;height:18px;accent-color:var(--laranja);cursor:pointer}
+.preco-card.selecionavel{cursor:pointer}
+.preco-card.selecionado{border-color:rgba(255,107,53,.6);box-shadow:0 0 0 1px rgba(255,107,53,.35)}
+
+/* ---------- apresentação (PDF client-side via diálogo de impressão) ---------- */
+.apres-overlay{
+  position:fixed;inset:0;z-index:70;overflow:auto;
+  background:rgba(6,2,10,.88);backdrop-filter:blur(3px);padding:28px 16px 60px;
+}
+.apres-toolbar{
+  max-width:800px;margin:0 auto 14px;display:flex;justify-content:flex-end;gap:8px;
+}
+.apres-page{
+  max-width:800px;margin:0 auto;background:#fff;color:#241430;border-radius:10px;
+  padding:46px 52px;font-size:14px;line-height:1.55;
+}
+.apres-page .apres-head{display:flex;align-items:center;gap:12px;border-bottom:2px solid #FF6B35;padding-bottom:16px;margin-bottom:8px}
+.apres-page .apres-logo{font-size:26px;line-height:1}
+.apres-page .apres-marca{font-size:19px;font-weight:700;letter-spacing:-.02em;color:#241430}
+.apres-page .apres-tag{font-size:12px;color:#7A6A88;margin-top:1px}
+.apres-page .apres-titulo{font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:#7A6A88;margin:18px 0 4px;font-family:var(--mono)}
+.apres-page .apres-item{border:1px solid #E7DFEE;border-radius:10px;padding:15px 18px;margin-top:12px;break-inside:avoid;page-break-inside:avoid}
+.apres-page .apres-item .tipo{font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:#9B8AA9}
+.apres-page .apres-item .nome{font-weight:700;font-size:15px;margin:2px 0}
+.apres-page .apres-item .valor{font-size:18px;font-weight:700;color:#E24E14;font-variant-numeric:tabular-nums;margin-bottom:4px}
+.apres-page .apres-item .inclui{font-size:12.5px;color:#5A4A68}
+.apres-page .apres-foot{
+  border-top:1px solid #E7DFEE;margin-top:26px;padding-top:14px;
+  font-size:12px;color:#7A6A88;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;
+}
+.apres-page .apres-foot b{color:#241430}
+
+@media print{
+  body.apres-print-mode{background:#fff !important}
+  body.apres-print-mode #root{display:none !important}
+  body.apres-print-mode .apres-toolbar{display:none !important}
+  body.apres-print-mode .apres-overlay{
+    position:static !important;background:#fff !important;backdrop-filter:none !important;
+    padding:0 !important;overflow:visible !important;
+  }
+  body.apres-print-mode .apres-page{
+    max-width:none !important;border-radius:0 !important;padding:0 !important;margin:0 !important;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+  }
+  body.apres-print-mode .toast{display:none !important}
+}
+@page{margin:16mm 14mm}
+@media (max-width:600px){
+  .apres-page{padding:26px 22px}
+}
+
 /* ---------- responsivo ---------- */
 @media (max-width:760px){
   .wrap{padding:20px 14px 60px}

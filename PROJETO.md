@@ -121,6 +121,36 @@ do cliente, domínio próprio, Meetily→escopo→preço, importar Out-Dez. Ver 
 (Artifact do fluxograma) para o roadmap inteiro. Próximo passo natural: grill-me do módulo
 Comercial, a partir do Canvas dela.
 
+## Fase 3, Bloco 1.5 — ajustes da revisão dela (21/09/2026)
+
+Seis ajustes pedidos depois do Bloco A no ar (detalhe no plano
+`~/.claude/plans/users-luhpanda-quero-q-puxe-shimmying-grove.md`, seção A2):
+
+1. **Dash** — visão padrão voltou a ser "Receita por mês" (chip **Ano**, série `por_mes`
+   do `hub_rpc_dash` que já existia — sem RPC nova); os chips 7 dias/30 dias/Mês/
+   Personalizado continuam.
+2. **Clientes arquiváveis** — "Arquivar" na ficha (→ `status='encerrado'` + `saiu_em` +
+   motivo opcional), toggle Ativos/Arquivados na Carteira, "Reativar" reverte. Nunca
+   DELETE; usa colunas/CHECK que já existiam. De quebra, corrigido bug latente: salvar a
+   ficha não apaga mais `razao_social`/`documento`/`origem`/`entrou_em` (o upsert
+   sobrescreve tudo — agora tem passthrough).
+3. **Demandas por cliente** — `migrations/007_demandas.sql` (tabela `hub.demandas` +
+   3 RPCs no padrão), seção "Demandas" na ficha com data de entrega, flag 🔴 atrasada,
+   criar/editar/apagar/marcar entregue.
+4. **Contrato apagável** — `migrations/008_apagar_contrato.sql` (`rpc_apagar_contrato`,
+   delete real; itens cascateiam e auditoria guarda o `dados_antes`), botão "Apagar"
+   com modal de confirmação na ficha.
+5. **Preços & Serviços** — `#/catalogo` virou grid de cards do mockup v2 (badge
+   MENSAL/ÚNICO derivado da modalidade, preço laranja, "inclui", observação, lápis);
+   campo "Inclui" entrou no formulário de serviço; rótulo renomeado (rota intocada).
+6. **PDF de apresentação** — "Montar apresentação" entra em modo seleção → "Gerar
+   PDF (N)" abre página branca com marca/contato + só os serviços marcados →
+   `window.print()` (100% client-side, `@media print` esconde o app inteiro).
+
+⚠️ **Migrations 007/008 nasceram como rascunho não aplicado** (sessão sem Supabase MCP,
+mesmo caso da 006 no Bloco A). O front degrada com aviso amigável até aplicarem. Checklist
+de aplicação no cabeçalho de cada arquivo.
+
 ## Convenções
 
 - Dinheiro sempre em **centavos** (`bigint`), nunca `numeric`/`float`.
