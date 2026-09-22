@@ -1887,11 +1887,16 @@ async function confirmarConverterProspect(ev){
 // editor de config) — desenhado no design system das telas #/custos e
 // #/catalogo. O bot (HUB — Cobrança Automática) segue INATIVO nesta rodada
 // — "Últimos envios" fica vazio até D19/D20 ligarem de verdade.
+//
+// Vencimento e WhatsApp aparecem ao vivo do contrato ativo / contato
+// principal do cliente (mesma fonte que o bot usa) — não são editáveis
+// aqui, só em Contratos/ficha do cliente. "Últimos envios" lê o log real
+// (hub.cobranca_envios, por recebível+bucket) que o bot já escreve.
 // ============================================================
 let cobrancaConfigCache = [];
 let cobrancaMensagensCache = [];
 let cobrancaEnviosCache = [];
-const ETAPA_LABEL = {'d-3':'D-3 · 3 dias antes','d0':'D0 · dia do vencimento','d+2':'D+2 · 2 dias de atraso','d+7':'D+7 · último aviso'};
+const ETAPA_LABEL = {'d_menos_3':'D-3 · 3 dias antes','d0':'D0 · dia do vencimento','d_mais_2':'D+2 · 2 dias de atraso','d_mais_7':'D+7 · último aviso','escalado':'Escalado · avisou você'};
 
 async function renderCobrancas(){
   root.innerHTML = shell('cobrancas', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
@@ -1928,8 +1933,7 @@ function desenharCobrancas(){
     </div>`).join('');
 
   const envios = cobrancaEnviosCache.length ? cobrancaEnviosCache.map(e => {
-    const cli = (carteira.find(c=>c.cliente_id===e.cliente_id)||{}).nome || 'Cliente';
-    return `<div class="rowcard"><div class="l"><div class="t">${esc(cli)}</div><div class="s">${esc(ETAPA_LABEL[e.etapa]||e.etapa)} · ${formatDateBR(e.enviado_em.slice(0,10))}</div></div><div class="r"><span class="badge ${e.status==='enviado'?'badge-ok':'badge-bad'}">${esc(e.status)}</span></div></div>`;
+    return `<div class="rowcard"><div class="l"><div class="t">${esc(e.cliente_nome)}</div><div class="s">${esc(ETAPA_LABEL[e.etapa]||e.etapa)} · ${formatDateBR(e.enviado_em.slice(0,10))}</div></div><div class="r"><span class="badge badge-ok">enviado</span></div></div>`;
   }).join('') : `<div class="muted">Nenhum envio ainda — o bot está inativo (falta chip dedicado + disparo assistido, ver Hub Dev.md).</div>`;
 
   root.innerHTML = shell('cobrancas', `
@@ -1967,8 +1971,8 @@ function formCobrancaConfig(c){
           <option value="mp_link" ${c.metodo==='mp_link'?'selected':''}>Link Mercado Pago</option>
         </select>
       </div>
-      <div class="field"><label>Dia de vencimento</label><input id="f-dia" type="number" min="1" max="28" value="${c.dia_vencimento||''}"></div>
-      <div class="field"><label>WhatsApp (formato 55DDDNÚMERO)</label><input id="f-whatsapp" value="${esc(c.whatsapp_e164||'')}" placeholder="5584999998888"></div>
+      <div class="field"><label>Vencimento</label><div class="muted">${c.dia_vencimento ? 'dia '+c.dia_vencimento+' — vem do contrato ativo' : 'sem contrato ativo com vencimento — edite em Contratos'}</div></div>
+      <div class="field"><label>WhatsApp</label><div class="muted">${c.whatsapp_e164 ? esc(c.whatsapp_e164)+' — vem do contato principal' : 'sem WhatsApp cadastrado — edite na ficha do cliente'}</div></div>
       <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-ativo" ${c.config_id ? (c.ativo?'checked':'') : 'checked'}> <label for="f-ativo">Ativo na régua</label></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
@@ -1985,8 +1989,6 @@ async function salvarCobrancaConfig(ev){
     await rpc('hub_rpc_salvar_cobranca_config', { p: {
       cliente_id: document.getElementById('f-cliente-id').value,
       metodo: document.getElementById('f-metodo').value,
-      dia_vencimento: document.getElementById('f-dia').value || null,
-      whatsapp_e164: document.getElementById('f-whatsapp').value || null,
       ativo: document.getElementById('f-ativo').checked,
     }});
     closeModal(); toast('Configuração de cobrança salva.');
