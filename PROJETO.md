@@ -27,6 +27,13 @@ Projeto Supabase **`arroba-certa`** (`tscnqvuzlfagotirgjbz`) — o mesmo do Cert
 aprovi.ai. **Schema isolado `hub`**, ao lado de `public` (Certo Agro) e `posta_ai` (aprovi.ai).
 Nunca tocar nos outros dois schemas a partir daqui.
 
+🔜 **Plano em aberto (anunciado 22/09/2026):** a Luciana vai pagar um projeto Supabase
+dedicado só pro Hub — esse compartilhamento com Certo Agro/aprovi.ai é temporário, não o
+desenho final (o Hub nasceu pra virar produto vendável/clonável). Ainda não aconteceu.
+Passo a passo da migração (criar projeto → portar schema `hub` → migrar dados reais →
+trocar chave no `config.js`/`index.html` → verificar logada → só então desligar o schema
+velho) documentado na skill `hubluhpanda`.
+
 ### Por que dividir em `hub.*` + wrappers em `public.*`
 
 O schema `hub` não é exposto ao PostgREST — nenhuma tabela é alcançável direto pela API,
