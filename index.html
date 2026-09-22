@@ -858,9 +858,15 @@ async function renderFinanceiro(){
   const totalVencido = rows.filter(r=>r.status==='vencido').reduce((s,r)=>s+Number(r.falta_centavos),0);
   const clientesPagos = rows.filter(r=>r.status==='pago').length;
 
-  const rowsHtml = rows.map((r,i) => `
+  // Bloco 1.6, item 2: separar em "Mensalidade" (origem='contrato') e
+  // "Extras do mês" (qualquer outra origem) — formato do mockup
+  // (vRecebiveis, mockup-v2-frontend.html:776-809). Mantém o índice
+  // original em financeiroCache (não o índice dentro do grupo filtrado)
+  // pra abrirMarcarPago/abrirDesmarcarPago/abrirEditarRecebivel/abrirApagarRecebivel
+  // continuarem batendo com financeiroCache[i].
+  const linha = (r,i) => `
     <tr>
-      <td data-label="Cliente" onclick="location.hash='#/cliente/${esc(r.cliente_slug)}'" style="cursor:pointer;"><b>${esc(r.cliente_nome)}</b></td>
+      <td data-label="Cliente" onclick="location.hash='#/cliente/${esc(r.cliente_slug)}'" style="cursor:pointer;"><b>${esc(r.cliente_nome)}</b>${r.origem && r.origem!=='contrato' ? ' <span class="badge badge-roxo">extra</span>' : ''}</td>
       <td data-label="Descrição" class="muted">${esc(r.descricao)}</td>
       <td data-label="Valor" class="money">${centavosToBRL(r.valor_centavos)}</td>
       <td data-label="Falta" class="money">${centavosToBRL(r.falta_centavos)}</td>
@@ -871,10 +877,15 @@ async function renderFinanceiro(){
           ${r.falta_centavos>0 ? `<button class="btn btn-sm btn-primary" onclick="abrirMarcarPago(${i})">Marcar pago</button>` : ''}
           ${r.entrada_centavos>0 ? `<button class="btn btn-sm btn-outline" onclick="abrirDesmarcarPago(${i})">Desmarcar</button>` : ''}
           <button class="btn btn-sm btn-outline" onclick="abrirEditarRecebivel(${i})">Editar</button>
+          <button class="btn btn-sm btn-danger" onclick="abrirApagarRecebivel(${i})">Apagar</button>
         </div>
       </td>
     </tr>
-  `).join('');
+  `;
+  const idxMensalidade = [], idxExtras = [];
+  rows.forEach((r,i) => (r.origem === 'contrato' ? idxMensalidade : idxExtras).push(i));
+  const mensalidadeHtml = idxMensalidade.map(i => linha(rows[i], i)).join('');
+  const extrasHtml = idxExtras.map(i => linha(rows[i], i)).join('');
 
   root.innerHTML = shell('financeiro', `
     <div class="row-between" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
@@ -912,10 +923,17 @@ async function renderFinanceiro(){
         <div class="value">${clientesPagos}/${rows.length}</div>
       </div>
     </div>
+    <p class="eyebrow" style="color:var(--fraco);">Mensalidade</p>
     <div class="tablewrap">
       <table>
         <thead><tr><th>Cliente</th><th>Descrição</th><th style="text-align:right">Valor</th><th style="text-align:right">Falta</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
-        <tbody>${rowsHtml || `<tr><td colspan="7" class="empty">Nenhum recebível nesse mês.</td></tr>`}</tbody>
+        <tbody>${mensalidadeHtml || `<tr><td colspan="7" class="empty">Nenhuma mensalidade nesse mês.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <p class="eyebrow" style="color:var(--fraco);margin-top:22px;">Extras do mês — freelas, aulas e comissões</p>
+    <div class="tablewrap">
+      <table>
+        <tbody>${extrasHtml || `<tr><td class="empty">Nenhum extra.</td></tr>`}</tbody>
       </table>
     </div>
   `);
@@ -962,6 +980,28 @@ async function confirmarDesmarcarPago(id){
   try{
     await rpc('hub_rpc_desmarcar_pago', { p_id: id });
     closeModal(); toast('Pagamento desmarcado — recebível voltou pra pendente.'); renderFinanceiro();
+  } catch(e){}
+}
+
+// ---- apagar recebível (Bloco 1.6, item 1 — RPC na migration 009) ----
+// Delete real: o trigger de auditoria já existente em hub.recebiveis
+// (trg_recebiveis_auditoria) grava o dados_antes inteiro antes de sumir.
+function abrirApagarRecebivel(i){
+  const r = financeiroCache[i];
+  openModal(`Apagar recebível — ${esc(r.cliente_nome)}`, `
+    <p class="muted" style="margin-top:0;">
+      Isso apaga de vez o recebível <b>${esc(r.descricao)}</b> (${centavosToBRL(r.valor_centavos)}) de ${monthLabel(financeiroCompetencia)}/${financeiroCompetencia.slice(0,4)}.
+      Fica registrado na auditoria, mas some dessa lista.
+    </p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarApagarRecebivel('${r.id}')">Apagar</button>
+    </div>`);
+}
+async function confirmarApagarRecebivel(id){
+  try{
+    await rpc('hub_rpc_apagar_recebivel', { p_id: id });
+    closeModal(); toast('Recebível apagado — rastro guardado na auditoria.'); renderFinanceiro();
   } catch(e){}
 }
 
