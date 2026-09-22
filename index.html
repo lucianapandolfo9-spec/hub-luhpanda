@@ -125,7 +125,7 @@ async function init(){
 
 function renderLogin(){
   root.innerHTML = `
-  <div class="topbar"><div class="brandmark"><span class="dot"></span> Hub <span class="muted">Luh Panda</span></div></div>
+  <div class="topbar"><div class="brandmark"><span class="dot">🐼</span> Hub <span class="muted">Luh Panda</span></div></div>
   <div class="login-box card">
     <h2 style="margin-top:0;">Entrar</h2>
     <p class="muted">Link mágico direto pro seu e-mail.</p>
@@ -151,7 +151,7 @@ async function logout(){ await hubClient.auth.signOut(); render(); }
 
 function renderAcessoNegado(){
   root.innerHTML = `
-  <div class="topbar"><div class="brandmark"><span class="dot"></span> Hub <span class="muted">Luh Panda</span></div></div>
+  <div class="topbar"><div class="brandmark"><span class="dot">🐼</span> Hub <span class="muted">Luh Panda</span></div></div>
   <div class="wrap">
     <div class="card" style="max-width:480px;margin:60px auto;text-align:center;">
       <h2>Acesso negado</h2>
@@ -162,30 +162,104 @@ function renderAcessoNegado(){
 }
 
 // ============================================================
+// ÍCONES (SVG inline, estilo linha — sem depender de nada externo)
+// ============================================================
+const NAV_ICONS = {
+  dash: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>`,
+  carteira: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4.2 3.4-7 7.5-7s7.5 2.8 7.5 7"/></svg>`,
+  financeiro: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2.5" x2="12" y2="21.5"/><path d="M16.5 6.8c0-1.8-2-3-4.5-3s-4.5 1.3-4.5 3.1c0 3.9 9 1.9 9 5.9 0 2-2 3.2-4.5 3.2S7 14.8 7 12.9"/></svg>`,
+  custos: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="12" width="4" height="8" rx="1"/><rect x="10" y="7" width="4" height="13" rx="1"/><rect x="16" y="3" width="4" height="17" rx="1"/></svg>`,
+  catalogo: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="3.2" width="3.2" height="3.2" rx="0.8"/><line x1="9.2" y1="4.8" x2="20.8" y2="4.8"/><rect x="3.2" y="10.4" width="3.2" height="3.2" rx="0.8"/><line x1="9.2" y1="12" x2="20.8" y2="12"/><rect x="3.2" y="17.6" width="3.2" height="3.2" rx="0.8"/><line x1="9.2" y1="19.2" x2="20.8" y2="19.2"/></svg>`,
+  cobr: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3.2 1.9"/><path d="M17 3.5l4 1-1 4"/></svg>`,
+  crm: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.4"/><rect x="10" y="4" width="5" height="11" rx="1.4"/><rect x="17" y="4" width="4" height="7" rx="1.4"/></svg>`,
+  contratos: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8.5 14.5l2 2 4-4.5"/></svg>`,
+  reunioes: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.4"/><path d="M15.5 10.5l6-3.5v10l-6-3.5"/></svg>`,
+  posts: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><circle cx="12" cy="12" r="4"/><line x1="17.2" y1="6.8" x2="17.2" y2="6.8" stroke-width="2.6"/></svg>`,
+  trafego: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-7 4 4 7-8.5"/><path d="M15 5.5h5v5"/></svg>`,
+  criacao: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+  dev: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6l-6 6 6 6"/><path d="M16 6l6 6-6 6"/></svg>`,
+};
+const KPI_ICONS = {
+  calendar: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="2.2"/><line x1="3.5" y1="10" x2="20.5" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>`,
+  check: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.6 2.6L16.2 9"/></svg>`,
+  warn: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l9.5 16.5H2.5L12 3.5z"/><line x1="12" y1="9.5" x2="12" y2="14"/><line x1="12" y1="16.6" x2="12" y2="16.6" stroke-width="2.6"/></svg>`,
+  clock: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.3l3.6 2.1"/></svg>`,
+  userCheck: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="8" r="3.2"/><path d="M3.5 20c0-3.7 2.9-6.1 6-6.1s6 2.4 6 6.1"/><path d="M16.5 12.5l1.7 1.7 3-3.4"/></svg>`,
+  wallet: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5A2.5 2.5 0 0 1 6 5h11a2 2 0 0 1 2 2v1.5"/><rect x="3.5" y="7.5" width="17" height="12" rx="2.3"/><line x1="15.2" y1="13.9" x2="15.2" y2="13.9" stroke-width="2.6"/></svg>`,
+  briefcase: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7.5" width="18" height="12" rx="2"/><path d="M8.5 7.5V5.8A1.8 1.8 0 0 1 10.3 4h3.4a1.8 1.8 0 0 1 1.8 1.8V7.5"/><line x1="3" y1="12.5" x2="21" y2="12.5"/></svg>`,
+  user: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c0-4.2 3.4-7 7.5-7s7.5 2.8 7.5 7"/></svg>`,
+};
+
+// ============================================================
 // SHELL
 // ============================================================
+// Grupos de navegação — sidebar completa aprovada no mockup v2 (21/09/2026),
+// mapeando os 3 setores do Canvas + Dev. Hoje só "Financeiro" tem tela de
+// verdade; os demais itens ficam marcados "em breve" e levam pra uma tela
+// de placeholder até a fase deles ser construída (ver Etapas B/C do plano).
+const NAV_GROUPS = [
+  { label: 'Financeiro', items: [
+    ['dash','Visão geral', NAV_ICONS.dash, true],
+    ['financeiro','Recebíveis', NAV_ICONS.financeiro, true],
+    ['carteira','Carteira', NAV_ICONS.carteira, true],
+    ['custos','Custos', NAV_ICONS.custos, true],
+    ['catalogo','Catálogo', NAV_ICONS.catalogo, true],
+    ['cobrancas','Cobranças', NAV_ICONS.cobr, false],
+  ]},
+  { label: 'Comercial', items: [
+    ['crm','CRM', NAV_ICONS.crm, false],
+    ['contratos','Contratos', NAV_ICONS.contratos, false],
+    ['reunioes','Reuniões', NAV_ICONS.reunioes, false],
+  ]},
+  { label: 'Marketing', items: [
+    ['posts','Posts', NAV_ICONS.posts, false],
+    ['trafego','Tráfego', NAV_ICONS.trafego, false],
+    ['criacao','Criação', NAV_ICONS.criacao, false],
+  ]},
+  { label: 'Dev', items: [
+    ['dev','Sistemas', NAV_ICONS.dev, false],
+  ]},
+];
+// mapa rápido pra descobrir o rótulo de uma rota placeholder
+const NAV_LABELS = {};
+NAV_GROUPS.forEach(g => g.items.forEach(([p,l]) => { NAV_LABELS[p] = l; }));
+
 function shell(activePage, bodyHtml){
-  const tabs = [
-    ['dash','Dash'],
-    ['carteira','Carteira'],
-    ['financeiro','Financeiro'],
-    ['custos','Custos'],
-    ['catalogo','Catálogo'],
-  ];
   return `
-  <div class="topbar">
-    <div class="row" style="gap:22px;">
-      <div class="brandmark"><span class="dot"></span> Hub <span class="muted">Luh Panda</span></div>
-      <div class="tabs">
-        ${tabs.map(([p,l]) => `<div class="tab ${p===activePage?'active':''}" onclick="location.hash='#/${p}'">${l}</div>`).join('')}
+  <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+  <div class="app-shell">
+    <nav class="sidebar">
+      <div class="brandmark"><span class="dot">🐼</span> Hub <span class="muted">Luh Panda</span></div>
+      <div class="sidebar-nav">
+        ${NAV_GROUPS.map(g => `
+          <div class="nav-group">
+            <div class="nav-group-label">${esc(g.label)}</div>
+            ${g.items.map(([p,l,ic,pronto]) => `
+              <div class="nav-item ${p===activePage?'active':''} ${pronto?'':'soon'}" onclick="location.hash='#/${p}'">
+                <span class="nav-icon">${ic}</span><span class="nav-label">${l}</span>
+                ${pronto?'':'<span class="nav-soon-tag">em breve</span>'}
+              </div>`).join('')}
+          </div>`).join('')}
       </div>
+      <div class="sidebar-footer">
+        <span class="email muted">${esc(session.user.email)}</span>
+        <button class="btn btn-outline btn-sm" onclick="logout()">Sair</button>
+      </div>
+    </nav>
+    <div class="wrap">${bodyHtml}</div>
+  </div>`;
+}
+
+// ---------- placeholder pras telas ainda não construídas ----------
+function renderEmConstrucao(pageKey){
+  const label = NAV_LABELS[pageKey] || pageKey;
+  root.innerHTML = shell(pageKey, `
+    <h2 class="section-title">${esc(label)}</h2>
+    <div class="card" style="text-align:center;padding:60px 20px;">
+      <p class="muted" style="margin:0;">Em construção — próxima fase do hub.</p>
+      <p class="dim" style="font-size:12px;margin:8px 0 0;">Desenho já fechado no plano de evolução (Etapas B/C) — entra assim que a base de dados dessa frente for pra produção.</p>
     </div>
-    <div class="row">
-      <span class="muted">${esc(session.user.email)}</span>
-      <button class="btn btn-outline btn-sm" onclick="logout()">Sair</button>
-    </div>
-  </div>
-  <div class="wrap">${bodyHtml}</div>`;
+  `);
 }
 
 // ============================================================
@@ -196,62 +270,90 @@ async function loadCarteiraCache(){
   return carteira;
 }
 
+// Medidor do teto MEI — SEMPRE visível, independe do filtro de período do
+// dash (é um acumulado do ano corrente). Faixas: verde até ~70%, amarelo a
+// partir de ~85%, vermelho perto/em 100%. Acima de R$ 97.200 (120% do teto)
+// o desenquadramento do MEI é RETROATIVO, com multa e juros — guarda
+// financeira real, registrada no CLAUDE.md dela.
+const MEI_LIMITE_RETROATIVO_CENTAVOS = 9720000; // R$ 97.200 = 120% de R$ 81.000
 function velocimetroMEI(v){
   const entrado = Number(v.entrado_ano_centavos||0);
-  const teto = Number(v.teto_centavos||8100000);
-  const pct = Math.min((entrado/teto)*100, 100);
-  const cls = entrado >= teto ? 'bad' : (pct >= 80 ? 'warn' : '');
+  const teto = Number(v.teto_centavos||8100000); // R$ 81.000
+  const pctReal = (entrado/teto)*100;
+  const pct = Math.min(pctReal, 100);
+  const acimaRetroativo = entrado >= MEI_LIMITE_RETROATIVO_CENTAVOS;
+
+  let cls = 'ok', msg = '';
+  if(acimaRetroativo || entrado >= teto){
+    cls = 'bad';
+    msg = acimaRetroativo
+      ? '🔴 Passou de R$ 97.200 — o desenquadramento do MEI já é retroativo (multa e juros).'
+      : '🔴 Teto de R$ 81.000 atingido — qualquer centavo a mais aproxima do limite retroativo.';
+  } else if(pctReal >= 85){
+    cls = 'warn';
+    msg = '🟡 Perto do teto — hora de planejar mudança de enquadramento.';
+  } else if(pctReal >= 70){
+    cls = 'warn';
+    msg = '🟡 Passou de 70% do teto — de olho no ritmo dos próximos meses.';
+  }
+
   return `
   <div class="card">
     <div class="row-between">
-      <div class="label" style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);">Teto MEI — ${new Date().getFullYear()}</div>
+      <div class="label" style="font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--fraco);">Teto MEI — ${new Date().getFullYear()}</div>
       <div class="muted" style="font-size:12.5px;">${centavosToBRL(entrado)} de ${centavosToBRL(teto)}</div>
     </div>
     <div class="veloc">
       <div class="veloc-track"><div class="veloc-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
-      <div class="veloc-labels"><span>0</span><span>${pct.toFixed(0)}%</span><span>R$ 81.000</span></div>
+      <div class="veloc-labels"><span>0</span><span>${pctReal.toFixed(0)}%</span><span>R$ 81.000</span></div>
     </div>
+    ${msg ? `<div class="veloc-msg ${cls}">${msg}</div>` : ''}
+    <div class="veloc-nota">Acima de <b>R$ 97.200</b> (120% do teto) o desenquadramento do MEI é retroativo — multa e juros sobre o período todo, não só sobre o excedente.</div>
   </div>`;
 }
 
-function chartReceitaPorMes(porMes){
-  if(!porMes.length) return `<div class="empty">Sem dados ainda.</div>`;
+// Gráfico de receita por período — aceita uma série genérica de buckets
+// {rotulo, previsto_centavos, entrado_centavos}. Usado pelo filtro de
+// período do dash (7d/30d/mês/personalizado), que decide a granularidade.
+function chartReceitaPeriodo(serie){
+  if(!serie.length) return `<div class="empty">Sem dados nesse período.</div>`;
   const W = 640, H = 220, padL = 8, padR = 8, padT = 24, padB = 34;
   const plotW = W - padL - padR, plotH = H - padT - padB;
-  const maxVal = Math.max(...porMes.map(m => Math.max(m.previsto_centavos||0, m.entrado_centavos||0)), 1) * 1.15;
-  const n = porMes.length;
+  const maxVal = Math.max(...serie.map(m => Math.max(m.previsto_centavos||0, m.entrado_centavos||0)), 1) * 1.15;
+  const n = serie.length;
   const slot = plotW / n;
   const barW = Math.min(28, slot * 0.42);
 
-  const bars = porMes.map((m, i) => {
+  const bars = serie.map((m, i) => {
     const cx = padL + slot * i + slot/2;
     const entradoH = (Number(m.entrado_centavos||0)/maxVal) * plotH;
     const previstoY = padT + plotH - (Number(m.previsto_centavos||0)/maxVal) * plotH;
     const barY = padT + plotH - entradoH;
     const label = centavosCompact(m.entrado_centavos);
+    const mostraLabel = n <= 20 && entradoH > 16;
     return `
       <g>
         <rect x="${(cx-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(entradoH,1).toFixed(1)}"
-          rx="4" fill="var(--blue)">
-          <title>${monthLabel(m.competencia)}: entrou ${centavosToBRL(m.entrado_centavos)} de ${centavosToBRL(m.previsto_centavos)} previsto</title>
+          rx="4" fill="var(--laranja)">
+          <title>${esc(m.rotulo)}: entrou ${centavosToBRL(m.entrado_centavos)} de ${centavosToBRL(m.previsto_centavos)} previsto</title>
         </rect>
         <line x1="${(cx-barW/2-3).toFixed(1)}" y1="${previstoY.toFixed(1)}" x2="${(cx+barW/2+3).toFixed(1)}" y2="${previstoY.toFixed(1)}"
-          stroke="var(--muted)" stroke-width="2" stroke-dasharray="3,3">
+          stroke="var(--fraco)" stroke-width="2" stroke-dasharray="3,3">
           <title>Previsto: ${centavosToBRL(m.previsto_centavos)}</title>
         </line>
-        ${entradoH > 16 ? `<text x="${cx.toFixed(1)}" y="${(barY-6).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--text)" font-weight="600">${label}</text>` : ''}
-        <text x="${cx.toFixed(1)}" y="${H-12}" text-anchor="middle" font-size="11" fill="var(--muted)">${monthLabel(m.competencia)}</text>
+        ${mostraLabel ? `<text x="${cx.toFixed(1)}" y="${(barY-6).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--texto)" font-weight="600">${label}</text>` : ''}
+        ${n <= 31 ? `<text x="${cx.toFixed(1)}" y="${H-12}" text-anchor="middle" font-size="10.5" fill="var(--fraco)">${esc(m.rotulo)}</text>` : ''}
       </g>`;
   }).join('');
 
   const gridlines = [0,0.25,0.5,0.75,1].map(f => {
     const y = padT + plotH * (1-f);
-    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+    return `<line x1="${padL}" y1="${y.toFixed(1)}" x2="${W-padR}" y2="${y.toFixed(1)}" stroke="var(--borda)" stroke-width="1"/>`;
   }).join('');
 
-  const tableRows = porMes.map(m => `
+  const tableRows = serie.map(m => `
     <tr>
-      <td data-label="Mês">${monthLabel(m.competencia)}</td>
+      <td data-label="Período">${esc(m.rotulo)}</td>
       <td data-label="Previsto" class="money">${centavosToBRL(m.previsto_centavos)}</td>
       <td data-label="Entrou" class="money">${centavosToBRL(m.entrado_centavos)}</td>
     </tr>`).join('');
@@ -265,25 +367,135 @@ function chartReceitaPorMes(porMes){
     </div>
     <div class="chart-caption">
       <span class="key"><span class="swatch bar"></span> Quanto entrou</span>
-      <span class="key"><span class="swatch target"></span> Previsto no mês</span>
+      <span class="key"><span class="swatch target"></span> Previsto no período</span>
     </div>
     <button class="chart-toggle" onclick="this.nextElementSibling.classList.toggle('open')">ver como tabela ▾</button>
     <div class="chart-table tablewrap">
-      <table><thead><tr><th>Mês</th><th>Previsto</th><th>Entrou</th></tr></thead><tbody>${tableRows}</tbody></table>
+      <table><thead><tr><th>Período</th><th>Previsto</th><th>Entrou</th></tr></thead><tbody>${tableRows}</tbody></table>
+    </div>`;
+}
+
+// ---------- filtro de período do dash ----------
+// modo: '7d' | '30d' | 'mes' | 'personalizado'
+let dashFiltro = { modo: 'mes', mes: todayISO().slice(0,7) + '-01', desde: null, ate: null };
+let dashCacheGlobal = null; // hub_rpc_dash() — MEI/custos/alertas, sempre não-filtrado
+
+function addMeses(iso, n){
+  const [y,m] = iso.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m-1+n, 1));
+  return d.toISOString().slice(0,10);
+}
+function diasAtras(n){
+  const d = new Date(todayISO()+'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate()+n);
+  return d.toISOString().slice(0,10);
+}
+function fimDoMes(iso){
+  const [y,m] = iso.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m, 0)); // dia 0 do mês seguinte = último dia do mês atual
+  return d.toISOString().slice(0,10);
+}
+function periodoAtual(){
+  if(dashFiltro.modo === '7d')  return { desde: diasAtras(-6),  ate: todayISO() };
+  if(dashFiltro.modo === '30d') return { desde: diasAtras(-29), ate: todayISO() };
+  if(dashFiltro.modo === 'personalizado' && dashFiltro.desde && dashFiltro.ate)
+    return { desde: dashFiltro.desde, ate: dashFiltro.ate };
+  // 'mes' (padrão) — ou fallback se personalizado ainda não foi preenchido
+  return { desde: dashFiltro.mes, ate: fimDoMes(dashFiltro.mes) };
+}
+function rotuloPeriodo(){
+  if(dashFiltro.modo === '7d') return 'Últimos 7 dias';
+  if(dashFiltro.modo === '30d') return 'Últimos 30 dias';
+  if(dashFiltro.modo === 'personalizado' && dashFiltro.desde && dashFiltro.ate)
+    return `${formatDateBR(dashFiltro.desde)} — ${formatDateBR(dashFiltro.ate)}`;
+  return monthLabel(dashFiltro.mes) + '/' + dashFiltro.mes.slice(0,4);
+}
+function setFiltroDash(modo){
+  dashFiltro.modo = modo;
+  renderDashBody();
+}
+function mudarMesDash(delta){
+  dashFiltro.modo = 'mes';
+  dashFiltro.mes = addMeses(dashFiltro.mes, delta);
+  renderDashBody();
+}
+function aplicarPeriodoPersonalizado(){
+  const desde = document.getElementById('f-periodo-desde').value;
+  const ate = document.getElementById('f-periodo-ate').value;
+  if(!desde || !ate || desde > ate){ toast('Escolhe um intervalo válido.'); return; }
+  dashFiltro.modo = 'personalizado';
+  dashFiltro.desde = desde; dashFiltro.ate = ate;
+  renderDashBody();
+}
+
+function chipsPeriodo(){
+  const chip = (modo, label) => `<button class="chip ${dashFiltro.modo===modo?'on':''}" onclick="setFiltroDash('${modo}')">${label}</button>`;
+  const navMes = dashFiltro.modo === 'mes' ? `
+    <span class="chip-nav">
+      <button class="btn btn-ico" title="Mês anterior" onclick="mudarMesDash(-1)">‹</button>
+      <button class="chip on" style="cursor:default;">${monthLabel(dashFiltro.mes)}/${dashFiltro.mes.slice(0,4)}</button>
+      <button class="btn btn-ico" title="Mês seguinte" onclick="mudarMesDash(1)">›</button>
+    </span>` : chip('mes', 'Mês a mês');
+  return `
+    <div class="chips">
+      ${chip('7d','7 dias')}
+      ${chip('30d','30 dias')}
+      ${navMes}
+      <button class="chip ${dashFiltro.modo==='personalizado'?'on':''}" onclick="abrirPeriodoPersonalizado()">Personalizado</button>
+    </div>
+    <div id="periodo-custom-box"></div>`;
+}
+function abrirPeriodoPersonalizado(){
+  const box = document.getElementById('periodo-custom-box');
+  if(!box) return;
+  const d = dashFiltro.desde || todayISO();
+  const a = dashFiltro.ate || todayISO();
+  box.innerHTML = `
+    <div class="card" style="margin-bottom:16px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+      <div class="field" style="margin:0;"><label>De</label><input type="date" id="f-periodo-desde" value="${d}"></div>
+      <div class="field" style="margin:0;"><label>Até</label><input type="date" id="f-periodo-ate" value="${a}"></div>
+      <button class="btn btn-primary btn-sm" onclick="aplicarPeriodoPersonalizado()">Aplicar</button>
     </div>`;
 }
 
 async function renderDash(){
   root.innerHTML = shell('dash', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
-  let dash;
-  try { dash = await rpc('hub_rpc_dash'); }
+  try { dashCacheGlobal = await rpc('hub_rpc_dash'); }
   catch(e){ root.innerHTML = shell('dash', `<div class="empty">Não consegui carregar o dash.</div>`); return; }
+  await renderDashBody();
+}
 
-  const mesAtual = dash.hoje.slice(0,7) + '-01';
-  const doMes = (dash.por_mes || []).find(m => m.competencia === mesAtual) || {previsto_centavos:0, entrado_centavos:0};
-  const falta = Number(doMes.previsto_centavos||0) - Number(doMes.entrado_centavos||0);
+async function renderDashBody(){
+  const { desde, ate } = periodoAtual();
+  root.innerHTML = shell('dash', `
+    ${chipsPeriodo()}
+    <div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>
+  `);
+
+  const dash = dashCacheGlobal || {};
   const vencidos = dash.vencidos_hoje_ou_antes || [];
   const semVenc = dash.sem_vencimento || [];
+
+  let periodo;
+  try {
+    // chamada direta (sem o wrapper rpc()) — se a migration 006 ainda não foi
+    // aplicada, isso falha silenciosamente e cai no fallback abaixo, sem
+    // empurrar o erro cru do Postgres pra ela em toast a cada visita ao dash.
+    const { data, error } = await hubClient.rpc('hub_rpc_dash_periodo', { p_desde: desde, p_ate: ate });
+    if(error) throw error;
+    periodo = data;
+  } catch(e){
+    // RPC nova ainda não aplicada no banco (pendência de migration) — cai pro
+    // agregado mensal já existente no hub_rpc_dash pra não deixar o dash vazio.
+    const porMes = dash.por_mes || [];
+    periodo = {
+      previsto_centavos: porMes.reduce((s,m)=>s+Number(m.previsto_centavos||0),0),
+      entrado_centavos: porMes.reduce((s,m)=>s+Number(m.entrado_centavos||0),0),
+      vencidos_count: vencidos.length,
+      serie: porMes.map(m => ({ rotulo: monthLabel(m.competencia)+'/'+m.competencia.slice(0,4), previsto_centavos: m.previsto_centavos, entrado_centavos: m.entrado_centavos })),
+    };
+  }
+  const falta = Number(periodo.previsto_centavos||0) - Number(periodo.entrado_centavos||0);
 
   const alertHtml = (vencidos.length + semVenc.length) ? `
     <h2 class="section-title" style="margin-top:28px;">Precisa de atenção</h2>
@@ -301,8 +513,10 @@ async function renderDash(){
     </div>` : '';
 
   root.innerHTML = shell('dash', `
-    <h2 class="section-title">Receita por mês</h2>
-    <div class="card chart-card">${chartReceitaPorMes(dash.por_mes || [])}</div>
+    ${chipsPeriodo()}
+
+    <h2 class="section-title">Receita — ${esc(rotuloPeriodo())}</h2>
+    <div class="card chart-card">${chartReceitaPeriodo(periodo.serie || [])}</div>
 
     <div class="kpis">
       <div class="kpi">
@@ -310,16 +524,16 @@ async function renderDash(){
         <div class="value">${dash.clientes_ativos}</div>
       </div>
       <div class="kpi">
-        <div class="label">Entrou este mês</div>
-        <div class="value">${centavosToBRL(doMes.entrado_centavos)}</div>
+        <div class="label">Entrou no período</div>
+        <div class="value">${centavosToBRL(periodo.entrado_centavos)}</div>
       </div>
       <div class="kpi ${falta>0?'warn':''}">
-        <div class="label">Falta este mês</div>
+        <div class="label">Falta no período</div>
         <div class="value">${centavosToBRL(falta)}</div>
       </div>
-      <div class="kpi ${vencidos.length?'bad':''}">
-        <div class="label">Vencidos hoje/antes</div>
-        <div class="value">${vencidos.length}</div>
+      <div class="kpi ${(periodo.vencidos_count||vencidos.length)?'bad':''}">
+        <div class="label">Vencidos no período</div>
+        <div class="value">${periodo.vencidos_count!=null ? periodo.vencidos_count : vencidos.length}</div>
       </div>
     </div>
 
@@ -338,6 +552,7 @@ async function renderDash(){
 
     ${alertHtml}
   `);
+  if(dashFiltro.modo === 'personalizado') abrirPeriodoPersonalizado();
 }
 
 // ============================================================
@@ -509,6 +724,11 @@ async function salvarServico(ev){
 let financeiroCompetencia = null;
 let financeiroCache = [];
 
+function mudarMesFinanceiro(delta){
+  financeiroCompetencia = addMeses(financeiroCompetencia, delta);
+  renderFinanceiro();
+}
+
 async function renderFinanceiro(){
   if(!financeiroCompetencia) financeiroCompetencia = todayISO().slice(0,7) + '-01';
   root.innerHTML = shell('financeiro', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
@@ -517,6 +737,8 @@ async function renderFinanceiro(){
 
   const totalPrevisto = rows.reduce((s,r)=>s+Number(r.valor_centavos),0);
   const totalEntrada = rows.reduce((s,r)=>s+Number(r.entrada_centavos),0);
+  const totalVencido = rows.filter(r=>r.status==='vencido').reduce((s,r)=>s+Number(r.falta_centavos),0);
+  const clientesPagos = rows.filter(r=>r.status==='pago').length;
 
   const rowsHtml = rows.map((r,i) => `
     <tr>
@@ -527,8 +749,9 @@ async function renderFinanceiro(){
       <td data-label="Vencimento">${r.vence_em ? formatDateBR(r.vence_em) : '<span class="flag">🔴 sem venc.</span>'}</td>
       <td data-label="Status"><span class="badge ${contratoBadgeClass(r.status)}">${statusLabel(r.status)}</span></td>
       <td data-label="Ações" onclick="event.stopPropagation()">
-        <div class="row" style="justify-content:flex-end;gap:6px;">
+        <div class="row" style="justify-content:flex-end;gap:6px;flex-wrap:wrap;">
           ${r.falta_centavos>0 ? `<button class="btn btn-sm btn-primary" onclick="abrirMarcarPago(${i})">Marcar pago</button>` : ''}
+          ${r.entrada_centavos>0 ? `<button class="btn btn-sm btn-outline" onclick="abrirDesmarcarPago(${i})">Desmarcar</button>` : ''}
           <button class="btn btn-sm btn-outline" onclick="abrirEditarRecebivel(${i})">Editar</button>
         </div>
       </td>
@@ -537,17 +760,43 @@ async function renderFinanceiro(){
 
   root.innerHTML = shell('financeiro', `
     <div class="row-between" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
-      <h2 class="section-title" style="margin:0;">Financeiro — ${monthLabel(financeiroCompetencia)}/${financeiroCompetencia.slice(0,4)}</h2>
+      <div class="row" style="gap:2px;">
+        <h2 class="section-title" style="margin:0;">Financeiro</h2>
+      </div>
       <button class="btn btn-primary btn-sm" onclick="abrirNovoRecebivel()">+ Novo recebível</button>
     </div>
+    <div class="chips" style="margin-bottom:18px;">
+      <span class="chip-nav">
+        <button class="btn btn-ico" title="Mês anterior" onclick="mudarMesFinanceiro(-1)">‹</button>
+        <button class="chip on" style="cursor:default;">${monthLabel(financeiroCompetencia)}/${financeiroCompetencia.slice(0,4)}</button>
+        <button class="btn btn-ico" title="Mês seguinte" onclick="mudarMesFinanceiro(1)">›</button>
+      </span>
+    </div>
     <div class="kpis">
-      <div class="kpi"><div class="label">Previsto</div><div class="value">${centavosToBRL(totalPrevisto)}</div></div>
-      <div class="kpi"><div class="label">Entrou</div><div class="value">${centavosToBRL(totalEntrada)}</div></div>
-      <div class="kpi ${totalPrevisto-totalEntrada>0?'warn':''}"><div class="label">Falta</div><div class="value">${centavosToBRL(totalPrevisto-totalEntrada)}</div></div>
+      <div class="kpi">
+        <div class="kpi-head">${KPI_ICONS.calendar}<span class="label">Previsto</span></div>
+        <div class="value">${centavosToBRL(totalPrevisto)}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head">${KPI_ICONS.check}<span class="label">Entrou</span></div>
+        <div class="value">${centavosToBRL(totalEntrada)}</div>
+      </div>
+      <div class="kpi ${totalPrevisto-totalEntrada>0?'warn':''}">
+        <div class="kpi-head">${KPI_ICONS.warn}<span class="label">Falta</span></div>
+        <div class="value">${centavosToBRL(totalPrevisto-totalEntrada)}</div>
+      </div>
+      <div class="kpi ${totalVencido>0?'bad':''}">
+        <div class="kpi-head">${KPI_ICONS.clock}<span class="label">Vencidos</span></div>
+        <div class="value">${centavosToBRL(totalVencido)}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head">${KPI_ICONS.userCheck}<span class="label">Clientes pagos</span></div>
+        <div class="value">${clientesPagos}/${rows.length}</div>
+      </div>
     </div>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Cliente</th><th>Descrição</th><th>Valor</th><th>Falta</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
+        <thead><tr><th>Cliente</th><th>Descrição</th><th style="text-align:right">Valor</th><th style="text-align:right">Falta</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
         <tbody>${rowsHtml || `<tr><td colspan="7" class="empty">Nenhum recebível nesse mês.</td></tr>`}</tbody>
       </table>
     </div>
@@ -577,6 +826,25 @@ async function confirmarPagamento(ev, id){
     closeModal(); toast('Pagamento registrado.'); renderFinanceiro();
   } catch(e){}
   return false;
+}
+
+// "Marcar pago" é reversível pra todos os clientes — desmarcar volta o
+// recebível pro estado pendente. O rastro fica no trigger de auditoria que
+// já existe em hub.recebiveis, não precisa de tabela de log separada.
+async function abrirDesmarcarPago(i){
+  const r = financeiroCache[i];
+  openModal(`Desmarcar pagamento — ${esc(r.cliente_nome)}`, `
+    <p class="muted" style="margin-top:0;">Isso zera o valor recebido (${centavosToBRL(r.entrada_centavos)}) e volta o recebível pra <b>pendente</b>. Fica registrado na auditoria.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarDesmarcarPago('${r.id}')">Desmarcar</button>
+    </div>`);
+}
+async function confirmarDesmarcarPago(id){
+  try{
+    await rpc('hub_rpc_desmarcar_pago', { p_id: id });
+    closeModal(); toast('Pagamento desmarcado — recebível voltou pra pendente.'); renderFinanceiro();
+  } catch(e){}
 }
 
 function formRecebivel(r){
@@ -649,13 +917,22 @@ async function renderCustos(){
       <button class="btn btn-primary btn-sm" onclick="abrirNovoCusto()">+ Novo custo</button>
     </div>
     <div class="kpis">
-      <div class="kpi"><div class="label">Total ativo</div><div class="value">${centavosToBRL(total)}</div></div>
-      <div class="kpi"><div class="label">Negócio</div><div class="value">${centavosToBRL(negocio)}</div></div>
-      <div class="kpi"><div class="label">Pessoal</div><div class="value">${centavosToBRL(total-negocio)}</div></div>
+      <div class="kpi">
+        <div class="kpi-head">${KPI_ICONS.wallet}<span class="label">Total ativo</span></div>
+        <div class="value">${centavosToBRL(total)}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head">${KPI_ICONS.briefcase}<span class="label">Negócio</span></div>
+        <div class="value">${centavosToBRL(negocio)}</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-head">${KPI_ICONS.user}<span class="label">Pessoal</span></div>
+        <div class="value">${centavosToBRL(total-negocio)}</div>
+      </div>
     </div>
     <div class="tablewrap">
       <table>
-        <thead><tr><th>Nome</th><th>Categoria</th><th>Valor</th><th>Vencimento</th><th>Status</th></tr></thead>
+        <thead><tr><th>Nome</th><th>Categoria</th><th style="text-align:right">Valor</th><th>Vencimento</th><th>Status</th></tr></thead>
         <tbody>${rowsHtml || `<tr><td colspan="5" class="empty">Nenhum custo cadastrado.</td></tr>`}</tbody>
       </table>
     </div>
@@ -973,6 +1250,7 @@ async function render(){
   if(page === 'catalogo') return renderCatalogo();
   if(page === 'financeiro') return renderFinanceiro();
   if(page === 'custos') return renderCustos();
+  if(['cobrancas','crm','contratos','reunioes','posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
   return renderDash();
 }
 

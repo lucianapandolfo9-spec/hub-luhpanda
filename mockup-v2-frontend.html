@@ -1,0 +1,1171 @@
+<title>Hub Luh Panda — Mockup</title>
+<style>
+:root{
+  --fundo:#12081A; --poco:#0C0512; --superficie:#1A0E24;
+  --borda:#2C1A3A; --borda-forte:#3A2249;
+  --roxo:#6F2E8F; --roxo-claro:#8B4BA3; --laranja:#FF6B35; --zap:#25D366;
+  --texto:#F2EAF7; --suave:#C4B2D1; --fraco:#8B7A98;
+  --ok:#25D366; --warn:#F2C14E; --bad:#FF5C7A;
+  --sans:'Inter',-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --ease:cubic-bezier(.16,1,.3,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%}
+body{
+  background:var(--fundo);color:var(--texto);font-family:var(--sans);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;
+}
+.aurora{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.aurora i{position:absolute;display:block;border-radius:50%;filter:blur(90px);opacity:.4}
+.aurora .a1{width:640px;height:640px;top:-280px;left:10%;background:radial-gradient(circle,rgba(111,46,143,.75),transparent 68%)}
+.aurora .a2{width:520px;height:520px;top:-160px;right:-140px;background:radial-gradient(circle,rgba(255,107,53,.28),transparent 66%)}
+.aurora .a3{width:760px;height:420px;bottom:-200px;left:35%;background:radial-gradient(ellipse,rgba(139,75,163,.35),transparent 70%)}
+a{color:inherit}
+.muted{color:var(--suave)}.dim{color:var(--fraco)}
+::selection{background:rgba(255,107,53,.35)}
+button{font-family:inherit}
+:focus-visible{outline:2px solid var(--laranja);outline-offset:2px;border-radius:6px}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;animation:none !important}}
+
+/* ---------- shell ---------- */
+.app{display:flex;align-items:flex-start;min-height:100vh;position:relative;z-index:1}
+.sidebar{
+  width:232px;flex-shrink:0;display:flex;flex-direction:column;gap:20px;
+  position:sticky;top:0;height:100vh;padding:22px 14px 18px;
+  border-right:1px solid var(--borda);background:rgba(12,5,18,.72);backdrop-filter:blur(8px);
+}
+.marca{font-weight:600;letter-spacing:-.02em;font-size:1.02rem;padding:0 8px;display:flex;align-items:center;gap:9px}
+.marca .dot{
+  width:30px;height:30px;border-radius:9px;flex-shrink:0;font-size:17px;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  background:rgba(255,107,53,.14);border:1px solid rgba(255,107,53,.4);
+  filter:drop-shadow(0 0 6px rgba(255,107,53,.35));
+}
+.marca em{font-style:normal;color:var(--laranja)}
+.nav{display:flex;flex-direction:column;flex:1;overflow-y:auto;scrollbar-width:thin}
+.nav-top{margin-bottom:18px}
+.nav-group + .nav-group{margin-top:18px}
+.nav-group-label{
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--fraco);padding:0 10px;margin-bottom:6px;
+}
+.nav-item{
+  display:flex;align-items:center;gap:11px;padding:6px 10px;border-radius:10px;
+  font-size:13px;color:var(--suave);cursor:pointer;border:1px solid transparent;margin-bottom:2px;
+  transition:color .15s var(--ease);
+}
+.nav-icon{
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+  width:30px;height:30px;border-radius:9px;
+  background:var(--superficie);border:1px solid var(--borda);color:var(--fraco);
+  transition:all .15s var(--ease);
+}
+.nav-item:hover{color:var(--texto)}
+.nav-item:hover .nav-icon{color:var(--texto);border-color:var(--borda-forte)}
+.nav-item.active{color:var(--texto)}
+.nav-item.active .nav-icon{background:rgba(255,107,53,.14);border-color:rgba(255,107,53,.45);color:var(--laranja)}
+.side-foot{border-top:1px solid var(--borda);padding-top:14px;display:flex;flex-direction:column;gap:8px}
+.side-foot .email{font-size:11px;color:var(--fraco);word-break:break-all;padding:0 2px}
+
+.wrap{flex:1;min-width:0;max-width:1240px;margin:0 auto;padding:30px 34px 90px}
+
+/* ---------- primitivas ---------- */
+.eyebrow{font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.16em;color:var(--laranja);margin:0 0 6px}
+h1.page{font-size:1.55rem;letter-spacing:-.03em;font-weight:600;margin:0;text-wrap:balance}
+.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:22px}
+.row{display:flex;align-items:center;gap:10px}
+.btn{
+  font-size:13px;font-weight:600;border-radius:10px;padding:9px 16px;cursor:pointer;
+  border:1px solid var(--borda-forte);background:var(--superficie);color:var(--texto);
+  transition:filter .15s var(--ease);display:inline-flex;align-items:center;gap:6px;
+}
+.btn:hover{filter:brightness(1.2)}
+.btn-primary{background:var(--laranja);border-color:var(--laranja);color:#1A0A04}
+.btn-ghost{background:transparent}
+.btn-danger{background:transparent;border-color:rgba(255,92,122,.45);color:var(--bad)}
+.btn-sm{padding:5px 11px;font-size:12px;border-radius:8px}
+.btn-ico{padding:5px 8px;font-size:12px;border-radius:8px;background:transparent;border-color:var(--borda);color:var(--fraco)}
+.btn-ico:hover{color:var(--texto);border-color:var(--borda-forte)}
+.card{background:var(--superficie);border:1px solid var(--borda);border-radius:14px;padding:20px}
+
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px}
+.kpi{background:var(--superficie);border:1px solid var(--borda);border-radius:13px;padding:15px 17px}
+.kpi-head{display:flex;align-items:center;gap:7px;color:var(--fraco);margin-bottom:3px}
+.kpi-head svg{flex-shrink:0}
+.kpi .label{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase}
+.kpi .value{font-size:23px;font-weight:600;letter-spacing:-.02em;margin-top:3px;font-variant-numeric:tabular-nums}
+.kpi .sub{font-size:11.5px;color:var(--fraco);margin-top:2px}
+.kpi.warn .value,.kpi.warn .kpi-head{color:var(--warn)}
+.kpi.bad .value,.kpi.bad .kpi-head{color:var(--bad)}
+.kpi.ok .value,.kpi.ok .kpi-head{color:var(--ok)}
+
+table{width:100%;border-collapse:separate;border-spacing:0 8px;font-size:13.5px}
+thead th{
+  text-align:left;font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--fraco);padding:0 14px 4px;font-weight:500;
+}
+tbody tr{background:var(--superficie)}
+tbody tr.click{cursor:pointer;transition:filter .12s var(--ease)}
+tbody tr.click:hover{filter:brightness(1.18)}
+tbody td{padding:12px 14px;border-top:1px solid var(--borda);border-bottom:1px solid var(--borda)}
+tbody tr td:first-child{border-left:1px solid var(--borda);border-radius:11px 0 0 11px}
+tbody tr td:last-child{border-right:1px solid var(--borda);border-radius:0 11px 11px 0}
+.tablewrap{overflow-x:auto}
+.money{font-variant-numeric:tabular-nums;font-weight:600;text-align:right;white-space:nowrap}
+th.num{text-align:right}
+
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+.b-ok{color:var(--ok)} .b-warn{color:var(--warn)} .b-bad{color:var(--bad)} .b-mut{color:var(--fraco);border-color:var(--borda-forte)} .b-roxo{color:var(--roxo-claro)} .b-lar{color:var(--laranja)}
+.svc{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:6px;background:rgba(139,75,163,.14);border:1px solid rgba(139,75,163,.4);color:var(--roxo-claro);white-space:nowrap}
+.svc.trafego{background:rgba(255,107,53,.1);border-color:rgba(255,107,53,.4);color:var(--laranja)}
+.svc.bot{background:rgba(37,211,102,.08);border-color:rgba(37,211,102,.35);color:var(--zap)}
+.svc.social{background:rgba(196,178,209,.08);border-color:rgba(196,178,209,.35);color:var(--suave)}
+.svc.fixo{background:rgba(242,193,78,.08);border-color:rgba(242,193,78,.4);color:var(--warn)}
+
+.empty{padding:60px 20px;text-align:center;color:var(--fraco)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.gridcards{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:14px}
+@media(max-width:980px){.grid2,.grid3{grid-template-columns:1fr}}
+
+/* filtros (chips) */
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.chip{font-size:12px;font-weight:600;padding:5px 13px;border-radius:999px;border:1px solid var(--borda-forte);
+  background:transparent;color:var(--fraco);cursor:pointer;transition:all .12s var(--ease)}
+.chip:hover{color:var(--texto)}
+.chip.on{background:rgba(255,107,53,.13);border-color:rgba(255,107,53,.45);color:var(--laranja)}
+
+/* preço caixinha */
+.preco-card{background:var(--superficie);border:1px solid var(--borda);border-radius:14px;padding:17px 18px;
+  display:flex;flex-direction:column;gap:7px;transition:border-color .15s var(--ease);position:relative}
+.preco-card:hover{border-color:var(--borda-forte)}
+.preco-card .tipo{font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--fraco)}
+.preco-card .nome{font-weight:600;font-size:14px;letter-spacing:-.01em;padding-right:30px}
+.preco-card .valor{font-size:19px;font-weight:600;color:var(--laranja);font-variant-numeric:tabular-nums}
+.preco-card .inclui{font-size:12px;color:var(--suave);line-height:1.45}
+.preco-card .obs{font-size:11px;color:var(--fraco);border-top:1px solid var(--borda);padding-top:7px;margin-top:2px}
+.preco-card .edit{position:absolute;top:12px;right:12px}
+
+/* ---------- kanban ---------- */
+.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(215px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px}
+.kcol{background:rgba(26,14,36,.55);border:1px solid var(--borda);border-radius:13px;padding:12px;min-height:220px}
+.kcol-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding:0 2px}
+.kcol-title{font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--suave)}
+.kcol-count{font-size:10.5px;color:var(--fraco);background:var(--superficie);border:1px solid var(--borda);border-radius:999px;padding:1px 7px;font-variant-numeric:tabular-nums}
+.kcard{background:var(--superficie);border:1px solid var(--borda-forte);border-radius:11px;padding:11px 12px;margin-bottom:8px;cursor:pointer;transition:all .15s var(--ease)}
+.kcard:hover{border-color:var(--laranja);transform:translateY(-1px)}
+.kcard .nome{font-weight:600;font-size:13px;letter-spacing:-.01em}
+.kcard .meta{font-size:11.5px;color:var(--fraco);margin-top:3px;display:flex;justify-content:space-between;gap:6px}
+.kcard .valor{color:var(--laranja);font-weight:600;font-variant-numeric:tabular-nums}
+
+/* ---------- steps ---------- */
+.steps{display:flex;flex-direction:column;margin:6px 0}
+.step{display:flex;gap:12px;position:relative;padding-bottom:16px}
+.step::before{content:"";position:absolute;left:11px;top:26px;bottom:2px;width:2px;background:var(--borda)}
+.step:last-child::before{display:none}
+.step-dot{width:24px;height:24px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;
+  background:var(--superficie);border:2px solid var(--borda-forte);color:var(--fraco);font-size:11px;z-index:1}
+.step.done .step-dot{background:rgba(37,211,102,.15);border-color:var(--ok);color:var(--ok)}
+.step.now .step-dot{background:rgba(255,107,53,.15);border-color:var(--laranja);color:var(--laranja);box-shadow:0 0 0 4px rgba(255,107,53,.1)}
+.step-body{padding-top:2px;flex:1}
+.step-title{font-weight:600;font-size:13.5px}
+.step.done .step-title{color:var(--suave)}
+.step-sub{font-size:12px;color:var(--fraco)}
+.step-act{margin-top:6px}
+
+/* ---------- listas ricas ---------- */
+.rowcard{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--superficie);
+  border:1px solid var(--borda);border-radius:12px;padding:13px 16px;margin-bottom:9px;transition:filter .12s var(--ease)}
+.rowcard.click{cursor:pointer}
+.rowcard.click:hover{filter:brightness(1.15)}
+.rowcard .l{min-width:0;flex:1}
+.rowcard .t{font-weight:600;font-size:13.5px;letter-spacing:-.01em}
+.rowcard .s{font-size:12px;color:var(--fraco);margin-top:1px}
+.rowcard .r{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+
+.alerta{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 14px;border-radius:11px;
+  font-size:12.5px;margin-bottom:8px;cursor:pointer}
+.alerta.bad{background:rgba(255,92,122,.07);border:1px solid rgba(255,92,122,.28)}
+.alerta.warn{background:rgba(242,193,78,.06);border:1px solid rgba(242,193,78,.25)}
+
+.thumb{width:44px;height:44px;border-radius:9px;flex-shrink:0;background:linear-gradient(135deg,var(--roxo),var(--laranja));opacity:.75}
+.thumb.v2{background:linear-gradient(135deg,var(--roxo-claro),var(--roxo))}
+.thumb.v3{background:linear-gradient(135deg,var(--laranja),var(--roxo-claro))}
+
+.back{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--fraco);text-decoration:none;margin-bottom:14px;cursor:pointer}
+.back:hover{color:var(--texto)}
+
+/* ---------- modal ---------- */
+.modal-backdrop{position:fixed;inset:0;background:rgba(6,2,10,.78);backdrop-filter:blur(3px);
+  display:flex;align-items:center;justify-content:center;z-index:60;padding:20px}
+.modal{background:var(--superficie);border:1px solid var(--borda-forte);border-radius:16px;padding:24px;
+  max-width:540px;width:100%;max-height:88vh;overflow:auto}
+.modal.wide{max-width:680px}
+.modal h3{margin:0 0 14px;font-size:1.1rem;letter-spacing:-.02em}
+.field{margin-bottom:12px}
+.field label{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--fraco);margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;font-family:inherit;font-size:13px;background:var(--poco);
+  color:var(--texto);border:1px solid var(--borda-forte);border-radius:9px;padding:9px 12px}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--laranja)}
+.field input::placeholder,.field textarea::placeholder{color:var(--fraco)}
+.f2{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+@media(max-width:520px){.f2{grid-template-columns:1fr}}
+.modal-foot{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
+.contrato-prev{font-family:var(--mono);font-size:11.5px;line-height:1.7;color:var(--suave);background:var(--poco);
+  border:1px solid var(--borda);border-radius:10px;padding:16px;white-space:pre-wrap;max-height:300px;overflow:auto}
+
+/* ---------- toast ---------- */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--superficie);
+  border:1px solid var(--laranja);color:var(--texto);padding:10px 18px;border-radius:11px;font-size:13px;z-index:100;
+  box-shadow:0 10px 30px -10px rgba(0,0,0,.6)}
+
+/* ---------- chart ---------- */
+.chart-wrap{width:100%;overflow-x:auto}
+.chart-wrap svg{display:block;width:100%;height:auto;min-width:340px}
+.chart-caption{font-size:11.5px;color:var(--fraco);margin-top:8px;display:flex;gap:16px;flex-wrap:wrap}
+.chart-caption .key{display:inline-flex;align-items:center;gap:6px}
+.chart-caption .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+
+/* ---------- tráfego cards ---------- */
+.traf-card{background:var(--superficie);border:1px solid var(--borda);border-radius:14px;padding:18px;margin-bottom:14px}
+.traf-head{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.traf-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:10px}
+.traf-m{background:var(--poco);border:1px solid var(--borda);border-radius:10px;padding:10px 12px}
+.traf-m .l{font-family:var(--mono);font-size:.56rem;letter-spacing:.12em;text-transform:uppercase;color:var(--fraco)}
+.traf-m .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.traf-note{font-size:12px;color:var(--fraco);border-top:1px solid var(--borda);padding-top:10px}
+
+/* ---------- responsivo ---------- */
+@media (max-width:760px){
+  .wrap{padding:20px 14px 60px}
+  .app{flex-direction:column}
+  .sidebar{position:sticky;top:0;z-index:20;height:auto;width:100%;flex-direction:row;align-items:center;gap:10px;
+    border-right:none;border-bottom:1px solid var(--borda);padding:10px 12px}
+  .marca{flex-shrink:0;padding:0}
+  .nav{flex-direction:row;flex:1;overflow-x:auto;overflow-y:hidden;gap:2px}
+  .nav-top{margin-bottom:0}
+  .nav-group{display:contents}
+  .nav-group-label{display:none}
+  .nav-item{flex-direction:column;gap:3px;padding:5px 8px;font-size:9.5px;white-space:nowrap;margin-bottom:0}
+  .nav-icon{width:26px;height:26px}
+  .side-foot{flex-direction:row;border-top:none;padding-top:0;flex-shrink:0}
+  .side-foot .email{display:none}
+  .kpis{grid-template-columns:repeat(2,1fr)}
+  .tablewrap table,.tablewrap thead,.tablewrap tbody,.tablewrap th,.tablewrap td,.tablewrap tr{display:block}
+  .tablewrap thead{position:absolute;left:-9999px}
+  .tablewrap tbody tr{margin-bottom:10px;border:1px solid var(--borda);border-radius:12px;padding:4px 2px}
+  .tablewrap tbody td{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 13px;
+    border:none;border-bottom:1px solid var(--borda);border-radius:0 !important;text-align:right}
+  .tablewrap tbody td:last-child{border-bottom:none}
+  .tablewrap tbody td::before{content:attr(data-l);font-family:var(--mono);font-size:.58rem;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--fraco);text-align:left;flex-shrink:0}
+}
+@media (max-width:420px){.kpis{grid-template-columns:1fr}}
+</style>
+
+<div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+<div class="app">
+  <nav class="sidebar" id="sidebar"></nav>
+  <main class="wrap" id="main"></main>
+</div>
+<div id="modal-root"></div>
+
+<script>
+// ============================================================
+// Hub Luh Panda — MOCKUP v2 · dados reais da planilha Set/2026
+// Tudo editável em memória (não persiste — é maquete de aprovação)
+// ============================================================
+const IC = {
+  visao:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>`,
+  receb:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2.5" x2="12" y2="21.5"/><path d="M16.5 6.8c0-1.8-2-3-4.5-3s-4.5 1.3-4.5 3.1c0 3.9 9 1.9 9 5.9 0 2-2 3.2-4.5 3.2S7 14.8 7 12.9"/></svg>`,
+  clientes:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.7 2.5-6 5.5-6s5.5 2.3 5.5 6"/><path d="M15.5 5.2a3.2 3.2 0 0 1 0 5.9M17.5 14.6c1.8.8 3 2.6 3 5.4"/></svg>`,
+  precos:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.3l-7.3 7.3a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.7z"/><circle cx="7.5" cy="7.5" r="1.2"/></svg>`,
+  custos:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="12" width="4" height="8" rx="1"/><rect x="10" y="7" width="4" height="13" rx="1"/><rect x="16" y="3" width="4" height="17" rx="1"/></svg>`,
+  cobr:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 7v5l3.2 1.9"/><path d="M17 3.5l4 1-1 4"/></svg>`,
+  crm:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.4"/><rect x="10" y="4" width="5" height="11" rx="1.4"/><rect x="17" y="4" width="4" height="7" rx="1.4"/></svg>`,
+  contratos:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8.5 14.5l2 2 4-4.5"/></svg>`,
+  reunioes:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.4"/><path d="M15.5 10.5l6-3.5v10l-6-3.5"/></svg>`,
+  posts:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><circle cx="12" cy="12" r="4"/><line x1="17.2" y1="6.8" x2="17.2" y2="6.8" stroke-width="2.6"/></svg>`,
+  trafego:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-7 4 4 7-8.5"/><path d="M15 5.5h5v5"/></svg>`,
+  criacao:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+  dev:`<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6l-6 6 6 6"/><path d="M16 6l6 6-6 6"/></svg>`,
+  cal:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="2.2"/><line x1="3.5" y1="10" x2="20.5" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>`,
+  check:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.3l2.6 2.6L16.2 9"/></svg>`,
+  alert:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l9.5 16.5H2.5L12 3.5z"/><line x1="12" y1="9.5" x2="12" y2="14"/><line x1="12" y1="16.6" x2="12" y2="16.6" stroke-width="2.6"/></svg>`,
+  clock:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.3l3.6 2.1"/></svg>`,
+  zap:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11l-1 8.5L18.5 10H12z"/></svg>`,
+  play:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/></svg>`,
+  doc:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg>`,
+  up:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M6.5 9.5L12 4l5.5 5.5"/><path d="M4 20h16"/></svg>`,
+  mail:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.2"/><path d="M3.5 7l8.5 6 8.5-6"/></svg>`,
+  pen:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
+  box:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8v11a1.6 1.6 0 0 1-1.6 1.6H4.6A1.6 1.6 0 0 1 3 19V8"/><rect x="1.8" y="3.5" width="20.4" height="4.5" rx="1"/><line x1="10" y1="12" x2="14" y2="12"/></svg>`,
+  ext:`<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5.5"/><path d="M14 3h7v7"/><path d="M10.5 13.5L21 3"/></svg>`,
+};
+
+const BRL = v => (v==null||isNaN(v)) ? '—' : Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:2}).replace(',00','');
+const esc = s => (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg){
+  const t=document.createElement('div');t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);setTimeout(()=>t.remove(),2800);
+}
+
+const SVCLABEL = {trafego:'Tráfego', bot:'Bot', sistemas:'Sistemas', social:'Social', fixo:'Fixo mensal', consultoria:'Consultoria'};
+const svcBadge = s => `<span class="svc ${s}">${SVCLABEL[s]||s}</span>`;
+
+// ============================================================
+// DADOS — planilha "Luh Panda - Financeiro" · aba Set 2026 (real)
+// ============================================================
+const DB = {
+clientes: [
+  {id:'imperio-ruby', nome:'Império Ruby', seg:'Lanchonete-espetaria', servicos:['trafego'], servDesc:'Gestão de Tráfego Pago',
+   contrato:'assinado', obs:'Contrato assinado 16/09 · valor negociado — Vivi RP', arquivado:false},
+  {id:'dobradinha', nome:'Régis / Dobradinha', seg:'Restaurante · Recife', servicos:['consultoria','sistemas'], servDesc:'Consultoria financeira + conciliação',
+   contrato:'assinado', obs:'Sistema de conciliação em produção', arquivado:false},
+  {id:'gl4', nome:'GL4 / Gio — Lymphatic by Gigi', seg:'Estética · Los Angeles', servicos:['trafego','social'], servDesc:'Tráfego + Social Media',
+   contrato:'pendente', obs:'Vídeos Remotion (GL4) + posts + agendamento', arquivado:false},
+  {id:'daniel', nome:'Daniel Magnus', seg:'Advocacia', servicos:['bot'], servDesc:'Robô de atendimento (SDR WhatsApp)',
+   contrato:'pendente', obs:'Mensalidade 6x — parcela 1 de 6 paga', arquivado:false},
+  {id:'manu', nome:'Manu Pestana', seg:'Estética', servicos:['trafego'], servDesc:'Gestão de Tráfego Pago',
+   contrato:'pendente', obs:'', arquivado:false},
+  {id:'f7', nome:'F7 Som e Iluminação', seg:'Eventos · Natal/RN', servicos:['trafego'], servDesc:'Gestão de Tráfego Pago',
+   contrato:'rascunho', obs:'Cliente novo set/2026 — falta definir vencimento e assinar contrato', arquivado:false},
+  {id:'lead', nome:'Lead Performance', seg:'Plataforma · cliente fixo', servicos:['fixo'], servDesc:'Comercial fixo mensal',
+   contrato:'assinado', obs:'Salário comercial + comissões de 20% por venda', arquivado:false},
+  {id:'pandoka', nome:'Pandoka', seg:'Espaço de eventos · família', servicos:['sistemas'], servDesc:'Eventos + aulas de IA',
+   contrato:'pendente', obs:'Casamento Amanda & Megane nov/2026', arquivado:false},
+  {id:'bolao', nome:'Bolão Fácil', seg:'Sistema sob medida', servicos:['sistemas'], servDesc:'Fase 01 — 30h',
+   contrato:'assinado', obs:'Fechado 17/09 · início 23/09 · manutenção parceria (Isabella)', arquivado:false},
+],
+recebiveis: [
+  {id:1, cli:'imperio-ruby', desc:'Gestão de Tráfego Pago', valor:400, entrada:0, vence:'23', extra:false, obs:'Contrato assinado 16/09. Valor negociado — Vivi RP'},
+  {id:2, cli:'dobradinha', desc:'Consultoria financeira', valor:1200, entrada:1200, vence:'12', extra:false, obs:''},
+  {id:3, cli:'gl4', desc:'Tráfego Pago + Social Media', valor:1500, entrada:1500, vence:'1', extra:false, obs:'Lymphatic by Gigi'},
+  {id:4, cli:'daniel', desc:'Robô de atendimento (advocacia)', valor:500, entrada:500, vence:'5', extra:false, obs:'1 parcela de 6'},
+  {id:5, cli:'manu', desc:'Gestão de Tráfego Pago', valor:500, entrada:500, vence:'5', extra:false, obs:''},
+  {id:6, cli:'f7', desc:'Gestão de Tráfego Pago', valor:600, entrada:0, vence:'', extra:false, obs:'Cliente novo — falta vencimento + contrato'},
+  {id:7, cli:'lead', desc:'Salário comercial (fixo)', valor:2500, entrada:2500, vence:'1', extra:false, obs:''},
+  {id:8, cli:'pandoka', desc:'Aula de IA', valor:1200, entrada:1200, vence:'', extra:true, obs:'Pago 17/09'},
+  {id:9, cli:'pandoka', desc:'% Casamento Amanda e Megane', valor:1599, entrada:0, vence:'', extra:true, obs:''},
+],
+custos: [
+  {id:1, nome:'Claude Code Pro Max', funcao:'IA generativa', cat:'negocio', valor:512, dia:'', fim:'sem expiração'},
+  {id:2, nome:'Aluguel + Consórcio', funcao:'Moradia', cat:'pessoal', valor:1263.74, dia:'5', fim:'sem expiração'},
+  {id:3, nome:'Tatiani Nardon', funcao:'Futuro filho', cat:'pessoal', valor:100, dia:'1', fim:'sem expiração'},
+  {id:4, nome:'DAS', funcao:'Imposto MEI', cat:'negocio', valor:87.05, dia:'20', fim:'sem expiração'},
+  {id:5, nome:'MBA', funcao:'Estudo', cat:'pessoal', valor:699.79, dia:'30', fim:'2 anos'},
+  {id:6, nome:'Nubank', funcao:'Serasa', cat:'pessoal', valor:115.61, dia:'15', fim:'48 parcelas restantes'},
+  {id:7, nome:'Academia', funcao:'Smart Fit', cat:'pessoal', valor:163.10, dia:'', fim:''},
+  {id:8, nome:'App Música', funcao:'Spotify', cat:'pessoal', valor:23.90, dia:'', fim:''},
+],
+catalogo: [
+  {id:1, nome:'Gestão de Tráfego Pago', valor:'R$ 600/mês', tipo:'Mensal', inclui:'Criação e gestão de campanhas Meta Ads, otimização contínua e relatório mensal de resultado.', obs:'Âncora de abertura, negociável caso a caso. Verba de anúncio é do cliente — nunca é receita.'},
+  {id:2, nome:'Construção de Sistemas e Automações', valor:'R$ 180/hora', tipo:'Único', inclui:'Bots de WhatsApp, automações n8n, integrações entre ferramentas, sistemas sob medida.', obs:'Orçar por estimativa de horas. Fechar a estimativa por escrito antes de começar.'},
+  {id:3, nome:'Manutenção Sozinha — Básica', valor:'R$ 180/mês', tipo:'Mensal', inclui:'Suporte básico, atualizações, backup, monitoramento e pequenas correções.', obs:'Padrão homologado 21/09/2026 — quando atua sozinha.'},
+  {id:4, nome:'Manutenção Sozinha — Média', valor:'R$ 300/mês', tipo:'Mensal', inclui:'Tudo do Básico + pequenas alterações, cadastros, relatórios, SEO básico e otimizações.', obs:'Padrão homologado 21/09/2026 — quando atua sozinha.'},
+  {id:5, nome:'Manutenção Sozinha — Forte', valor:'R$ 500–1.200/mês', tipo:'Mensal', inclui:'Tudo dos anteriores + automações, recursos de IA, acompanhamento e melhorias contínuas.', obs:'Padrão homologado 21/09/2026 — quando atua sozinha.'},
+  {id:6, nome:'Manutenção em Parceria — Básica', valor:'R$ 250/mês', tipo:'Mensal', inclui:'Suporte básico, atualizações, backup, monitoramento e pequenas correções.', obs:'Em dupla com dev parceira (ex: Isabella, Bolão Fácil) — repasse 50/50 fixo.'},
+  {id:7, nome:'Manutenção em Parceria — Média', valor:'R$ 550/mês', tipo:'Mensal', inclui:'Tudo do Básico + pequenas alterações, cadastros, relatórios e otimizações.', obs:'Em dupla com dev parceira — repasse 50/50 fixo.'},
+  {id:8, nome:'Manutenção em Parceria — Forte', valor:'R$ 1.500/mês', tipo:'Mensal', inclui:'Tudo dos anteriores + automações, recursos de IA, acompanhamento e melhorias contínuas.', obs:'Em dupla com dev parceira — repasse 50/50 fixo.'},
+  {id:9, nome:'Manutenção Avulsa', valor:'R$ 180/hora', tipo:'Único', inclui:'Ajuste pontual em sistema já entregue, só quando o cliente chamar.', obs:'Sem monitoramento incluso. Para quem não quer mensalidade.'},
+  {id:10, nome:'Hospedagem no n8n', valor:'R$ 130/mês', tipo:'Mensal', inclui:'Hospedagem de qualquer automação no servidor próprio (VPS).', obs:'Sem monitoramento incluso.'},
+],
+contratos: [
+  {id:1, cliente:'Império Ruby', num:'001/2026', servico:'Gestão de Tráfego Pago', valor:'R$ 400/mês', venc:'23', inicio:'23/09/2026', fimMin:'23/12/2026', status:'assinado'},
+  {id:2, cliente:'Régis / Dobradinha', num:'—', servico:'Consultoria financeira', valor:'R$ 1.200/mês', venc:'12', inicio:'—', fimMin:'—', status:'assinado'},
+  {id:3, cliente:'Bolão Fácil', num:'002/2026', servico:'Sistema sob medida — Fase 01 (30h)', valor:'projeto', venc:'—', inicio:'23/09/2026', fimMin:'—', status:'assinado'},
+  {id:4, cliente:'F7 Som e Iluminação', num:'003/2026', servico:'Gestão de Tráfego Pago', valor:'R$ 600/mês', venc:'a definir', inicio:'—', fimMin:'—', status:'enviado'},
+  {id:5, cliente:'GL4 / Gio — Lymphatic by Gigi', num:'—', servico:'Tráfego + Social Media', valor:'R$ 1.500/mês', venc:'1', inicio:'—', fimMin:'—', status:'pendente'},
+  {id:6, cliente:'Daniel Magnus', num:'—', servico:'Robô de atendimento', valor:'R$ 500/mês (6x)', venc:'5', inicio:'—', fimMin:'—', status:'pendente'},
+  {id:7, cliente:'Manu Pestana', num:'—', servico:'Gestão de Tráfego Pago', valor:'R$ 500/mês', venc:'5', inicio:'—', fimMin:'—', status:'pendente'},
+],
+prospects: [
+  {id:'rest-porto', nome:'Restaurante do Porto', col:0, valor:null, data:'24/09', nota:'Reunião marcada — indicação do Régis', gravacao:false},
+  {id:'sky-thunder', nome:'Sky Thunder', col:1, valor:null, data:'19/09', nota:'Dashboard de vendas + automação de comissão', gravacao:true},
+  {id:'clinica-vs', nome:'Clínica Vera Souza', col:2, valor:3200, data:'20/09', nota:'Bot de agendamento', gravacao:true},
+  {id:'luccas', nome:'Luccas — mentoria', col:3, valor:1800, data:'21/09', nota:'Bloco 10h · Claude Code + Supabase', gravacao:true},
+  {id:'f7p', nome:'F7 Som e Iluminação', col:4, valor:600, data:'18/09', nota:'Tráfego mensal — contrato na rua', gravacao:true},
+  {id:'bolaop', nome:'Bolão Fácil', col:5, valor:4500, data:'17/09', nota:'Fase 01 · 30h — cliente aberto', gravacao:true},
+],
+reunioes: [
+  {id:1, com:'Luccas', data:'21/09 · 14h', dur:'48 min', resumo:'Mentoria fechada em bloco de 10h. Stack: Claude Code + Supabase, projeto TPV. Falta emitir contrato.', tipo:'prospect'},
+  {id:2, com:'Sky Thunder', data:'19/09 · 10h', dur:'52 min', resumo:'Dashboard de vendas + automação de comissão. Levantamento de planilhas atuais. Precificar até 26/09.', tipo:'prospect'},
+  {id:3, com:'Bolão Fácil', data:'17/09 · 15h', dur:'61 min', resumo:'Kickoff Fase 01 (30h). Escopo fechado, início 23/09. Contrato assinado na hora.', tipo:'cliente'},
+  {id:4, com:'Régis (Dobradinha)', data:'11/09 · 9h', dur:'35 min', resumo:'Revisão da conciliação de agosto. Duas pendências de classificação resolvidas.', tipo:'cliente'},
+],
+posts: [
+  {id:1, conta:'@luhpanda', titulo:'Reel — revelação de destino: Chile', status:'em_aprovacao', quando:'—', thumb:'v1'},
+  {id:2, conta:'@souluhpanda', titulo:'TikTok — bastidor de automação n8n', status:'em_aprovacao', quando:'—', thumb:'v2'},
+  {id:3, conta:'@luhpanda', titulo:'Reel — 3 apps de viagem + tag LUH20', status:'agendado', quando:'23/09 · 18h', thumb:'v3'},
+  {id:4, conta:'@luhpanda', titulo:'Carrossel — o que é um bot de atendimento', status:'agendado', quando:'25/09 · 18h', thumb:'v1'},
+  {id:5, conta:'@lymphaticbygigi', titulo:'Reel GL4 — drenagem pós-verão', status:'agendado', quando:'24/09 · 10h (LA)', thumb:'v2'},
+  {id:6, conta:'@lymphaticbygigi', titulo:'Post — antes/depois sculpting', status:'em_aprovacao', quando:'—', thumb:'v3'},
+  {id:7, conta:'@souluhpanda', titulo:'TikTok — mala de mão em 5 min', status:'publicado', quando:'18/09', thumb:'v2'},
+  {id:8, conta:'@luhpanda', titulo:'Reel — Tibau do Sul escondida', status:'publicado', quando:'15/09', thumb:'v3'},
+],
+campanhas: [
+  {id:1, cliente:'Manu Pestana', status:'ativa', obj:'Mensagens WhatsApp (anúncio nativo)', invest:487, conversas:16, custo:30.44,
+   nota:'Anúncio nativo performando a ~R$ 30/conversa com frequência saudável. Silêncio de 3 dias em set foi verba esgotada, não falha técnica. Ad wa.me pausado (pegadinha nº 27 desarmada).'},
+  {id:2, cliente:'Império Ruby', status:'pausada', obj:'Mensagens WhatsApp', invest:0, conversas:0, custo:null,
+   nota:'Contrato assinado 16/09 (001/2026). Campanha desenhada — aguarda reunião com a Viviane pra aprovar criativos e verba.'},
+  {id:3, cliente:'F7 Som e Iluminação', status:'setup', obj:'a definir', invest:0, conversas:0, custo:null,
+   nota:'Cliente novo. BM em estruturação — campanha só entra no ar depois do contrato assinado e vencimento definido.'},
+],
+criacao: [
+  {id:1, cliente:'Lymphatic by Gigi', item:'Lote 4 reels — Remotion GL4', tipo:'video', etapa:'produzindo'},
+  {id:2, cliente:'Lymphatic by Gigi', item:'3 posts estáticos outubro', tipo:'design', etapa:'a_fazer'},
+  {id:3, cliente:'Manu Pestana', item:'Flyer 2 — variação p/ anúncio nativo', tipo:'design', etapa:'aprovacao'},
+  {id:4, cliente:'@luhpanda', item:'Capa padrão — leva Chile', tipo:'design', etapa:'pronto'},
+  {id:5, cliente:'Império Ruby', item:'Vídeo espetos — aguarda material', tipo:'video', etapa:'a_fazer'},
+],
+};
+const KCOLS = ['Reunião marcada','Reunião feita','Precificando','Orçamento enviado','Contrato emitido','Cliente aberto'];
+const ONBOARD = ['Reunião com cliente','Gravação no Meetily','Precificação','Criar PDF do orçamento','Enviar pro cliente via WhatsApp','Emitir contrato','Abrir cliente + serviços'];
+const cli = id => DB.clientes.find(c=>c.id===id);
+const cliNome = id => (cli(id)||{}).nome || id;
+
+// estado de UI
+let filtroClientes = 'ativos';
+let filtroPosts = 'todas';
+
+// ============================================================
+// MODAL genérico + formulários editáveis
+// ============================================================
+const modalRoot = document.getElementById('modal-root');
+function openModal(title, bodyHtml, wide){
+  modalRoot.innerHTML = `<div class="modal-backdrop" onclick="if(event.target===this)closeModal()">
+    <div class="modal ${wide?'wide':''}"><h3>${title}</h3>${bodyHtml}</div></div>`;
+}
+function closeModal(){ modalRoot.innerHTML=''; }
+
+// builder de formulário: fields = [{k,label,type:'text|number|select|textarea',options,half}]
+function formHtml(fields, values, submitLabel){
+  const inner = fields.map(f=>{
+    const v = values[f.k] ?? '';
+    let input;
+    if(f.type==='select') input = `<select id="fx-${f.k}">${f.options.map(o=>{
+      const [val,lab] = Array.isArray(o)?o:[o,o];
+      return `<option value="${esc(val)}" ${String(v)===String(val)?'selected':''}>${esc(lab)}</option>`;}).join('')}</select>`;
+    else if(f.type==='textarea') input = `<textarea id="fx-${f.k}" rows="2">${esc(v)}</textarea>`;
+    else input = `<input id="fx-${f.k}" type="${f.type||'text'}" ${f.type==='number'?'step="0.01"':''} value="${esc(v)}" placeholder="${esc(f.ph||'')}">`;
+    return `<div class="field ${f.half?'half':''}"><label>${f.label}</label>${input}</div>`;
+  }).join('');
+  return `<form onsubmit="return _submitForm(event)">${inner}
+    <div class="modal-foot">
+      <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancelar</button>
+      <button type="submit" class="btn btn-primary">${submitLabel||'Salvar'}</button>
+    </div></form>`;
+}
+let _onSubmit = null;
+function _submitForm(ev){
+  ev.preventDefault();
+  const vals = {};
+  ev.target.querySelectorAll('[id^="fx-"]').forEach(el=>{ vals[el.id.slice(3)] = el.value; });
+  if(_onSubmit) _onSubmit(vals);
+  return false;
+}
+function edit(fields, values, apply, title, submitLabel, wide){
+  _onSubmit = vals => { apply(vals); closeModal(); toast('Salvo. (mockup — não persiste)'); render(); };
+  openModal(title, formHtml(fields, values, submitLabel), wide);
+}
+
+// ---------- editores por entidade ----------
+function editRecebivel(id){
+  const r = DB.recebiveis.find(x=>x.id===id) || {id:0};
+  const novo = !r.cli;
+  edit([
+    {k:'cli',label:'Cliente',type:'select',options:DB.clientes.map(c=>[c.id,c.nome])},
+    {k:'desc',label:'Descrição'},
+    {k:'valor',label:'Valor (R$)',type:'number'},
+    {k:'entrada',label:'Entrada — o que caiu (R$)',type:'number'},
+    {k:'vence',label:'Vence dia'},
+    {k:'extra',label:'Tipo',type:'select',options:[['false','Mensalidade'],['true','Extra do mês']]},
+    {k:'obs',label:'Observação',type:'textarea'},
+  ], {...r, extra:String(r.extra??false)}, vals=>{
+    const upd = {cli:vals.cli, desc:vals.desc, valor:+vals.valor||0, entrada:+vals.entrada||0, vence:vals.vence, extra:vals.extra==='true', obs:vals.obs};
+    if(novo) DB.recebiveis.push({id:Date.now(), ...upd});
+    else Object.assign(r, upd);
+  }, novo?'Novo recebível':'Editar recebível');
+}
+function marcarPago(id){
+  const r = DB.recebiveis.find(x=>x.id===id);
+  edit([{k:'entrada',label:'Valor recebido (R$)',type:'number'}], {entrada:r.valor-r.entrada},
+    vals=>{ r.entrada = Math.min(r.valor, r.entrada + (+vals.entrada||0)); },
+    `Marcar pago — ${cliNome(r.cli)}`, 'Confirmar');
+}
+function editCliente(id){
+  const c = cli(id) || {};
+  const novo = !c.id;
+  edit([
+    {k:'nome',label:'Nome'},
+    {k:'seg',label:'Segmento'},
+    {k:'servDesc',label:'Serviços contratados (descrição)'},
+    {k:'servicos',label:'Tags de serviço (separe por vírgula: trafego, bot, sistemas, social, fixo, consultoria)'},
+    {k:'contrato',label:'Contrato',type:'select',options:[['assinado','Assinado'],['enviado','Enviado'],['rascunho','Rascunho'],['pendente','Sem contrato']]},
+    {k:'obs',label:'Observação',type:'textarea'},
+  ], {...c, servicos:(c.servicos||[]).join(', ')}, vals=>{
+    const upd = {nome:vals.nome, seg:vals.seg, servDesc:vals.servDesc,
+      servicos:vals.servicos.split(',').map(s=>s.trim()).filter(Boolean), contrato:vals.contrato, obs:vals.obs};
+    if(novo) DB.clientes.push({id:'novo-'+Date.now(), arquivado:false, ...upd});
+    else Object.assign(c, upd);
+  }, novo?'Novo cliente':'Editar cliente — '+(c.nome||''));
+}
+function arquivarCliente(id){
+  const c = cli(id); c.arquivado = !c.arquivado;
+  toast(c.arquivado ? 'Cliente arquivado.' : 'Cliente restaurado.');
+  location.hash = '#/clientes'; render();
+}
+function editCusto(id){
+  const c = DB.custos.find(x=>x.id===id) || {};
+  const novo = !c.nome;
+  edit([
+    {k:'nome',label:'Conta'},{k:'funcao',label:'Função'},
+    {k:'cat',label:'Categoria',type:'select',options:[['negocio','Negócio'],['pessoal','Pessoal']]},
+    {k:'valor',label:'Custo mensal (R$)',type:'number'},
+    {k:'dia',label:'Vence dia'},{k:'fim',label:'Finaliza quando'},
+  ], c, vals=>{
+    const upd = {nome:vals.nome,funcao:vals.funcao,cat:vals.cat,valor:+vals.valor||0,dia:vals.dia,fim:vals.fim};
+    if(novo) DB.custos.push({id:Date.now(), ...upd}); else Object.assign(c, upd);
+  }, novo?'Novo custo fixo':'Editar custo — '+(c.nome||''));
+}
+function editServico(id){
+  const s = DB.catalogo.find(x=>x.id===id) || {};
+  const novo = !s.nome;
+  edit([
+    {k:'nome',label:'Serviço'},{k:'valor',label:'Valor'},
+    {k:'tipo',label:'Tipo de cobrança',type:'select',options:['Mensal','Único']},
+    {k:'inclui',label:'O que inclui',type:'textarea'},
+    {k:'obs',label:'Observação',type:'textarea'},
+  ], s, vals=>{
+    if(novo) DB.catalogo.push({id:Date.now(), ...vals}); else Object.assign(s, vals);
+  }, novo?'Novo serviço':'Editar serviço — '+(s.nome||''));
+}
+function editContrato(id){
+  const c = DB.contratos.find(x=>x.id===id);
+  edit([
+    {k:'cliente',label:'Cliente'},{k:'num',label:'Nº'},
+    {k:'servico',label:'Serviço (Anexo I)'},{k:'valor',label:'Valor'},
+    {k:'venc',label:'Vence dia'},{k:'inicio',label:'Início'},
+    {k:'status',label:'Status',type:'select',options:['rascunho','emitido','enviado','assinado','ativo','encerrado','pendente']},
+  ], c, vals=>Object.assign(c, vals), 'Editar contrato — '+c.cliente);
+}
+function novoContrato(){
+  const prox = '00'+(DB.contratos.filter(c=>c.num!=='—').length+2)+'/2026';
+  _onSubmit = vals => {
+    DB.contratos.push({id:Date.now(), cliente:vals.cliente, num:prox, servico:vals.servico,
+      valor:vals.valor, venc:vals.venc, inicio:vals.inicio, fimMin:'+3 meses', status:'rascunho'});
+    closeModal();
+    previewContrato(vals, prox);
+  };
+  openModal('Emitir contrato — padrão MODELO-BASE', formHtml([
+    {k:'cliente',label:'Cliente',type:'select',options:DB.clientes.filter(c=>!c.arquivado).map(c=>[c.nome,c.nome])},
+    {k:'razao',label:'Razão social / nome completo'},
+    {k:'doc',label:'CPF / CNPJ'},
+    {k:'endereco',label:'Endereço (com cidade/UF)'},
+    {k:'servico',label:'Serviço (Anexo I)',type:'select',options:DB.catalogo.map(s=>[s.nome,s.nome])},
+    {k:'valor',label:'Valor',ph:'R$ 600/mês'},
+    {k:'inicio',label:'Data de início',ph:'01/10/2026'},
+    {k:'venc',label:'Dia de vencimento',ph:'5'},
+  ], {}, 'Gerar contrato '+prox), true);
+}
+function previewContrato(v, num){
+  openModal('Contrato '+num+' — prévia', `
+    <div class="contrato-prev">CONTRATO Nº ${esc(num)} — PRESTAÇÃO DE SERVIÇOS
+
+CONTRATADA: Luciana Pandolfo (Luh Panda) — MEI 66.521.744/0001-60
+CONTRATANTE: ${esc(v.razao||v.cliente)} — ${esc(v.doc||'CPF/CNPJ')}
+ENDEREÇO: ${esc(v.endereco||'—')}
+
+OBJETO: ${esc(v.servico)}  (detalhamento no Anexo I)
+VALOR: ${esc(v.valor)} · vencimento todo dia ${esc(v.venc)}
+INÍCIO: ${esc(v.inicio)} · PRAZO MÍNIMO: 3 meses
+PAGAMENTO: Pix
+RESCISÃO: aviso prévio de 30 dias após o prazo mínimo
+FORO: Recife/PE
+
+[cláusulas completas do MODELO-BASE]
+[Anexo I — escopo do serviço]
+
+Local/data: ____________________
+
+_____________________________        _____________________________
+        CONTRATADA                            CONTRATANTE</div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">Fechar</button>
+      <button class="btn" onclick="toast('No sistema real: gera o PDF pronto pra assinatura.')">${IC.doc} Gerar PDF</button>
+      <button class="btn btn-primary" onclick="toast('No sistema real: envia por e-mail pro cliente.');closeModal()">${IC.mail} Enviar por e-mail</button>
+    </div>`, true);
+  toast('Contrato '+num+' criado como rascunho.');
+  render();
+}
+function editProspect(id){
+  const p = DB.prospects.find(x=>x.id===id) || {};
+  const novo = !p.id;
+  edit([
+    {k:'nome',label:'Nome'},
+    {k:'col',label:'Etapa',type:'select',options:KCOLS.map((c,i)=>[String(i),c])},
+    {k:'valor',label:'Valor (R$)',type:'number'},
+    {k:'data',label:'Data'},
+    {k:'nota',label:'Nota',type:'textarea'},
+  ], {...p, col:String(p.col??0)}, vals=>{
+    const upd = {nome:vals.nome, col:+vals.col, valor:+vals.valor||null, data:vals.data, nota:vals.nota};
+    if(novo) DB.prospects.push({id:'p'+Date.now(), gravacao:false, ...upd});
+    else Object.assign(p, upd);
+  }, novo?'Novo prospect':'Editar prospect — '+(p.nome||''));
+}
+function editPost(id){
+  const p = DB.posts.find(x=>x.id===id);
+  edit([
+    {k:'conta',label:'Conta'},
+    {k:'titulo',label:'Título'},
+    {k:'status',label:'Status',type:'select',options:[['em_aprovacao','Em aprovação'],['agendado','Agendado'],['publicado','Publicado']]},
+    {k:'quando',label:'Quando'},
+  ], p, vals=>Object.assign(p, vals), 'Editar post');
+}
+function editReuniao(id){
+  const r = DB.reunioes.find(x=>x.id===id);
+  edit([
+    {k:'com',label:'Com quem'},{k:'data',label:'Data'},{k:'dur',label:'Duração'},
+    {k:'tipo',label:'Tipo',type:'select',options:['prospect','cliente']},
+    {k:'resumo',label:'Resumo',type:'textarea'},
+  ], r, vals=>Object.assign(r, vals), 'Editar reunião');
+}
+function editCampanha(id){
+  const c = DB.campanhas.find(x=>x.id===id);
+  edit([
+    {k:'cliente',label:'Cliente'},
+    {k:'status',label:'Status',type:'select',options:['ativa','pausada','setup']},
+    {k:'obj',label:'Objetivo'},
+    {k:'invest',label:'Investido no mês (R$)',type:'number'},
+    {k:'conversas',label:'Conversas',type:'number'},
+    {k:'nota',label:'Nota',type:'textarea'},
+  ], c, vals=>{
+    Object.assign(c, {cliente:vals.cliente,status:vals.status,obj:vals.obj,invest:+vals.invest||0,conversas:+vals.conversas||0,nota:vals.nota});
+    c.custo = c.conversas>0 ? c.invest/c.conversas : null;
+  }, 'Editar campanha — '+c.cliente);
+}
+function editCriacao(id){
+  const c = DB.criacao.find(x=>x.id===id) || {};
+  const novo = !c.item;
+  edit([
+    {k:'cliente',label:'Cliente'},{k:'item',label:'Peça'},
+    {k:'tipo',label:'Tipo',type:'select',options:['design','video']},
+    {k:'etapa',label:'Etapa',type:'select',options:[['a_fazer','A fazer'],['produzindo','Produzindo'],['aprovacao','Aprovação'],['pronto','Pronto']]},
+  ], c, vals=>{
+    if(novo) DB.criacao.push({id:Date.now(), ...vals}); else Object.assign(c, vals);
+  }, novo?'Nova peça':'Editar peça');
+}
+
+// ============================================================
+// NAV / SHELL
+// ============================================================
+const NAV = [
+  {top:true, items:[['visao','Visão geral',IC.visao]]},
+  {label:'Financeiro', items:[
+    ['recebiveis','Recebíveis',IC.receb],
+    ['clientes','Clientes',IC.clientes],
+    ['precos','Preços & Serviços',IC.precos],
+    ['custos','Custos fixos',IC.custos],
+    ['cobrancas','Cobranças',IC.cobr],
+  ]},
+  {label:'Comercial', items:[
+    ['crm','CRM',IC.crm],
+    ['contratos','Contratos',IC.contratos],
+    ['reunioes','Reuniões',IC.reunioes],
+  ]},
+  {label:'Marketing', items:[
+    ['posts','Posts',IC.posts],
+    ['trafego','Tráfego',IC.trafego],
+    ['criacao','Criação',IC.criacao],
+  ]},
+  {label:'Dev', items:[['dev','Sistemas',IC.dev]]},
+];
+function sidebar(active){
+  document.getElementById('sidebar').innerHTML = `
+    <div class="marca"><span class="dot">🐼</span> Hub <em>Luh Panda</em></div>
+    <div class="nav">
+      ${NAV.map(g=>`
+        <div class="${g.top?'nav-top':'nav-group'}">
+          ${g.label?`<div class="nav-group-label">${g.label}</div>`:''}
+          ${g.items.map(([r,l,ic])=>`
+            <div class="nav-item ${r===active?'active':''}" onclick="location.hash='#/${r}'" role="link" tabindex="0"
+                 onkeydown="if(event.key==='Enter')location.hash='#/${r}'">
+              <span class="nav-icon">${ic}</span><span>${l}</span>
+            </div>`).join('')}
+        </div>`).join('')}
+    </div>
+    <div class="side-foot">
+      <span class="email">lucianapandolfo9@gmail.com</span>
+      <button class="btn btn-ghost btn-sm">Sair</button>
+    </div>`;
+}
+function head(eyebrow, title, right){
+  return `<div class="page-head"><div><p class="eyebrow">${eyebrow}</p><h1 class="page">${title}</h1></div><div class="row" style="flex-wrap:wrap">${right||''}</div></div>`;
+}
+function kpi(icon, label, value, cls, sub){
+  return `<div class="kpi ${cls||''}"><div class="kpi-head">${icon}<span class="label">${label}</span></div>
+    <div class="value">${value}</div>${sub?`<div class="sub">${sub}</div>`:''}</div>`;
+}
+const btnEdit = fn => `<button class="btn btn-ico" title="Editar" onclick="event.stopPropagation();${fn}">${IC.pen}</button>`;
+
+// totais financeiros (recalculam a cada render — edição mexe aqui)
+function totais(){
+  const prev = DB.recebiveis.reduce((s,r)=>s+r.valor,0);
+  const ent = DB.recebiveis.reduce((s,r)=>s+r.entrada,0);
+  return {prev, ent, falta:prev-ent};
+}
+
+// ============================================================
+// TELAS
+// ============================================================
+function vVisao(){
+  const t = totais();
+  const meses=[['Mai',6.4],['Jun',7.2],['Jul',6.9],['Ago',8.6],['Set',t.prev/1000],['Out',8.4]];
+  const max=11, W=560, H=170, bw=52, gap=32, x0=36;
+  const bars = meses.map(([m,v],i)=>{
+    const h=(v/max)*130, x=x0+i*(bw+gap), y=150-h, cur=m==='Set';
+    return `<rect x="${x}" y="${y}" width="${bw}" height="${h}" rx="4" fill="${cur?'#D9531F':'#8B4BA3'}" opacity="${cur?1:.75}"/>
+      <text x="${x+bw/2}" y="164" text-anchor="middle" font-size="10" fill="#8B7A98" font-family="ui-monospace,monospace">${m}</text>
+      ${cur?`<text x="${x+bw/2}" y="${y-6}" text-anchor="middle" font-size="11" font-weight="600" fill="#F2EAF7">${BRL(t.prev)}</text>`:''}`;
+  }).join('');
+  const metaY = 150-(8.1/max)*130;
+  const pend = DB.recebiveis.filter(r=>r.valor>r.entrada);
+  return head('Hub Luh Panda','Visão geral') + `
+    <div class="kpis">
+      ${kpi(IC.cal,'Previsto no mês',BRL(t.prev),'', 'Set/2026 · '+DB.recebiveis.length+' recebíveis')}
+      ${kpi(IC.check,'Entrou',BRL(t.ent),'ok')}
+      ${kpi(IC.alert,'Falta',BRL(t.falta), t.falta>0?'warn':'ok', pend.length+' em aberto')}
+      ${kpi(IC.crm,'Funil comercial',DB.prospects.length,'', '2 orçamentos na rua')}
+      ${kpi(IC.posts,'Posts na fila',DB.posts.filter(p=>p.status!=='publicado').length,'', DB.posts.filter(p=>p.status==='em_aprovacao').length+' esperando seu ok')}
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <p class="eyebrow" style="color:var(--fraco)">Receita por mês</p>
+        <div class="chart-wrap">
+          <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Receita mensal, meta de R$ 8,1 mil por mês">
+            <line x1="30" y1="150" x2="${W-10}" y2="150" stroke="#2C1A3A" stroke-width="1"/>
+            <line x1="30" y1="${metaY}" x2="${W-10}" y2="${metaY}" stroke="#C4B2D1" stroke-width="1.4" stroke-dasharray="5 5" opacity=".55"/>
+            ${bars}
+          </svg>
+        </div>
+        <div class="chart-caption">
+          <span class="key"><span class="sw" style="background:#8B4BA3"></span>faturado</span>
+          <span class="key"><span class="sw" style="background:#D9531F"></span>mês atual</span>
+          <span class="key"><span class="sw" style="border-top:2px dashed #C4B2D1;width:14px;height:0;border-radius:0"></span>ritmo do teto MEI (R$ 8,1k/mês)</span>
+        </div>
+      </div>
+      <div class="card">
+        <p class="eyebrow" style="color:var(--fraco)">Precisa de você</p>
+        <div class="alerta warn" onclick="location.hash='#/recebiveis'">
+          <span>💸 <b>Império Ruby</b> R$ 400 vence dia 23 · <b>F7</b> R$ 600 sem vencimento definido</span><span class="dim">ver →</span>
+        </div>
+        <div class="alerta warn" onclick="location.hash='#/recebiveis'">
+          <span>🎪 <b>Pandoka</b> — % casamento A&M R$ 1.599 em aberto</span><span class="dim">ver →</span>
+        </div>
+        <div class="alerta bad" onclick="location.hash='#/contratos'">
+          <span>📄 <b>4 clientes sem contrato formal</b> — porta de saída em aberto</span><span class="dim">ver →</span>
+        </div>
+        <div class="alerta warn" onclick="location.hash='#/trafego'">
+          <span>📢 <b>Império Ruby</b> — campanha pronta aguardando reunião c/ Viviane</span><span class="dim">ver →</span>
+        </div>
+      </div>
+    </div>`;
+}
+
+function vRecebiveis(){
+  const t = totais();
+  const linha = r => {
+    const pago = r.entrada >= r.valor, parcial = r.entrada>0 && !pago;
+    return `
+    <tr class="click" onclick="location.hash='#/cliente/${r.cli}'">
+      <td data-l="Cliente"><b>${esc(cliNome(r.cli))}</b>${r.extra?' <span class="badge b-roxo" style="font-size:9.5px">extra</span>':''}</td>
+      <td data-l="Serviço" class="muted">${esc(r.desc)}${r.obs?`<div class="dim" style="font-size:11px">${esc(r.obs)}</div>`:''}</td>
+      <td data-l="Valor" class="money">${BRL(r.valor)}</td>
+      <td data-l="Falta" class="money">${BRL(r.valor-r.entrada)}</td>
+      <td data-l="Vence">${r.vence?('dia '+r.vence):(pago?'—':'<span class="badge b-bad" style="font-size:9.5px">sem venc.</span>')}</td>
+      <td data-l="Status">${pago?'<span class="badge b-ok">Pago</span>':parcial?'<span class="badge b-warn">Parcial</span>':'<span class="badge b-warn">Pendente</span>'}</td>
+      <td data-l="Ações" onclick="event.stopPropagation()"><div class="row" style="justify-content:flex-end;gap:6px">
+        ${pago?'':`<button class="btn btn-sm btn-primary" onclick="marcarPago(${r.id})">Marcar pago</button>`}
+        ${btnEdit(`editRecebivel(${r.id})`)}
+      </div></td>
+    </tr>`;
+  };
+  const mensal = DB.recebiveis.filter(r=>!r.extra).map(linha).join('');
+  const extras = DB.recebiveis.filter(r=>r.extra).map(linha).join('');
+  return head('Financeiro','Recebíveis — Set/2026',`<button class="btn btn-primary btn-sm" onclick="editRecebivel(0)">+ Novo recebível</button>`) + `
+    <div class="kpis">
+      ${kpi(IC.cal,'Previsto',BRL(t.prev))}
+      ${kpi(IC.check,'Entrou',BRL(t.ent),'ok')}
+      ${kpi(IC.alert,'Falta',BRL(t.falta), t.falta>0?'warn':'ok')}
+      ${kpi(IC.clientes,'Pagos',DB.recebiveis.filter(r=>r.entrada>=r.valor).length+'/'+DB.recebiveis.length)}
+    </div>
+    <p class="eyebrow" style="color:var(--fraco)">Mensalidades</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Cliente</th><th>Serviço</th><th class="num">Valor</th><th class="num">Falta</th><th>Vence</th><th>Status</th><th></th></tr></thead>
+      <tbody>${mensal}</tbody>
+    </table></div>
+    <p class="eyebrow" style="color:var(--fraco);margin-top:22px">Extras do mês — freelas, aulas e comissões</p>
+    <div class="tablewrap"><table><tbody>${extras||'<tr><td class="empty">Nenhum extra.</td></tr>'}</tbody></table></div>`;
+}
+
+function vClientes(){
+  const lista = DB.clientes.filter(c=>filtroClientes==='ativos'?!c.arquivado:c.arquivado);
+  const rows = lista.map(c=>`
+    <div class="rowcard click" onclick="location.hash='#/cliente/${c.id}'">
+      <div class="l"><div class="t">${esc(c.nome)}</div><div class="s">${esc(c.seg)} · ${esc(c.servDesc)}</div></div>
+      <div class="r">
+        ${c.servicos.map(svcBadge).join('')}
+        ${c.contrato==='assinado'?'<span class="badge b-ok">Contrato</span>':'<span class="badge b-warn">Sem contrato</span>'}
+        ${btnEdit(`editCliente('${c.id}')`)}
+      </div>
+    </div>`).join('');
+  const nArq = DB.clientes.filter(c=>c.arquivado).length;
+  return head('Financeiro','Clientes',`<button class="btn btn-primary btn-sm" onclick="editCliente('')">+ Novo cliente</button>`) + `
+    <div class="kpis">
+      ${kpi(IC.clientes,'Na carteira',DB.clientes.filter(c=>!c.arquivado).length)}
+      ${kpi(IC.trafego,'Tráfego pago',DB.clientes.filter(c=>!c.arquivado&&c.servicos.includes('trafego')).length)}
+      ${kpi(IC.dev,'Sistemas',DB.clientes.filter(c=>!c.arquivado&&c.servicos.includes('sistemas')).length)}
+      ${kpi(IC.contratos,'Com contrato',DB.clientes.filter(c=>!c.arquivado&&c.contrato==='assinado').length+'/'+DB.clientes.filter(c=>!c.arquivado).length,'warn')}
+    </div>
+    <div class="chips">
+      <button class="chip ${filtroClientes==='ativos'?'on':''}" onclick="filtroClientes='ativos';render()">Ativos</button>
+      <button class="chip ${filtroClientes==='arquivados'?'on':''}" onclick="filtroClientes='arquivados';render()">Arquivados (${nArq})</button>
+    </div>
+    ${rows || '<div class="empty">Nenhum cliente '+filtroClientes+'.</div>'}`;
+}
+
+function vCliente(id){
+  const c = cli(id); if(!c) return `<div class="empty">Cliente não encontrado.</div>`;
+  const recs = DB.recebiveis.filter(r=>r.cli===id);
+  const contr = DB.contratos.filter(x=>x.cliente===c.nome || x.cliente.startsWith(c.nome.split(' ')[0]));
+  return `<span class="back" onclick="location.hash='#/clientes'">← voltar pra clientes</span>` +
+    head(esc(c.seg), esc(c.nome), `
+      <button class="btn btn-sm" onclick="editCliente('${c.id}')">${IC.pen} Editar</button>
+      <button class="btn btn-sm" onclick="toast('Twenty CRM entra na fase de integração — ficha rica, notas e histórico.')">${IC.ext} Abrir no Twenty</button>
+      <button class="btn btn-sm ${c.arquivado?'':'btn-danger'}" onclick="arquivarCliente('${c.id}')">${IC.box} ${c.arquivado?'Restaurar':'Arquivar'}</button>
+    `) + `
+    <div class="row" style="margin:-12px 0 18px;flex-wrap:wrap">
+      ${c.servicos.map(svcBadge).join('')}
+      ${c.contrato==='assinado'?'<span class="badge b-ok">Contrato assinado</span>':'<span class="badge b-warn">Sem contrato formal</span>'}
+      ${c.arquivado?'<span class="badge b-mut">Arquivado</span>':''}
+    </div>
+    ${c.obs?`<p class="muted" style="margin:-8px 0 18px;font-size:13px">${esc(c.obs)}</p>`:''}
+    <div class="grid2">
+      <div class="card">
+        <p class="eyebrow" style="color:var(--fraco)">Recebíveis Set/2026</p>
+        ${recs.map(r=>`<div class="rowcard"><div class="l"><div class="t">${esc(r.desc)}</div>
+          <div class="s">${r.vence?'vence dia '+r.vence:''} ${r.obs?'· '+esc(r.obs):''}</div></div>
+          <div class="r"><span class="money">${BRL(r.valor)}</span>
+          ${r.entrada>=r.valor?'<span class="badge b-ok">Pago</span>':'<span class="badge b-warn">Aberto</span>'}
+          ${btnEdit(`editRecebivel(${r.id})`)}</div></div>`).join('') || '<div class="dim">Nenhum recebível este mês.</div>'}
+      </div>
+      <div class="card">
+        <p class="eyebrow" style="color:var(--fraco)">Contratos</p>
+        ${contr.map(x=>`<div class="rowcard"><div class="l"><div class="t">${esc(x.num!=='—'?x.num:'Sem número')} — ${esc(x.servico)}</div>
+          <div class="s">${esc(x.valor)}${x.venc&&x.venc!=='—'?' · vence dia '+esc(x.venc):''}</div></div>
+          <div class="r"><span class="badge ${x.status==='assinado'?'b-ok':x.status==='enviado'?'b-warn':'b-mut'}">${x.status==='pendente'?'sem contrato':esc(x.status)}</span>
+          ${btnEdit(`editContrato(${x.id})`)}</div></div>`).join('') ||
+          `<div class="dim" style="margin-bottom:10px">Nenhum contrato deste cliente.</div>
+           <button class="btn btn-sm btn-primary" onclick="novoContrato()">+ Emitir contrato</button>`}
+      </div>
+    </div>`;
+}
+
+function vPrecos(){
+  const cards = DB.catalogo.map(s=>`
+    <div class="preco-card">
+      <span class="edit">${btnEdit(`editServico(${s.id})`)}</span>
+      <span class="tipo">${esc(s.tipo)}</span>
+      <span class="nome">${esc(s.nome)}</span>
+      <span class="valor">${esc(s.valor)}</span>
+      <span class="inclui">${esc(s.inclui)}</span>
+      ${s.obs?`<span class="obs">${esc(s.obs)}</span>`:''}
+    </div>`).join('');
+  return head('Financeiro','Preços & Serviços',`<button class="btn btn-primary btn-sm" onclick="editServico(0)">+ Novo serviço</button>`) + `
+    <p class="muted" style="margin:-8px 0 18px;font-size:13px">Preço de tabela — ponto de partida da negociação, não valor travado.</p>
+    <div class="gridcards">${cards}</div>
+    <p class="dim" style="font-size:12px;margin-top:16px">Lembrete: todo sistema entregue sai com manutenção contratada — mensal ou avulsa. Nunca vender hora avulsa sem bloco fechado por escrito.</p>`;
+}
+
+function vCustos(){
+  const tot = DB.custos.reduce((s,c)=>s+c.valor,0);
+  const neg = DB.custos.filter(c=>c.cat==='negocio').reduce((s,c)=>s+c.valor,0);
+  const rows = DB.custos.map(c=>`
+    <tr>
+      <td data-l="Conta"><b>${esc(c.nome)}</b>${c.funcao?`<div class="dim" style="font-size:11.5px">${esc(c.funcao)}</div>`:''}</td>
+      <td data-l="Categoria"><span class="badge ${c.cat==='negocio'?'b-lar':'b-mut'}">${c.cat}</span></td>
+      <td data-l="Custo mensal" class="money">${BRL(c.valor)}</td>
+      <td data-l="Vence">${c.dia?('dia '+c.dia):'—'}</td>
+      <td data-l="Finaliza" class="dim">${esc(c.fim||'—')}</td>
+      <td data-l="" onclick="event.stopPropagation()">${btnEdit(`editCusto(${c.id})`)}</td>
+    </tr>`).join('');
+  return head('Financeiro','Custos fixos',`<button class="btn btn-primary btn-sm" onclick="editCusto(0)">+ Novo custo</button>`) + `
+    <div class="kpis">
+      ${kpi(IC.custos,'Total por mês',BRL(tot))}
+      ${kpi(IC.precos,'Negócio',BRL(neg))}
+      ${kpi(IC.clientes,'Pessoal',BRL(tot-neg))}
+    </div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Conta</th><th>Categoria</th><th class="num">Custo mensal</th><th>Vence</th><th>Finaliza</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function vCobrancas(){
+  const abertos = DB.recebiveis.filter(r=>r.valor>r.entrada);
+  const fila = abertos.map(r=>`
+    <div class="rowcard">
+      <div class="l"><div class="t">${esc(cliNome(r.cli))}</div>
+        <div class="s">${r.vence?('vence dia '+r.vence+' · régua D-3/D0/D+2/D+7'):'sem vencimento — escala pra você'}</div></div>
+      <div class="r"><span class="money">${BRL(r.valor-r.entrada)}</span>
+        ${r.vence?'<span class="badge b-warn">Na régua</span>':'<span class="badge b-bad">Escala pra você</span>'}</div>
+    </div>`).join('');
+  return head('Financeiro','Cobranças — bot automático') + `
+    <div class="kpis">
+      ${kpi(IC.zap,'Em aberto na régua',abertos.filter(r=>r.vence).length,'', 'dispara 08h · America/Recife')}
+      ${kpi(IC.alert,'Escaladas pra você',abertos.filter(r=>!r.vence).length, abertos.filter(r=>!r.vence).length?'bad':'')}
+      ${kpi(IC.check,'Enviadas no mês','11','ok','nenhuma duplicata')}
+    </div>
+    <div class="grid2">
+      <div><p class="eyebrow" style="color:var(--fraco)">Fila atual</p>${fila||'<div class="dim">Ninguém pra cobrar. 🎉</div>'}</div>
+      <div><p class="eyebrow" style="color:var(--fraco)">Últimos envios</p>
+        <div class="rowcard"><div class="l"><div class="t">Manu Pestana</div><div class="s">D0 · 05/09 08:02</div></div><div class="r"><span class="badge b-ok">pago 05/09</span></div></div>
+        <div class="rowcard"><div class="l"><div class="t">Daniel Magnus</div><div class="s">D0 · 05/09 08:03</div></div><div class="r"><span class="badge b-ok">pago 05/09</span></div></div>
+        <div class="rowcard"><div class="l"><div class="t">Régis / Dobradinha</div><div class="s">D-3 · 09/09 08:01</div></div><div class="r"><span class="badge b-ok">pago 12/09</span></div></div>
+      </div>
+    </div>
+    <p class="dim" style="font-size:12px;margin-top:8px">Régua D-3 → D0 → D+2 → D+7 com Pix no texto. Nunca cobra fim de semana; vencido +7 dias ou sem WhatsApp cadastrado escala pra você.</p>`;
+}
+
+function vCRM(){
+  const cols = KCOLS.map((titulo,i)=>{
+    const cards = DB.prospects.filter(p=>p.col===i).map(p=>`
+      <div class="kcard" onclick="location.hash='#/prospect/${p.id}'">
+        <div class="nome">${esc(p.nome)}</div>
+        <div class="meta"><span>${esc(p.data)}${p.gravacao?' · 🎥':''}</span>${p.valor?`<span class="valor">${BRL(p.valor)}</span>`:''}</div>
+      </div>`).join('');
+    return `<div class="kcol">
+      <div class="kcol-head"><span class="kcol-title">${titulo}</span><span class="kcol-count">${DB.prospects.filter(p=>p.col===i).length}</span></div>
+      ${cards||'<div class="dim" style="font-size:11.5px;text-align:center;padding:18px 0">vazio</div>'}
+    </div>`;
+  }).join('');
+  return head('Comercial','CRM — funil de prospects',`<button class="btn btn-primary btn-sm" onclick="editProspect('')">+ Novo prospect</button>`) + `
+    <div class="kpis">
+      ${kpi(IC.crm,'No funil',DB.prospects.length)}
+      ${kpi(IC.receb,'Valor em negociação',BRL(DB.prospects.filter(p=>p.col<5&&p.valor).reduce((s,p)=>s+p.valor,0)))}
+      ${kpi(IC.check,'Fechados no mês','2','ok','Bolão Fácil · F7')}
+      ${kpi(IC.ext,'Ficha rica','Twenty','', 'CRM open-source · fase de integração')}
+    </div>
+    <div class="kanban">${cols}</div>`;
+}
+
+function vProspect(id){
+  const p = DB.prospects.find(x=>x.id===id); if(!p) return `<div class="empty">Prospect não encontrado.</div>`;
+  const steps = ONBOARD.map((t,i)=>{
+    const done = i<=p.col, now = i===p.col+1;
+    return `<div class="step ${done?'done':''} ${now?'now':''}">
+      <div class="step-dot">${done?'✓':i+1}</div>
+      <div class="step-body">
+        <div class="step-title">${t}</div>
+        ${i===1&&p.gravacao?'<div class="step-sub">gravação no Meetily · resumo pronto (API entra na fase de ligação)</div>':''}
+        ${i===2&&p.valor?`<div class="step-sub">valor fechado: ${BRL(p.valor)}</div>`:''}
+        ${now?`<div class="step-act"><button class="btn btn-sm btn-primary" onclick="${i===5?'novoContrato()':`toast('No sistema real: ${i===2?'abre a precificação':i===3?'gera o PDF do orçamento':i===4?'envia via WhatsApp (Evolution)':'abre o cliente com os serviços'}.')`}">${
+          i===2?'Precificar':i===3?'Gerar PDF do orçamento':i===4?'Enviar via WhatsApp':i===5?'Emitir contrato':i===6?'Abrir cliente':'Avançar'
+        }</button></div>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  return `<span class="back" onclick="location.hash='#/crm'">← voltar pro CRM</span>` +
+    head('Comercial · ' + KCOLS[p.col], esc(p.nome), `
+      <button class="btn btn-sm" onclick="editProspect('${p.id}')">${IC.pen} Editar</button>
+      <button class="btn btn-sm" onclick="toast('Twenty CRM entra na fase de integração.')">${IC.ext} Abrir no Twenty</button>
+    `) + `
+    <div class="grid2">
+      <div class="card">
+        <p class="eyebrow" style="color:var(--fraco)">Onboarding</p>
+        <div class="steps">${steps}</div>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:14px">
+          <p class="eyebrow" style="color:var(--fraco)">Resumo</p>
+          <p class="muted" style="margin:0;font-size:13.5px">${esc(p.nota)}</p>
+          <div class="row" style="margin-top:12px;flex-wrap:wrap">
+            ${p.valor?`<span class="badge b-lar">${BRL(p.valor)}</span>`:''}
+            ${p.gravacao?'<span class="badge b-roxo">🎥 Meetily</span>':''}
+            <span class="badge b-mut">${esc(p.data)}</span>
+          </div>
+        </div>
+        <div class="card">
+          <p class="eyebrow" style="color:var(--fraco)">Ações rápidas</p>
+          <div class="row" style="flex-wrap:wrap;gap:8px">
+            <button class="btn btn-sm" onclick="toast('Abre a gravação/resumo no Meetily (API na fase de ligação).')">${IC.play} Ver gravação</button>
+            <button class="btn btn-sm" onclick="toast('No sistema real: PDF do orçamento.')">${IC.doc} Orçamento PDF</button>
+            <button class="btn btn-sm" onclick="toast('No sistema real: conversa no WhatsApp.')">${IC.zap} WhatsApp</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function vContratos(){
+  const b = {assinado:'b-ok', ativo:'b-ok', enviado:'b-warn', emitido:'b-warn', rascunho:'b-mut', pendente:'b-bad', encerrado:'b-mut'};
+  const rows = DB.contratos.map(x=>`
+    <tr>
+      <td data-l="Cliente"><b>${esc(x.cliente)}</b></td>
+      <td data-l="Nº" class="dim">${esc(x.num)}</td>
+      <td data-l="Serviço" class="muted">${esc(x.servico)}</td>
+      <td data-l="Valor">${esc(x.valor)}</td>
+      <td data-l="Status"><span class="badge ${b[x.status]||'b-mut'}">${x.status==='pendente'?'sem contrato':esc(x.status)}</span></td>
+      <td data-l="Ações" onclick="event.stopPropagation()">
+        <div class="row" style="justify-content:flex-end;gap:6px">
+          <button class="btn btn-ico" title="Upload do assinado" onclick="toast('No sistema real: upload do PDF assinado.')">${IC.up}</button>
+          <button class="btn btn-ico" title="Enviar por e-mail" onclick="toast('No sistema real: envia por e-mail.')">${IC.mail}</button>
+          ${btnEdit(`editContrato(${x.id})`)}
+        </div>
+      </td>
+    </tr>`).join('');
+  const semC = DB.contratos.filter(x=>x.status==='pendente').length;
+  return head('Comercial','Contratos',`<button class="btn btn-primary btn-sm" onclick="novoContrato()">+ Emitir contrato</button>`) + `
+    <div class="kpis">
+      ${kpi(IC.contratos,'Assinados',DB.contratos.filter(x=>x.status==='assinado').length,'ok')}
+      ${kpi(IC.clock,'Na rua',DB.contratos.filter(x=>['enviado','emitido','rascunho'].includes(x.status)).length,'warn')}
+      ${kpi(IC.alert,'Sem contrato',semC, semC?'bad':'', 'porta de saída em aberto')}
+    </div>
+    <p class="muted" style="margin:-8px 0 16px;font-size:12.5px">Padrão MODELO-BASE: prazo mínimo 3 meses · Pix · foro Recife · Anexo I por serviço. Emitir = preencher os dados do cliente, o resto o modelo resolve.</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Cliente</th><th>Nº</th><th>Serviço</th><th>Valor</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`;
+}
+
+function vReunioes(){
+  const rows = DB.reunioes.map(r=>`
+    <div class="rowcard">
+      <div class="row" style="min-width:0;flex:1">
+        <div class="thumb v2" style="display:flex;align-items:center;justify-content:center;color:#fff">${IC.play}</div>
+        <div class="l" style="min-width:0">
+          <div class="t">${esc(r.com)} <span class="badge ${r.tipo==='prospect'?'b-lar':'b-roxo'}" style="margin-left:6px">${r.tipo}</span></div>
+          <div class="s">${esc(r.data)} · ${esc(r.dur)}</div>
+          <div class="muted" style="font-size:12.5px;margin-top:4px">${esc(r.resumo)}</div>
+        </div>
+      </div>
+      <div class="r">
+        <button class="btn btn-sm" onclick="toast('Meetily abre aqui quando a API for ligada.')">Abrir no Meetily</button>
+        ${btnEdit(`editReuniao(${r.id})`)}
+      </div>
+    </div>`).join('');
+  return head('Comercial','Reuniões — Meetily') + `
+    <div class="kpis">
+      ${kpi(IC.reunioes,'No mês',DB.reunioes.length)}
+      ${kpi(IC.crm,'Viraram prospect','2','ok')}
+      ${kpi(IC.clock,'Sem resumo','0')}
+    </div>
+    <p class="muted" style="margin:-8px 0 16px;font-size:12.5px">Integração via API do Meetily entra na fase de ligação — gravação, transcrição e resumo aparecem aqui automaticamente, vinculados ao prospect/cliente.</p>
+    ${rows}`;
+}
+
+function vPosts(){
+  const contas = ['todas', ...new Set(DB.posts.map(p=>p.conta))];
+  const b = {em_aprovacao:['b-warn','em aprovação'], agendado:['b-roxo','agendado'], publicado:['b-ok','publicado']};
+  const lista = DB.posts.filter(p=>filtroPosts==='todas'||p.conta===filtroPosts);
+  const rows = lista.map(p=>`
+    <div class="rowcard">
+      <div class="row" style="min-width:0;flex:1">
+        <div class="thumb ${p.thumb}"></div>
+        <div class="l"><div class="t">${esc(p.titulo)}</div><div class="s">${esc(p.conta)}${p.quando!=='—'?' · '+esc(p.quando):''}</div></div>
+      </div>
+      <div class="r">
+        <span class="badge ${b[p.status][0]}">${b[p.status][1]}</span>
+        ${p.status==='em_aprovacao'?`<button class="btn btn-sm btn-primary" onclick="const x=DB.posts.find(q=>q.id===${p.id});x.status='agendado';x.quando='amanhã · 18h';toast('Aprovado e agendado.');render()">Aprovar</button>`:''}
+        ${btnEdit(`editPost(${p.id})`)}
+      </div>
+    </div>`).join('');
+  return head('Marketing','Posts — aprovi.ai') + `
+    <div class="kpis">
+      ${kpi(IC.alert,'Em aprovação',DB.posts.filter(p=>p.status==='em_aprovacao').length,'warn','esperando seu ok')}
+      ${kpi(IC.cal,'Agendados',DB.posts.filter(p=>p.status==='agendado').length,'', 'o pg_cron publica sozinho')}
+      ${kpi(IC.check,'Publicados no mês',DB.posts.filter(p=>p.status==='publicado').length,'ok')}
+    </div>
+    <div class="chips">${contas.map(ct=>`<button class="chip ${filtroPosts===ct?'on':''}" onclick="filtroPosts='${ct}';render()">${ct}</button>`).join('')}</div>
+    ${rows||'<div class="empty">Nada nessa conta.</div>'}`;
+}
+
+function vTrafego(){
+  const stat = {ativa:['b-ok','Ativa'], pausada:['b-warn','Pausada'], setup:['b-mut','Em setup']};
+  const cards = DB.campanhas.map(c=>`
+    <div class="traf-card">
+      <div class="traf-head">
+        <div><div style="font-weight:600;font-size:15px;letter-spacing:-.01em">${esc(c.cliente)}</div>
+        <div class="dim" style="font-size:12px">${esc(c.obj)}</div></div>
+        <div class="row"><span class="badge ${stat[c.status][0]}">${stat[c.status][1]}</span>${btnEdit(`editCampanha(${c.id})`)}</div>
+      </div>
+      <div class="traf-metrics">
+        <div class="traf-m"><div class="l">Investido</div><div class="v">${c.invest?BRL(c.invest):'—'}</div></div>
+        <div class="traf-m"><div class="l">Conversas</div><div class="v">${c.conversas||'—'}</div></div>
+        <div class="traf-m"><div class="l">R$/conversa</div><div class="v">${c.custo?BRL(Math.round(c.custo*100)/100):'—'}</div></div>
+      </div>
+      <div class="traf-note">${esc(c.nota)}</div>
+    </div>`).join('');
+  return head('Marketing','Tráfego pago — Meta') + `
+    <div class="kpis">
+      ${kpi(IC.trafego,'Campanhas ativas',DB.campanhas.filter(c=>c.status==='ativa').length)}
+      ${kpi(IC.receb,'Investido no mês',BRL(DB.campanhas.reduce((s,c)=>s+c.invest,0)))}
+      ${kpi(IC.zap,'Conversas geradas',DB.campanhas.reduce((s,c)=>s+c.conversas,0),'ok')}
+    </div>
+    ${cards}
+    <p class="dim" style="font-size:12px">Na fase de dados, esses números vêm direto da API da Meta — entrega prova, tela não prova. Sempre link_click, nunca clicks. Campanha mora na BM do cliente.</p>`;
+}
+
+function vCriacao(){
+  const etapas=[['a_fazer','A fazer'],['produzindo','Produzindo'],['aprovacao','Aprovação'],['pronto','Pronto']];
+  const cols = etapas.map(([k,titulo])=>{
+    const cards = DB.criacao.filter(c=>c.etapa===k).map(c=>`
+      <div class="kcard" onclick="editCriacao(${c.id})">
+        <div class="nome">${esc(c.item)}</div>
+        <div class="meta"><span>${esc(c.cliente)}</span><span class="badge ${c.tipo==='video'?'b-lar':'b-roxo'}" style="font-size:9.5px;padding:1px 7px">${c.tipo}</span></div>
+      </div>`).join('');
+    return `<div class="kcol">
+      <div class="kcol-head"><span class="kcol-title">${titulo}</span><span class="kcol-count">${DB.criacao.filter(c=>c.etapa===k).length}</span></div>
+      ${cards||'<div class="dim" style="font-size:11.5px;text-align:center;padding:18px 0">vazio</div>'}
+    </div>`;
+  }).join('');
+  return head('Marketing','Criação — design & vídeo',`<button class="btn btn-primary btn-sm" onclick="editCriacao(0)">+ Nova peça</button>`) + `
+    <p class="muted" style="margin:-8px 0 16px;font-size:12.5px">Clique numa peça pra editar/mover de etapa.</p>
+    <div class="kanban" style="grid-auto-columns:minmax(230px,1fr)">${cols}</div>`;
+}
+
+function vDev(){
+  return head('Dev','Sistemas') + `
+    <div class="card" style="max-width:560px;text-align:center;padding:52px 32px;margin:40px auto">
+      <p class="eyebrow">em construção</p>
+      <h2 style="margin:0 0 10px;letter-spacing:-.03em">O setor Dev entra na próxima fase</h2>
+      <p class="muted" style="margin:0 auto;max-width:40ch;font-size:13.5px">
+        Projetos e fases dos sistemas dos clientes, sentinela de infra (n8n, Supabase, aprovi.ai, Twenty)
+        e o Hub Dev — tudo que hoje vive no vault ganha tela aqui.
+      </p>
+    </div>`;
+}
+
+// ============================================================
+// ROTA
+// ============================================================
+const ROTAS = {
+  visao:vVisao, recebiveis:vRecebiveis, clientes:vClientes, precos:vPrecos,
+  custos:vCustos, cobrancas:vCobrancas, crm:vCRM, contratos:vContratos,
+  reunioes:vReunioes, posts:vPosts, trafego:vTrafego, criacao:vCriacao, dev:vDev,
+};
+function render(){
+  const h = location.hash.replace(/^#\/?/,'');
+  const [page,param] = h.split('/');
+  let active = page||'visao', html;
+  if(page==='cliente'){ active='clientes'; html=vCliente(param); }
+  else if(page==='prospect'){ active='crm'; html=vProspect(param); }
+  else html = (ROTAS[active]||vVisao)();
+  sidebar(active);
+  document.getElementById('main').innerHTML = html;
+  window.scrollTo(0,0);
+}
+window.addEventListener('hashchange', render);
+render();
+</script>
