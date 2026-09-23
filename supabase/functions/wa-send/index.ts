@@ -12,8 +12,14 @@
 // hub.is_admin() continua valendo. Se alguém chamar esta função com outro
 // login, as RPCs recusam sozinhas.
 //
+// ⚠️ O header `apikey` do PostgREST NÃO é o JWT do usuário — é a chave
+// publicável do projeto. Mandar o JWT nos dois lugares devolve
+// 401 "Invalid API key". Bug pego no primeiro teste real, 23/09/2026.
+//
 // SECRETS (Supabase → Project Settings → Edge Functions → Secrets):
-//   EVOLUTION_API_KEY    obrigatório — Global API Key da Evolution
+//   EVOLUTION_API_KEY    obrigatório — Global API Key da Evolution.
+//                        Ela vive no container `automation-evolution-1` da
+//                        VPS, variável AUTHENTICATION_API_KEY. 64 caracteres.
 //   EVOLUTION_URL        opcional, default https://evo.luhpanda.com.br
 //   EVOLUTION_INSTANCIA  opcional, default LuhPessoal
 //
@@ -24,6 +30,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")
+  ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY")
+  ?? "";
 const EVOLUTION_URL = Deno.env.get("EVOLUTION_URL") ?? "https://evo.luhpanda.com.br";
 const EVOLUTION_INSTANCIA = Deno.env.get("EVOLUTION_INSTANCIA") ?? "LuhPessoal";
 const EVOLUTION_API_KEY = Deno.env.get("EVOLUTION_API_KEY");
@@ -42,12 +51,13 @@ function responder(corpo: unknown, status = 200) {
 }
 
 // Chama uma RPC do Hub repassando o JWT de quem chamou a função.
+// apikey = chave publicável do projeto; Authorization = JWT do usuário.
 async function rpc(nome: string, corpo: unknown, jwt: string) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${nome}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      apikey: jwt,
+      apikey: ANON_KEY,
       Authorization: `Bearer ${jwt}`,
     },
     body: JSON.stringify(corpo),
@@ -75,6 +85,12 @@ Deno.serve(async (req: Request) => {
       erro: "Envio ainda nao ativado — falta configurar a chave da Evolution.",
       detalhe: "Definir o secret EVOLUTION_API_KEY no projeto Supabase.",
     }, 503);
+  }
+  if (!ANON_KEY) {
+    return responder({
+      erro: "configuracao incompleta",
+      detalhe: "SUPABASE_ANON_KEY nao disponivel no ambiente da funcao.",
+    }, 500);
   }
 
   let entrada: { fone?: string; corpo?: string; prospect_id?: string; cliente_id?: string };

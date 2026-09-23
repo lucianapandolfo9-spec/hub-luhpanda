@@ -1288,29 +1288,55 @@ function erroEnvioWhats(err){
   return 'A mensagem NÃO foi enviada: ' + m;
 }
 
+// Envio OTIMISTA. A Evolution leva ~1,5s pra entregar de verdade e isso não
+// tem como acelerar — é a conversa da VPS com o servidor do WhatsApp. O que
+// dá pra evitar é ela ficar olhando pra uma tela parada nesse tempo: a bolha
+// entra na hora, marcada como "enviando", e vira confirmada ou falha depois.
+// É o mesmo comportamento do WhatsApp, e é honesto — o estado pendente
+// aparece, não finge que já chegou.
 async function enviarConversa(slot){
   const st = conversasCache[slot];
   const ta = document.getElementById(slot + '-texto');
-  const btn = document.getElementById(slot + '-enviar');
-  if(!st || !ta || !btn) return;
+  if(!st || !ta) return;
   const corpo = ta.value.trim();
   if(!corpo){ toast('Escreve a mensagem antes de enviar.'); return; }
   if(!hubClient.functions){ toast('Envio ainda não ativado — falta configurar a chave da Evolution.'); return; }
 
-  btn.disabled = true; btn.textContent = 'Enviando...';
+  const provisoria = {
+    id: 'tmp-' + Date.now(),
+    direcao: 'saida',
+    corpo: corpo,
+    tipo: 'texto',
+    transcrito: false,
+    enviada_em: new Date().toISOString(),
+    status: 'enviando',
+    erro: null,
+  };
+  if(!st.dados) st.dados = { conversa: null, mensagens: [] };
+  if(!st.dados.mensagens) st.dados.mensagens = [];
+  st.dados.mensagens.push(provisoria);
+  // o rascunho da IA já foi usado; não pode voltar no redesenho
+  if(st.dados.conversa) st.dados.conversa.rascunho_sugerido = '';
+  ta.value = '';
+  desenharConversa(slot);
+
   try{
     const { data, error } = await hubClient.functions.invoke('wa-send', {
-      body: { fone: st.fone, corpo, prospect_id: st.prospect_id, cliente_id: st.cliente_id },
+      body: { fone: st.fone, corpo: corpo, prospect_id: st.prospect_id, cliente_id: st.cliente_id },
     });
     if(error) throw error;
     if(data && data.erro) throw new Error(data.erro);
-    ta.value = '';
-    toast('Mensagem enviada.');
     conversasResumo = null;          // kanban recarrega a prévia na próxima visita
-    await carregarConversa(slot);    // redesenha a partir do que o banco gravou
+    await carregarConversa(slot);    // troca a provisória pela linha real do banco
   } catch(e){
+    // Não saiu: a bolha vira "não saiu" com o motivo, e o texto volta pro campo
+    // pra ela não perder o que escreveu.
+    provisoria.status = 'erro';
+    provisoria.erro = erroEnvioWhats(e);
+    desenharConversa(slot);
+    const campo = document.getElementById(slot + '-texto');
+    if(campo && !campo.value) campo.value = corpo;
     toast(erroEnvioWhats(e));
-    btn.disabled = false; btn.textContent = 'Enviar';
   }
 }
 
