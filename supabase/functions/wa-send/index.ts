@@ -36,6 +36,7 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")
 const EVOLUTION_URL = Deno.env.get("EVOLUTION_URL") ?? "https://evo.luhpanda.com.br";
 const EVOLUTION_INSTANCIA = Deno.env.get("EVOLUTION_INSTANCIA") ?? "LuhPessoal";
 const EVOLUTION_API_KEY = Deno.env.get("EVOLUTION_API_KEY");
+const EVOLUTION_DELAY = Number(Deno.env.get("EVOLUTION_DELAY") ?? "0");
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -131,15 +132,24 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         number: `${foneNorm}@s.whatsapp.net`,
         text: texto,
-        delay: 1200,
+        delay: EVOLUTION_DELAY,
         linkPreview: false,
       }),
     });
     const resposta = await r.text();
     if (!r.ok) throw new Error(`Evolution ${r.status}: ${resposta}`);
 
-    await rpc("hub_rpc_marcar_envio", { p: { msg_id: msgId, status: "enviado" } }, jwt);
-    return responder({ ok: true, msg_id: msgId });
+    // id da Evolution: sem ele, o eco do MESSAGES_UPSERT vira linha duplicada
+    let evoId: string | null = null;
+    try {
+      const j = JSON.parse(resposta);
+      evoId = (j && j.key && j.key.id) ? String(j.key.id) : null;
+    } catch { /* resposta sem JSON: segue sem o id */ }
+
+    await rpc("hub_rpc_marcar_envio", {
+      p: { msg_id: msgId, status: "enviado", evolution_msg_id: evoId },
+    }, jwt);
+    return responder({ ok: true, msg_id: msgId, evolution_msg_id: evoId });
   } catch (e) {
     // A mensagem fica no banco marcada como erro, com o motivo. Melhor um
     // registro honesto de falha do que uma linha 'enviando' pendurada pra
