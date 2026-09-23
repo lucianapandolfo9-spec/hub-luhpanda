@@ -56,6 +56,39 @@ function formatDateBR(iso){
   const [y,m,d] = iso.split('-');
   return `${d}/${m}/${y}`;
 }
+// tempo relativo curto ("agora", "há 2h", "ontem", "22/09") — usado no card do
+// kanban e no carimbo das bolhas de conversa. Entra timestamptz do Postgres.
+function tempoRelativo(ts){
+  if(!ts) return '';
+  const d = new Date(ts);
+  if(isNaN(d.getTime())) return '';
+  const seg = (Date.now() - d.getTime())/1000;
+  if(seg < 0) return 'agora';
+  if(seg < 60) return 'agora';
+  if(seg < 3600) return 'há ' + Math.floor(seg/60) + 'min';
+  if(seg < 86400) return 'há ' + Math.floor(seg/3600) + 'h';
+  const dias = Math.floor(seg/86400);
+  if(dias === 1) return 'ontem';
+  if(dias < 7) return 'há ' + dias + ' dias';
+  return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' });
+}
+// carimbo da bolha: hoje só a hora, ontem/antes com o dia junto
+function carimboMsg(ts){
+  if(!ts) return '';
+  const d = new Date(ts);
+  if(isNaN(d.getTime())) return '';
+  const hora = d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+  const hoje = new Date();
+  const mesmoDia = d.toDateString() === hoje.toDateString();
+  if(mesmoDia) return hora;
+  const ontem = new Date(hoje.getTime() - 86400000);
+  if(d.toDateString() === ontem.toDateString()) return 'ontem ' + hora;
+  return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit' }) + ' ' + hora;
+}
+function truncar(s, n){
+  s = String(s == null ? '' : s);
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s;
+}
 function monthLabel(competenciaISO){
   const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
   const m = parseInt(competenciaISO.split('-')[1], 10) - 1;
@@ -1139,10 +1172,154 @@ async function salvarCusto(ev){
 }
 
 // ============================================================
+// CONVERSAS DE WHATSAPP (Fase 3, Bloco C) — componente reutilizável
+//
+// UM componente só, usado em dois lugares: card "Conversa" na ficha do
+// prospect e pilar "Conversas" na ficha do cliente. Quem chama só passa o
+// telefone CRU (qualquer formato — o banco normaliza em hub.fone_norm) e de
+// quem é a conversa.
+//
+// Leitura: hub_rpc_conversa_thread(p_fone) → {conversa, mensagens} ou null.
+// Envio: Edge Function `wa-send` — a chave da Evolution mora LÁ, nunca aqui.
+// ⚠️ A função ainda não está deployada (falta a chave). Até lá o envio falha
+// com toast explícito e NADA é desenhado como se tivesse saído.
+//
+// rascunho_sugerido: o nó de IA do n8n escreve; aqui ele só PREENCHE o campo.
+// Envio nunca acontece sozinho — mesmo princípio do aprovi.ai.
+// ============================================================
+const conversasCache = {};   // slotId -> { fone, prospect_id, cliente_id, dados, erro }
+const CONVERSA_MARCA = {
+  audio: '🎤 Áudio', imagem: '🖼️ Imagem', documento: '📎 Documento', outro: '📨 Mensagem',
+};
+
+function conversaSlotId(fone){ return 'conv-' + String(fone||'').replace(/\D/g,''); }
+
+// Devolve o HTML do painel (síncrono, pra encaixar em template string) e
+// agenda o carregamento pro tick seguinte, quando o innerHTML já colou o nó.
+function renderConversa(fone, opts){
+  opts = opts || {};
+  const digitos = String(fone == null ? '' : fone).replace(/\D/g,'');
+  if(digitos.length < 8){
+    return `<div class="conversa-vazia">${esc(opts.semFone || 'Sem WhatsApp cadastrado.')}</div>`;
+  }
+  const slot = conversaSlotId(fone);
+  conversasCache[slot] = {
+    fone: String(fone),
+    prospect_id: opts.prospect_id || null,
+    cliente_id: opts.cliente_id || null,
+    dados: undefined, erro: null,
+  };
+  setTimeout(()=>carregarConversa(slot), 0);
+  return `<div class="conversa" id="${slot}">
+    <div class="empty" style="padding:26px 10px;"><div class="spinner" style="margin:0 auto;"></div></div>
+  </div>`;
+}
+
+async function carregarConversa(slot){
+  const st = conversasCache[slot];
+  if(!st || !document.getElementById(slot)) return;
+  try{
+    st.dados = await rpc('hub_rpc_conversa_thread', { p_fone: st.fone });
+    st.erro = null;
+  } catch(e){
+    st.dados = null;
+    st.erro = friendlyError(e);
+  }
+  desenharConversa(slot);
+}
+
+function desenharConversa(slot){
+  const st = conversasCache[slot];
+  const box = document.getElementById(slot);
+  if(!st || !box) return;
+
+  const conversa = (st.dados && st.dados.conversa) || null;
+  const msgs = (st.dados && st.dados.mensagens) || [];
+  const rascunho = (conversa && conversa.rascunho_sugerido) || '';
+
+  // mais antigas em cima — o banco já devolve ordenado por enviada_em
+  const bolhas = msgs.map(m => {
+    const entrada = m.direcao === 'entrada';
+    const midia = m.tipo && m.tipo !== 'texto';
+    let miolo;
+    if(midia && !m.transcrito){
+      // corpo vazio de propósito: arquivo não é guardado, só o marcador
+      miolo = `<span class="marca">${esc(CONVERSA_MARCA[m.tipo] || CONVERSA_MARCA.outro)}</span>`;
+    } else {
+      miolo = `<span class="corpo">${esc(m.corpo || '')}</span>`;
+      if(midia && m.transcrito){
+        miolo += `<span class="transcrito">${esc(CONVERSA_MARCA[m.tipo] || CONVERSA_MARCA.outro)} · transcrito</span>`;
+      }
+    }
+    const falhou = !entrada && m.status === 'erro';
+    return `<div class="bolha ${entrada?'entrada':'saida'} ${falhou?'erro':''}">
+      ${miolo}
+      ${falhou ? `<span class="falhou">não saiu${m.erro ? ' — ' + esc(truncar(m.erro, 90)) : ''}</span>` : ''}
+      <span class="carimbo">${esc(carimboMsg(m.enviada_em))}${!entrada && m.status === 'enviando' ? ' · enviando' : ''}</span>
+    </div>`;
+  }).join('');
+
+  const vazio = st.erro
+    ? `<div class="conversa-vazia">Não deu pra carregar a conversa — ${esc(st.erro)}</div>`
+    : `<div class="conversa-vazia">Nenhuma mensagem ainda.</div>`;
+
+  box.innerHTML = `
+    <div class="conversa-thread" id="${slot}-thread">${bolhas || vazio}</div>
+    <div class="conversa-envio">
+      ${rascunho ? `<div class="conversa-dica">✨ sugestão da IA — edite antes de mandar</div>` : ''}
+      <textarea id="${slot}-texto" rows="2" placeholder="Escreva a resposta...">${esc(rascunho)}</textarea>
+      <div class="conversa-acoes">
+        <button class="btn btn-primary btn-sm" id="${slot}-enviar" onclick="enviarConversa('${slot}')">Enviar</button>
+      </div>
+    </div>`;
+
+  const th = document.getElementById(slot + '-thread');
+  if(th) th.scrollTop = th.scrollHeight;   // abre já no fim da conversa
+}
+
+// Erro de envio em linguagem de gente. Enquanto a Edge Function não estiver
+// deployada, qualquer tentativa cai no primeiro caso — e a tela deixa claro
+// que NÃO saiu.
+function erroEnvioWhats(err){
+  const m = (err && err.message) || String(err);
+  if(/not found|404|failed to (send|fetch)|networkerror|failed to fetch|non-2xx/i.test(m)){
+    return 'Envio ainda não ativado — falta configurar a chave da Evolution.';
+  }
+  return 'A mensagem NÃO foi enviada: ' + m;
+}
+
+async function enviarConversa(slot){
+  const st = conversasCache[slot];
+  const ta = document.getElementById(slot + '-texto');
+  const btn = document.getElementById(slot + '-enviar');
+  if(!st || !ta || !btn) return;
+  const corpo = ta.value.trim();
+  if(!corpo){ toast('Escreve a mensagem antes de enviar.'); return; }
+  if(!hubClient.functions){ toast('Envio ainda não ativado — falta configurar a chave da Evolution.'); return; }
+
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try{
+    const { data, error } = await hubClient.functions.invoke('wa-send', {
+      body: { fone: st.fone, corpo, prospect_id: st.prospect_id, cliente_id: st.cliente_id },
+    });
+    if(error) throw error;
+    if(data && data.erro) throw new Error(data.erro);
+    ta.value = '';
+    toast('Mensagem enviada.');
+    conversasResumo = null;          // kanban recarrega a prévia na próxima visita
+    await carregarConversa(slot);    // redesenha a partir do que o banco gravou
+  } catch(e){
+    toast(erroEnvioWhats(e));
+    btn.disabled = false; btn.textContent = 'Enviar';
+  }
+}
+
+// ============================================================
 // FICHA DO CLIENTE (abas por pilar)
 // ============================================================
 let clienteAtual = null;
 let pilarAtivo = 'financeiro';
+let contatoConversaId = null;   // qual contato do cliente está aberto no pilar Conversas
 
 async function renderCliente(slug){
   root.innerHTML = shell('carteira', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
@@ -1157,6 +1334,7 @@ async function renderCliente(slug){
   } catch(e){ data.demandas = null; }
   clienteAtual = data;
   pilarAtivo = 'financeiro';
+  contatoConversaId = null;
   desenharFichaCliente();
 }
 
@@ -1191,6 +1369,7 @@ function desenharFichaCliente(){
       <div class="pilartab ${pilarAtivo==='financeiro'?'active':''}" onclick="trocarPilar('financeiro', event)">Financeiro</div>
       <div class="pilartab ${pilarAtivo==='marketing'?'active':''}" onclick="trocarPilar('marketing', event)">Marketing</div>
       <div class="pilartab ${pilarAtivo==='comercial'?'active':''}" onclick="trocarPilar('comercial', event)">Comercial</div>
+      <div class="pilartab ${pilarAtivo==='conversas'?'active':''}" onclick="trocarPilar('conversas', event)">Conversas</div>
     </div>
     <div id="pilar-body">${renderPilar()}</div>
 
@@ -1211,7 +1390,45 @@ function trocarPilar(p, ev){
 function renderPilar(){
   if(pilarAtivo === 'marketing') return `<div class="pilar-empty">Em construção — próxima fase do hub.</div>`;
   if(pilarAtivo === 'comercial') return `<div class="pilar-empty">Em construção — próxima fase do hub.</div>`;
+  if(pilarAtivo === 'conversas') return renderPilarConversas();
   return renderPilarFinanceiro();
+}
+
+// Pilar Conversas — mesmo componente da ficha do prospect. O telefone vem de
+// hub.contatos (whatsapp_e164), preferindo o contato principal; se o cliente
+// tiver mais de um WhatsApp, ela escolhe qual thread ver.
+function renderPilarConversas(){
+  const cliente = clienteAtual.cliente;
+  const comZap = (clienteAtual.contatos || [])
+    .filter(ct => String(ct.whatsapp_e164 || '').replace(/\D/g,'').length >= 8);
+
+  if(!comZap.length){
+    return `<div class="pilar-empty">Nenhum contato com WhatsApp cadastrado.<br>
+      Adicione o WhatsApp do contato na aba Financeiro pra conversa aparecer aqui.</div>`;
+  }
+
+  if(!contatoConversaId || !comZap.some(ct => ct.id === contatoConversaId)){
+    contatoConversaId = (comZap.find(ct => ct.is_principal) || comZap[0]).id;
+  }
+  const atual = comZap.find(ct => ct.id === contatoConversaId);
+
+  const seletor = comZap.length > 1 ? `<div class="chips">
+    ${comZap.map(ct => `<button class="chip ${ct.id===contatoConversaId?'on':''}"
+      onclick="trocarContatoConversa('${esc(ct.id)}')">${esc(ct.nome)}${ct.is_principal?' ★':''}</button>`).join('')}
+  </div>` : '';
+
+  return `${seletor}
+    <div class="card">
+      <div class="row-between" style="margin-bottom:10px;gap:10px;flex-wrap:wrap;">
+        <p class="eyebrow" style="color:var(--fraco);margin:0;">Conversa</p>
+        <span class="dim" style="font-size:11.5px;">${esc(atual.nome)} · ${esc(atual.whatsapp_e164)}</span>
+      </div>
+      ${renderConversa(atual.whatsapp_e164, { cliente_id: cliente.id })}
+    </div>`;
+}
+function trocarContatoConversa(id){
+  contatoConversaId = id;
+  document.getElementById('pilar-body').innerHTML = renderPilar();
 }
 
 function renderPilarFinanceiro(){
@@ -1608,10 +1825,19 @@ const KCOLS = ['Reunião marcada','Reunião feita','Precificando','Orçamento en
 const ONBOARD = ['Reunião com cliente','Gravação no Meetily','Precificação','Criar PDF do orçamento','Enviar pro cliente via WhatsApp','Emitir contrato','Abrir cliente + serviços'];
 let prospectsCache = [];
 let prospectAtual = null;
+// resumo de TODAS as conversas numa chamada só (Bloco C) — nunca uma por card.
+// Indexado por prospect_id; prospect sem conversa simplesmente não aparece aqui.
+let conversasResumo = null;
 
 async function renderCRM(){
   root.innerHTML = shell('crm', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
-  prospectsCache = await rpc('hub_rpc_prospects').catch(()=>[]);
+  const [prospects, resumo] = await Promise.all([
+    rpc('hub_rpc_prospects').catch(()=>[]),
+    rpc('hub_rpc_conversas_resumo').catch(()=>[]),
+  ]);
+  prospectsCache = prospects || [];
+  conversasResumo = {};
+  (resumo || []).forEach(c => { if(c.prospect_id) conversasResumo[c.prospect_id] = c; });
   desenharCRM();
 }
 
@@ -1624,11 +1850,18 @@ function desenharCRM(){
 
   const cols = KCOLS.map((titulo,i)=>{
     const doColuna = ativos.filter(p=>p.coluna===i);
-    const cards = doColuna.map(p=>`
-      <div class="kcard" onclick="location.hash='#/prospect/${p.id}'">
-        <div class="nome">${esc(p.nome)}</div>
+    const cards = doColuna.map(p=>{
+      const conv = (conversasResumo || {})[p.id] || null;
+      return `
+      <div class="kcard ${conv && conv.nao_lida ? 'tem-nao-lida' : ''}" onclick="location.hash='#/prospect/${p.id}'">
+        <div class="nome">${esc(p.nome)}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}</div>
         <div class="meta"><span>${formatDateBR(p.entrou_em)}${p.gravacao?' · 🎥':''}</span>${p.valor_estimado_centavos?`<span class="valor">${centavosCompact(p.valor_estimado_centavos)}</span>`:''}</div>
-      </div>`).join('');
+        ${conv ? `<div class="conv">
+          <span class="prev">${conv.ultima_msg_direcao === 'saida' ? '<span class="eu">você:</span> ' : ''}${esc(truncar(conv.ultima_msg_previa, 50))}</span>
+          <span class="quando">${esc(tempoRelativo(conv.ultima_msg_em))}</span>
+        </div>` : ''}
+      </div>`;
+    }).join('');
     return `<div class="kcol">
       <div class="kcol-head"><span class="kcol-title">${esc(titulo)}</span><span class="kcol-count">${doColuna.length}</span></div>
       ${cards || '<div class="dim" style="font-size:11.5px;text-align:center;padding:18px 0">vazio</div>'}
@@ -1766,9 +1999,16 @@ function desenharProspect(){
             <span class="badge badge-muted">${formatDateBR(p.entrou_em)}</span>
           </div>
         </div>
-        <div class="card">
+        <div class="card" style="margin-bottom:14px;">
           <p class="eyebrow" style="color:var(--fraco)">Contato</p>
           <div class="muted" style="font-size:13px;">${p.contato_whatsapp ? esc(p.contato_whatsapp) : 'sem WhatsApp'}${p.contato_email ? ' · '+esc(p.contato_email) : ''}</div>
+        </div>
+        <div class="card">
+          <p class="eyebrow" style="color:var(--fraco)">Conversa</p>
+          ${renderConversa(p.contato_whatsapp, {
+            prospect_id: p.id,
+            semFone: 'Sem WhatsApp cadastrado — preencha em "Editar" pra conversar por aqui.',
+          })}
         </div>
       </div>
     </div>

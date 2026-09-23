@@ -306,6 +306,51 @@ h2.section-title{
 .kcard .meta{font-size:11.5px;color:var(--fraco);margin-top:3px;display:flex;justify-content:space-between;gap:6px}
 .kcard .valor{color:var(--laranja);font-weight:600;font-variant-numeric:tabular-nums}
 
+/* ---------- CRM — prévia de conversa no card do kanban (Bloco C) ---------- */
+.kcard.tem-nao-lida{border-color:rgba(255,107,53,.55);box-shadow:inset 3px 0 0 var(--laranja)}
+.kcard .knova{
+  display:inline-block;margin-left:6px;vertical-align:1px;white-space:nowrap;
+  font-family:var(--mono);font-size:.52rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--laranja);background:rgba(255,107,53,.14);border:1px solid rgba(255,107,53,.5);
+  border-radius:999px;padding:1px 6px;
+}
+.kcard .conv{
+  display:flex;align-items:baseline;gap:6px;margin-top:7px;padding-top:6px;
+  border-top:1px solid var(--borda);font-size:11.5px;color:var(--fraco);
+}
+.kcard .conv .prev{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kcard .conv .eu{color:var(--roxo-claro)}
+.kcard.tem-nao-lida .conv .prev{color:var(--suave)}
+.kcard .conv .quando{flex-shrink:0;font-size:10.5px;font-variant-numeric:tabular-nums}
+
+/* ---------- Conversa de WhatsApp — thread + envio (Bloco C) ---------- */
+.conversa{display:flex;flex-direction:column;gap:12px}
+.conversa-thread{
+  display:flex;flex-direction:column;gap:8px;
+  max-height:380px;overflow-y:auto;overscroll-behavior:contain;
+  padding:2px;scrollbar-width:thin;
+}
+.conversa-vazia{padding:22px 6px;text-align:center;color:var(--fraco);font-size:12.5px;line-height:1.5}
+.bolha{
+  max-width:84%;padding:8px 11px;border-radius:13px;font-size:13px;line-height:1.45;
+  background:var(--poco);border:1px solid var(--borda);word-break:break-word;
+}
+.bolha.entrada{align-self:flex-start;border-bottom-left-radius:5px}
+.bolha.saida{
+  align-self:flex-end;border-bottom-right-radius:5px;
+  background:rgba(111,46,143,.24);border-color:rgba(139,75,163,.45);
+}
+.bolha .corpo{white-space:pre-wrap}
+.bolha .marca{color:var(--suave);font-style:italic}
+.bolha .transcrito{display:block;margin-top:3px;font-size:10.5px;color:var(--fraco);font-style:italic}
+.bolha .carimbo{display:block;margin-top:4px;font-size:10.5px;color:var(--fraco);text-align:right;font-variant-numeric:tabular-nums}
+.bolha.erro{border-color:rgba(255,92,122,.5)}
+.bolha .falhou{display:block;margin-top:3px;font-size:10.5px;color:var(--bad)}
+.conversa-envio{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--borda);padding-top:11px}
+.conversa-envio textarea{width:100%;resize:vertical;min-height:56px}
+.conversa-dica{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--laranja)}
+.conversa-acoes{display:flex;justify-content:flex-end;gap:8px}
+
 /* ---------- steps — onboarding do prospect ---------- */
 .steps{display:flex;flex-direction:column;margin:6px 0}
 .step{display:flex;gap:12px;position:relative;padding-bottom:16px}
@@ -424,6 +469,10 @@ h2.section-title{
   }
   .tablewrap tbody td:empty::before{content:none}
 
+  /* conversa: thread mais curta e bolha mais larga na tela pequena */
+  .conversa-thread{max-height:320px}
+  .bolha{max-width:92%}
+
   .kpis{grid-template-columns:repeat(2,1fr)}
   .modal{padding:18px;border-radius:14px}
   .row-between{flex-wrap:wrap;gap:10px}
@@ -432,4 +481,6 @@ h2.section-title{
 
 @media (max-width:420px){
   .kpis{grid-template-columns:1fr}
+  .conversa-thread{max-height:280px}
+  .conversa-acoes .btn{width:100%;justify-content:center}
 }
