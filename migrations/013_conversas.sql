@@ -25,21 +25,21 @@
 -- canonicaliza sempre pra forma SEM o nono dígito quando DDD >= 31, pra
 -- cadastro e JID caírem na mesma chave.
 --
--- ⚠️ RASCUNHO AINDA NÃO APLICADO (23/09/2026) — sessão sem Supabase MCP
--- (mesma limitação já documentada nas primeiras sessões dos Blocos A/1.5/
--- 1.6/B). Antes de aplicar numa sessão com acesso:
---   1) conferir por introspecção (`list_tables`) que `hub.workspaces`,
---      `hub.prospects` e `hub.clientes` existem com esses nomes (010/011/002);
---   2) aplicar via `apply_migration`, sozinha (é a próxima na sequência,
---      010→011→012→013 já estão todas commitadas antes dela);
---   3) testar `hub.fone_norm` com os 6 casos do plano — as 4 variantes do
---      mesmo número (com/sem 9º dígito, com/sem 55, com sufixo @s.whatsapp.net)
---      TÊM que cair na mesma string;
---   4) testar as 4 RPCs com `execute_sql` (ingestão idempotente via
---      `on conflict (evolution_msg_id) do nothing`, resumo com `nao_lida`
---      derivada, thread agregada, fila de saída);
---   5) rodar `get_advisors` (security) depois — nenhuma tabela deve ficar
---      sem RLS habilitada.
+-- ✅ APLICADA em 23/09/2026 via Supabase MCP (projeto arroba-certa,
+-- ref tscnqvuzlfagotirgjbz). Verificado no banco:
+--   • hub.fone_norm — as 5 grafias do mesmo número (com/sem 9º dígito,
+--     com/sem 55, com sufixo @s.whatsapp.net, formatado com máscara)
+--     colapsam todas em '558494127476'; grupo @g.us passa intacto; DDD 11
+--     mantém o nono dígito; null/vazio devolvem null.
+--   • ingestão idempotente confirmada: 2 chamadas com o mesmo
+--     evolution_msg_id geram 1 linha só.
+--   • get_advisors (security) sem nenhum achado novo vindo desta migration.
+--
+-- ⚠️ A 014 corrige DOIS furos desta migration — ler antes de reusar este
+-- arquivo como molde:
+--   1) service_role não tinha `usage` no schema hub (o n8n tomaria
+--      "permission denied");
+--   2) a whitelist do CRM vivia só no n8n; agora é guarda física no banco.
 -- ============================================================
 
 -- ---------- tabelas ----------
@@ -145,6 +145,29 @@ $$;
 revoke all on function hub.fone_norm(text) from public, anon;
 grant execute on function hub.fone_norm(text) to authenticated;
 
+-- ---------- hub.is_ingestor — quem pode ESCREVER mensagem vinda de fora ----------
+-- hub.is_admin() testa auth.email(), então o n8n (que chama com service_role,
+-- sem sessão de usuário) tomaria 'acesso negado' em toda mensagem do webhook.
+-- Esta função libera SÓ o caminho de ingestão pro service_role. Não amplia
+-- superfície: quem tem a service key já tem acesso total ao banco por
+-- definição — isto só mantém a lógica de upsert/idempotência dentro do
+-- Postgres, atômica, em vez de espalhada em nós do n8n.
+-- As RPCs de LEITURA continuam admin-only: o navegador dela nunca usa isto.
+create or replace function hub.is_ingestor()
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $$
+  select hub.is_admin()
+      or coalesce(auth.role(), '') = 'service_role'
+      or current_user = 'service_role';
+$$;
+
+revoke all on function hub.is_ingestor() from public, anon;
+grant execute on function hub.is_ingestor() to authenticated, service_role;
+
 -- ---------- RPCs (security definer, padrão 003/011/012) ----------
 
 -- thread completa de uma conversa (conversa + mensagens), molde do
@@ -219,7 +242,8 @@ declare
   v_tipo text;
   v_enviada_em timestamptz;
 begin
-  if not hub.is_admin() then raise exception 'acesso negado'; end if;
+  -- ingestor, não admin: quem chama isto é o n8n com service_role
+  if not hub.is_ingestor() then raise exception 'acesso negado'; end if;
 
   v_fone := hub.fone_norm(p->>'fone');
   if v_fone is null then raise exception 'fone inválido'; end if;
@@ -308,7 +332,34 @@ begin
 end;
 $$;
 
+-- o nó de IA do n8n grava o rascunho sugerido aqui. NUNCA envia — só
+-- preenche o campo que aparece pré-digitado na ficha, pra ela editar.
+create or replace function hub.rpc_salvar_rascunho(p jsonb)
+returns uuid
+language plpgsql security definer set search_path = pg_catalog
+as $$
+declare
+  v_fone text;
+  v_conversa_id uuid;
+begin
+  if not hub.is_ingestor() then raise exception 'acesso negado'; end if;
+
+  v_fone := hub.fone_norm(p->>'fone');
+  if v_fone is null then raise exception 'fone inválido'; end if;
+
+  update hub.conversas
+  set rascunho_sugerido = p->>'rascunho'
+  where fone_norm = v_fone
+  returning id into v_conversa_id;
+
+  return v_conversa_id;
+end;
+$$;
+
 revoke all on function hub.rpc_conversa_thread(text) from public, anon;
+revoke all on function hub.rpc_salvar_rascunho(jsonb) from public, anon;
+grant execute on function hub.rpc_salvar_rascunho(jsonb) to authenticated, service_role;
+grant execute on function hub.rpc_registrar_mensagem(jsonb) to service_role;
 revoke all on function hub.rpc_conversas_resumo() from public, anon;
 revoke all on function hub.rpc_registrar_mensagem(jsonb) from public, anon;
 revoke all on function hub.rpc_enfileirar_saida(jsonb) from public, anon;
@@ -349,6 +400,15 @@ create or replace function public.hub_rpc_enfileirar_saida(p jsonb)
 returns uuid
 language sql security invoker set search_path = pg_catalog
 as $$ select hub.rpc_enfileirar_saida(p); $$;
+
+create or replace function public.hub_rpc_salvar_rascunho(p jsonb)
+returns uuid
+language sql security invoker set search_path = pg_catalog
+as $$ select hub.rpc_salvar_rascunho(p); $$;
+
+revoke all on function public.hub_rpc_salvar_rascunho(jsonb) from public, anon;
+grant execute on function public.hub_rpc_salvar_rascunho(jsonb) to authenticated, service_role;
+grant execute on function public.hub_rpc_registrar_mensagem(jsonb) to service_role;
 
 revoke all on function public.hub_rpc_conversa_thread(text) from public, anon;
 revoke all on function public.hub_rpc_conversas_resumo() from public, anon;
