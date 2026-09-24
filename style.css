@@ -346,6 +346,7 @@ h2.section-title{
   background:rgba(111,46,143,.24);border-color:rgba(139,75,163,.45);
 }
 .bolha .corpo{white-space:pre-wrap}
+.bolha .remetente{display:block;font-size:10.5px;font-weight:600;color:var(--laranja);margin-bottom:2px}
 .bolha .marca{color:var(--suave);font-style:italic}
 .bolha .transcrito{display:block;margin-top:3px;font-size:10.5px;color:var(--fraco);font-style:italic}
 .bolha .carimbo{display:block;margin-top:4px;font-size:10.5px;color:var(--fraco);text-align:right;font-variant-numeric:tabular-nums}

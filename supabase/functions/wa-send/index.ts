@@ -2,30 +2,34 @@
 //
 // Envia uma mensagem de WhatsApp pela Evolution API a partir da ficha do Hub.
 //
-// POR QUE ESTA FUNÇÃO EXISTE: o Hub é uma página estática no GitHub Pages.
+// POR QUE ESTA FUNCAO EXISTE: o Hub e uma pagina estatica no GitHub Pages.
 // Se a chave da Evolution ficasse no index.html, qualquer pessoa que abrisse
-// o código-fonte poderia disparar WhatsApp pelo número pessoal da Luciana.
+// o codigo-fonte poderia disparar WhatsApp pelo numero pessoal da Luciana.
 // A chave vive aqui, no servidor, e nunca sai.
 //
-// IDENTIDADE: esta função NÃO usa service_role. Ela repassa o JWT do
-// navegador da Luciana pro Supabase, então as RPCs rodam como ela e o guard
-// hub.is_admin() continua valendo. Se alguém chamar esta função com outro
-// login, as RPCs recusam sozinhas.
+// IDENTIDADE: esta funcao NAO usa service_role. Ela repassa o JWT do
+// navegador da Luciana pro Supabase, entao as RPCs rodam como ela e o guard
+// hub.is_admin() continua valendo.
 //
-// ⚠️ O header `apikey` do PostgREST NÃO é o JWT do usuário — é a chave
-// publicável do projeto. Mandar o JWT nos dois lugares devolve
-// 401 "Invalid API key". Bug pego no primeiro teste real, 23/09/2026.
+// ⚠️ O header `apikey` do PostgREST NAO e o JWT do usuario — e a chave
+// publicavel do projeto. Mandar o JWT nos dois lugares devolve
+// 401 "Invalid API key".
 //
-// SECRETS (Supabase → Project Settings → Edge Functions → Secrets):
-//   EVOLUTION_API_KEY    obrigatório — Global API Key da Evolution.
-//                        Ela vive no container `automation-evolution-1` da
-//                        VPS, variável AUTHENTICATION_API_KEY. 64 caracteres.
-//   EVOLUTION_URL        opcional, default https://evo.luhpanda.com.br
-//   EVOLUTION_INSTANCIA  opcional, default LuhPessoal
+// ⚠️ DUPLICACAO: a Evolution ecoa de volta, pelo MESSAGES_UPSERT, toda
+// mensagem que ela mesma envia (fromMe=true). Sem gravar o key.id na linha
+// original, o webhook de ingestao inseria uma SEGUNDA copia. Por isso o
+// marcar_envio leva o evolution_msg_id — ai o eco bate no unique e e
+// descartado pelo `on conflict do nothing`.
 //
-// Deploy: via MCP do Supabase (deploy_edge_function) ou `supabase functions
-// deploy wa-send`. Este arquivo é a fonte da verdade — não editar direto no
-// painel.
+// ⏱️ LATENCIA: o `delay` do payload da Evolution e um atraso DELIBERADO que
+// simula digitacao (anti-ban pra bot). Aqui quem escreve e a Luciana, no
+// ritmo dela. Mantido em 0. A resposta devolve `ms` por trecho.
+//
+// 👥 GRUPO (24/09/2026): destino de grupo usa sufixo @g.us, não
+// @s.whatsapp.net. Mandar pro sufixo errado dá "jid ... exists:false" na
+// Evolution — foi exatamente o que quebrou o primeiro teste com o grupo
+// "The Best", 23/09/2026. hub_rpc_preparar_envio devolve `eh_grupo` (lido
+// da própria hub.conversas) pra esta função saber qual sufixo montar.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
@@ -51,8 +55,6 @@ function responder(corpo: unknown, status = 200) {
   });
 }
 
-// Chama uma RPC do Hub repassando o JWT de quem chamou a função.
-// apikey = chave publicável do projeto; Authorization = JWT do usuário.
 async function rpc(nome: string, corpo: unknown, jwt: string) {
   const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${nome}`, {
     method: "POST",
@@ -68,7 +70,7 @@ async function rpc(nome: string, corpo: unknown, jwt: string) {
   try {
     return texto ? JSON.parse(texto) : null;
   } catch {
-    return texto; // RPC escalar devolve o valor cru, sem aspas
+    return texto;
   }
 }
 
@@ -76,25 +78,23 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return responder({ erro: "metodo nao permitido" }, 405);
 
+  const tInicio = Date.now();
+
   const auth = req.headers.get("Authorization") ?? "";
   const jwt = auth.replace(/^Bearer\s+/i, "").trim();
   if (!jwt) return responder({ erro: "sem sessao" }, 401);
 
   if (!EVOLUTION_API_KEY) {
-    // Estado honesto: a função está no ar mas ainda não foi configurada.
     return responder({
       erro: "Envio ainda nao ativado — falta configurar a chave da Evolution.",
       detalhe: "Definir o secret EVOLUTION_API_KEY no projeto Supabase.",
     }, 503);
   }
   if (!ANON_KEY) {
-    return responder({
-      erro: "configuracao incompleta",
-      detalhe: "SUPABASE_ANON_KEY nao disponivel no ambiente da funcao.",
-    }, 500);
+    return responder({ erro: "configuracao incompleta", detalhe: "SUPABASE_ANON_KEY ausente." }, 500);
   }
 
-  let entrada: { fone?: string; corpo?: string; prospect_id?: string; cliente_id?: string };
+  let entrada: { fone?: string; corpo?: string; prospect_id?: string; cliente_id?: string; eh_grupo?: boolean };
   try {
     entrada = await req.json();
   } catch {
@@ -104,11 +104,10 @@ Deno.serve(async (req: Request) => {
   const texto = (entrada.corpo ?? "").trim();
   if (!entrada.fone || !texto) return responder({ erro: "fone e corpo sao obrigatorios" }, 400);
 
-  // 1) enfileira no banco. Roda como a Luciana: se não for ela, a RPC recusa.
-  //    Devolve o telefone já canonicalizado — nunca montar o JID a partir do
-  //    cadastro, por causa da regra do nono dígito (DDD >= 31 não leva o 9).
   let msgId: string;
   let foneNorm: string;
+  let ehGrupo: boolean;
+  const tAntesPreparar = Date.now();
   try {
     const preparado = await rpc("hub_rpc_preparar_envio", {
       p: {
@@ -116,21 +115,24 @@ Deno.serve(async (req: Request) => {
         corpo: texto,
         prospect_id: entrada.prospect_id ?? null,
         cliente_id: entrada.cliente_id ?? null,
+        eh_grupo: entrada.eh_grupo ?? false,
       },
     }, jwt);
     msgId = preparado.msg_id;
     foneNorm = preparado.fone_norm;
+    ehGrupo = !!preparado.eh_grupo;
   } catch (e) {
     return responder({ erro: "nao consegui registrar a mensagem", detalhe: String(e) }, 403);
   }
+  const msPreparar = Date.now() - tAntesPreparar;
 
-  // 2) manda pela Evolution
+  const tAntesEvo = Date.now();
   try {
     const r = await fetch(`${EVOLUTION_URL}/message/sendText/${EVOLUTION_INSTANCIA}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", apikey: EVOLUTION_API_KEY },
       body: JSON.stringify({
-        number: `${foneNorm}@s.whatsapp.net`,
+        number: `${foneNorm}@${ehGrupo ? "g.us" : "s.whatsapp.net"}`,
         text: texto,
         delay: EVOLUTION_DELAY,
         linkPreview: false,
@@ -138,6 +140,7 @@ Deno.serve(async (req: Request) => {
     });
     const resposta = await r.text();
     if (!r.ok) throw new Error(`Evolution ${r.status}: ${resposta}`);
+    const msEvolution = Date.now() - tAntesEvo;
 
     // id da Evolution: sem ele, o eco do MESSAGES_UPSERT vira linha duplicada
     let evoId: string | null = null;
@@ -146,14 +149,24 @@ Deno.serve(async (req: Request) => {
       evoId = (j && j.key && j.key.id) ? String(j.key.id) : null;
     } catch { /* resposta sem JSON: segue sem o id */ }
 
+    const tAntesMarcar = Date.now();
     await rpc("hub_rpc_marcar_envio", {
       p: { msg_id: msgId, status: "enviado", evolution_msg_id: evoId },
     }, jwt);
-    return responder({ ok: true, msg_id: msgId, evolution_msg_id: evoId });
+    const msMarcar = Date.now() - tAntesMarcar;
+
+    return responder({
+      ok: true,
+      msg_id: msgId,
+      evolution_msg_id: evoId,
+      ms: {
+        preparar: msPreparar,
+        evolution: msEvolution,
+        marcar: msMarcar,
+        total: Date.now() - tInicio,
+      },
+    });
   } catch (e) {
-    // A mensagem fica no banco marcada como erro, com o motivo. Melhor um
-    // registro honesto de falha do que uma linha 'enviando' pendurada pra
-    // sempre, que a tela mostraria como se ainda estivesse a caminho.
     await rpc("hub_rpc_marcar_envio", {
       p: { msg_id: msgId, status: "erro", erro: String(e) },
     }, jwt).catch(() => {});

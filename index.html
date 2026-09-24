@@ -1204,6 +1204,7 @@ function renderConversa(fone, opts){
     fone: String(fone),
     prospect_id: opts.prospect_id || null,
     cliente_id: opts.cliente_id || null,
+    eh_grupo: !!opts.eh_grupo,
     dados: undefined, erro: null,
   };
   setTimeout(()=>carregarConversa(slot), 0);
@@ -1274,7 +1275,12 @@ function desenharConversa(slot){
       }
     }
     const falhou = !entrada && m.status === 'erro';
+    // remetente só existe em conversa de grupo (entrada) — quem mandou,
+    // já que num grupo "você" não é a única ponta possível
+    const remetente = entrada && m.remetente_nome
+      ? `<span class="remetente">${esc(m.remetente_nome)}</span>` : '';
     return `<div class="bolha ${entrada?'entrada':'saida'} ${falhou?'erro':''}">
+      ${remetente}
       ${miolo}
       ${falhou ? `<span class="falhou">não saiu${m.erro ? ' — ' + esc(truncar(m.erro, 90)) : ''}</span>` : ''}
       <span class="carimbo">${esc(carimboMsg(m.enviada_em))}${!entrada && m.status === 'enviando' ? ' · enviando' : ''}</span>
@@ -1361,7 +1367,7 @@ async function enviarConversa(slot){
 
   try{
     const { data, error } = await hubClient.functions.invoke('wa-send', {
-      body: { fone: st.fone, corpo: corpo, prospect_id: st.prospect_id, cliente_id: st.cliente_id },
+      body: { fone: st.fone, corpo: corpo, prospect_id: st.prospect_id, cliente_id: st.cliente_id, eh_grupo: st.eh_grupo },
     });
     if(error) throw error;
     if(data && data.erro) throw new Error(data.erro);
@@ -1486,9 +1492,9 @@ function renderPilarConversas(){
     <div class="card">
       <div class="row-between" style="margin-bottom:10px;gap:10px;flex-wrap:wrap;">
         <p class="eyebrow" style="color:var(--fraco);margin:0;">Conversa</p>
-        <span class="dim" style="font-size:11.5px;">${esc(atual.nome)} · ${esc(atual.whatsapp_e164)}</span>
+        <span class="dim" style="font-size:11.5px;">${esc(atual.nome)} · ${atual.eh_grupo ? '👥 grupo' : esc(atual.whatsapp_e164)}</span>
       </div>
-      ${renderConversa(atual.whatsapp_e164, { cliente_id: cliente.id })}
+      ${renderConversa(atual.whatsapp_e164, { cliente_id: cliente.id, eh_grupo: atual.eh_grupo })}
     </div>`;
 }
 function trocarContatoConversa(id){
@@ -1504,7 +1510,7 @@ function renderPilarFinanceiro(){
   const contatosHtml = contatos.length ? contatos.map((ct,i) => `
     <div class="row-between" style="padding:9px 0;border-top:1px solid var(--line);">
       <div><b>${esc(ct.nome)}</b> <span class="muted">${esc(ct.papel||'')}</span>
-        <div class="muted" style="font-size:12px;">${esc(ct.whatsapp_e164 || '')} ${ct.email?'· '+esc(ct.email):''}</div>
+        <div class="muted" style="font-size:12px;">${ct.eh_grupo?'👥 ':''}${esc(ct.whatsapp_e164 || '')} ${ct.email?'· '+esc(ct.email):''}</div>
       </div>
       <div class="row">
         ${ct.is_principal ? '<span class="badge badge-ok">Principal</span>' : ''}
@@ -1852,7 +1858,13 @@ function formContato(ct){
       <input type="hidden" id="f-cliente-id" value="${esc(ct.cliente_id||'')}">
       <div class="field"><label>Nome</label><input id="f-nome" required value="${esc(ct.nome||'')}"></div>
       <div class="field"><label>Papel</label><input id="f-papel" value="${esc(ct.papel||'')}" placeholder="dono, financeiro..."></div>
-      <div class="field"><label>WhatsApp (formato 55DDDNÚMERO)</label><input id="f-whatsapp" value="${esc(ct.whatsapp_e164||'')}" placeholder="5584999998888"></div>
+      <div class="field"><label>Tipo de contato</label>
+        <select id="f-tipo-contato">
+          <option value="telefone" ${!ct.eh_grupo?'selected':''}>Telefone</option>
+          <option value="grupo" ${ct.eh_grupo?'selected':''}>Grupo de WhatsApp</option>
+        </select>
+      </div>
+      <div class="field"><label>WhatsApp</label><input id="f-whatsapp" value="${esc(ct.whatsapp_e164||'')}" placeholder="5584999998888 (telefone) ou 120363...@g.us (grupo)"></div>
       <div class="field"><label>E-mail</label><input id="f-email" type="email" value="${esc(ct.email||'')}"></div>
       <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-principal" ${ct.is_principal?'checked':''}> <label for="f-principal">Contato principal</label></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
@@ -1870,6 +1882,7 @@ async function salvarContato(ev){
       nome: document.getElementById('f-nome').value,
       papel: document.getElementById('f-papel').value || null,
       whatsapp_e164: document.getElementById('f-whatsapp').value || null,
+      eh_grupo: document.getElementById('f-tipo-contato').value === 'grupo',
       email: document.getElementById('f-email').value || null,
       is_principal: document.getElementById('f-principal').checked,
     }});
@@ -1919,7 +1932,7 @@ function desenharCRM(){
       const conv = (conversasResumo || {})[p.id] || null;
       return `
       <div class="kcard ${conv && conv.nao_lida ? 'tem-nao-lida' : ''}" onclick="location.hash='#/prospect/${p.id}'">
-        <div class="nome">${esc(p.nome)}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}</div>
+        <div class="nome">${esc(p.nome)}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}</div>
         <div class="meta"><span>${formatDateBR(p.entrou_em)}${p.gravacao?' · 🎥':''}</span>${p.valor_estimado_centavos?`<span class="valor">${centavosCompact(p.valor_estimado_centavos)}</span>`:''}</div>
         ${conv ? `<div class="conv">
           <span class="prev">${conv.ultima_msg_direcao === 'saida' ? '<span class="eu">você:</span> ' : ''}${esc(truncar(conv.ultima_msg_previa, 50))}</span>
@@ -1956,7 +1969,13 @@ function formProspect(p){
       <input type="hidden" id="f-id" value="${esc(p.id||'')}">
       <div class="field"><label>Nome</label><input id="f-nome" required value="${esc(p.nome||'')}"></div>
       <div class="field"><label>Origem</label><input id="f-origem" value="${esc(p.origem||'')}" placeholder="indicação, orgânico, anúncio..."></div>
-      <div class="field"><label>WhatsApp</label><input id="f-whatsapp" value="${esc(p.contato_whatsapp||'')}" placeholder="5584999998888"></div>
+      <div class="field"><label>Tipo de contato</label>
+        <select id="f-tipo-contato">
+          <option value="telefone" ${!p.contato_eh_grupo?'selected':''}>Telefone</option>
+          <option value="grupo" ${p.contato_eh_grupo?'selected':''}>Grupo de WhatsApp</option>
+        </select>
+      </div>
+      <div class="field"><label>WhatsApp</label><input id="f-whatsapp" value="${esc(p.contato_whatsapp||'')}" placeholder="5584999998888 (telefone) ou 120363...@g.us (grupo)"></div>
       <div class="field"><label>E-mail</label><input id="f-email" type="email" value="${esc(p.contato_email||'')}"></div>
       <div class="field"><label>Etapa</label>
         <select id="f-coluna">
@@ -1983,6 +2002,7 @@ async function salvarProspect(ev){
       nome: document.getElementById('f-nome').value,
       origem: document.getElementById('f-origem').value || null,
       contato_whatsapp: document.getElementById('f-whatsapp').value || null,
+      contato_eh_grupo: document.getElementById('f-tipo-contato').value === 'grupo',
       contato_email: document.getElementById('f-email').value || null,
       coluna: parseInt(document.getElementById('f-coluna').value, 10),
       valor_estimado_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
@@ -2067,12 +2087,13 @@ function desenharProspect(){
         </div>
         <div class="card" style="margin-bottom:14px;">
           <p class="eyebrow" style="color:var(--fraco)">Contato</p>
-          <div class="muted" style="font-size:13px;">${p.contato_whatsapp ? esc(p.contato_whatsapp) : 'sem WhatsApp'}${p.contato_email ? ' · '+esc(p.contato_email) : ''}</div>
+          <div class="muted" style="font-size:13px;">${p.contato_whatsapp ? (p.contato_eh_grupo ? '👥 grupo — ' : '') + esc(p.contato_whatsapp) : 'sem WhatsApp'}${p.contato_email ? ' · '+esc(p.contato_email) : ''}</div>
         </div>
         <div class="card">
           <p class="eyebrow" style="color:var(--fraco)">Conversa</p>
           ${renderConversa(p.contato_whatsapp, {
             prospect_id: p.id,
+            eh_grupo: p.contato_eh_grupo,
             semFone: 'Sem WhatsApp cadastrado — preencha em "Editar" pra conversar por aqui.',
           })}
         </div>
