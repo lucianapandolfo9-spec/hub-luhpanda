@@ -1188,6 +1188,8 @@ async function salvarCusto(ev){
 // Envio nunca acontece sozinho — mesmo princípio do aprovi.ai.
 // ============================================================
 const conversasCache = {};   // slotId -> { fone, prospect_id, cliente_id, dados, erro }
+const conversaPollers = {};  // slotId -> intervalId, pra não empilhar poller a cada re-render
+const CONVERSA_POLL_MS = 8000;
 const CONVERSA_MARCA = {
   audio: '🎤 Áudio', imagem: '🖼️ Imagem', documento: '📎 Documento', outro: '📨 Mensagem',
 };
@@ -1210,18 +1212,37 @@ function renderConversa(fone, opts){
     dados: undefined, erro: null,
   };
   setTimeout(()=>carregarConversa(slot), 0);
+
+  // A thread só carregava uma vez, na abertura do painel — mensagem nova do
+  // cliente enquanto ela estava olhando só aparecia se fechasse e reabrisse.
+  // Poller silencioso repõe isso sem depender dela recarregar a página.
+  if(conversaPollers[slot]) clearInterval(conversaPollers[slot]);
+  conversaPollers[slot] = setInterval(()=>{
+    if(!document.getElementById(slot)){
+      clearInterval(conversaPollers[slot]);
+      delete conversaPollers[slot];
+      return;
+    }
+    carregarConversa(slot, { silencioso: true });
+  }, CONVERSA_POLL_MS);
+
   return `<div class="conversa" id="${slot}">
     <div class="empty" style="padding:26px 10px;"><div class="spinner" style="margin:0 auto;"></div></div>
   </div>`;
 }
 
-async function carregarConversa(slot){
+async function carregarConversa(slot, opts){
   const st = conversasCache[slot];
   if(!st || !document.getElementById(slot)) return;
+  const silencioso = !!(opts && opts.silencioso);
   try{
-    st.dados = await rpc('hub_rpc_conversa_thread', { p_fone: st.fone });
+    const dados = await rpc('hub_rpc_conversa_thread', { p_fone: st.fone });
+    st.dados = dados;
     st.erro = null;
   } catch(e){
+    // poll silencioso: um erro passageiro de rede não pode apagar a thread
+    // que já estava na tela nem incomodar com toast a cada 8s.
+    if(silencioso) return;
     st.dados = null;
     st.erro = friendlyError(e);
   }
@@ -1236,6 +1257,12 @@ function desenharConversa(slot){
   const conversa = (st.dados && st.dados.conversa) || null;
   const msgs = (st.dados && st.dados.mensagens) || [];
   const rascunho = (conversa && conversa.rascunho_sugerido) || '';
+
+  // Redesenho (poller ou envio) troca o innerHTML inteiro, textarea incluída.
+  // Se ela já estava digitando uma resposta, isso apagaria o texto no meio da
+  // digitação — guarda o que já estava no campo e devolve depois do redraw.
+  const campoAntigo = document.getElementById(slot + '-texto');
+  const textoEmDigitacao = campoAntigo ? campoAntigo.value : '';
 
   // mais antigas em cima — o banco já devolve ordenado por enviada_em
   const bolhas = msgs.map(m => {
@@ -1263,18 +1290,35 @@ function desenharConversa(slot){
     ? `<div class="conversa-vazia">Não deu pra carregar a conversa — ${esc(st.erro)}</div>`
     : `<div class="conversa-vazia">Nenhuma mensagem ainda.</div>`;
 
+  // Só força rolar pro fim se ela já estava perto do fim (ou é a primeira
+  // vez abrindo). Se rolou pra cima pra ler histórico, o poller de 8s não
+  // pode ficar puxando a tela de volta pra baixo debaixo dela.
+  const threadAntiga = document.getElementById(slot + '-thread');
+  const permanecerNoFim = !threadAntiga ||
+    (threadAntiga.scrollHeight - threadAntiga.scrollTop - threadAntiga.clientHeight < 80);
+
+  // Ela está com o cursor no campo de resposta agora? Trocar o innerHTML
+  // inteiro derrubaria o foco e a posição do cursor a cada poll de 8s.
+  // Nesse caso só atualiza a thread (mensagens novas) e deixa a caixa de
+  // texto em paz — ela continua digitando sem perceber o refresh.
+  if(campoAntigo && document.activeElement === campoAntigo){
+    if(threadAntiga) threadAntiga.innerHTML = bolhas || vazio;
+    if(threadAntiga && permanecerNoFim) threadAntiga.scrollTop = threadAntiga.scrollHeight;
+    return;
+  }
+
   box.innerHTML = `
     <div class="conversa-thread" id="${slot}-thread">${bolhas || vazio}</div>
     <div class="conversa-envio">
       ${rascunho ? `<div class="conversa-dica">✨ sugestão da IA — edite antes de mandar</div>` : ''}
-      <textarea id="${slot}-texto" rows="2" placeholder="Escreva a resposta...">${esc(rascunho)}</textarea>
+      <textarea id="${slot}-texto" rows="2" placeholder="Escreva a resposta...">${esc(textoEmDigitacao || rascunho)}</textarea>
       <div class="conversa-acoes">
         <button class="btn btn-primary btn-sm" id="${slot}-enviar" onclick="enviarConversa('${slot}')">Enviar</button>
       </div>
     </div>`;
 
   const th = document.getElementById(slot + '-thread');
-  if(th) th.scrollTop = th.scrollHeight;   // abre já no fim da conversa
+  if(th && permanecerNoFim) th.scrollTop = th.scrollHeight;   // abre já no fim da conversa
 }
 
 // Erro de envio em linguagem de gente. Enquanto a Edge Function não estiver
