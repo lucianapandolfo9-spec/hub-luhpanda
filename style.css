@@ -294,6 +294,11 @@ h2.section-title{
 .preco-card.selecionavel{cursor:pointer}
 .preco-card.selecionado{border-color:rgba(255,107,53,.6);box-shadow:0 0 0 1px rgba(255,107,53,.35)}
 
+/* ---------- Carteira — clientes em balão (mesmo card de Preços & Serviços) ---------- */
+.cliente-card{cursor:pointer}
+.cliente-card .meta{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--suave);
+  border-top:1px solid var(--borda);padding-top:7px;margin-top:2px;flex-wrap:wrap;gap:6px}
+
 /* ---------- CRM — kanban de prospects (portado do mockup v2, Bloco B) ---------- */
 .kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(215px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px}
 .kcol{background:rgba(26,14,36,.55);border:1px solid var(--borda);border-radius:13px;padding:12px;min-height:220px}

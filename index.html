@@ -638,17 +638,17 @@ async function renderCarteira(){
   const arquivados = carteira.filter(c => c.status === 'encerrado');
   const visiveis = carteiraVista === 'arquivados' ? arquivados : ativos;
 
-  const rowsHtml = visiveis.map(c => `
-    <tr onclick="location.hash='#/cliente/${esc(c.slug)}'">
-      <td data-label="Cliente"><b>${esc(c.nome)}</b>${c.status!=='ativo' ? ` <span class="badge badge-muted" style="margin-left:6px;">${statusLabel(c.status)}</span>` : ''}</td>
-      <td data-label="Serviço" class="muted">${esc(c.servico || '—')}</td>
-      <td data-label="Valor mensal" class="money">${centavosToBRL(c.valor_mensal_centavos)}</td>
-      <td data-label="Vencimento">${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : (carteiraVista==='arquivados' ? '—' : '<span class="flag">🔴 sem vencimento</span>')}</td>
-      <td data-label="Contrato">
+  const cardsHtml = visiveis.map(c => `
+    <div class="preco-card cliente-card" onclick="location.hash='#/cliente/${esc(c.slug)}'">
+      <span class="tipo">${esc(c.servico || '—')}</span>
+      <span class="nome">${esc(c.nome)}${c.status!=='ativo' ? ` <span class="badge badge-muted" style="margin-left:4px;">${statusLabel(c.status)}</span>` : ''}</span>
+      <span class="valor">${centavosToBRL(c.valor_mensal_centavos)}</span>
+      <div class="meta">
+        <span>${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : (carteiraVista==='arquivados' ? '—' : '<span class="flag">🔴 sem vencimento</span>')}</span>
         <span class="badge ${contratoBadgeClass(c.contrato_status)}">${statusLabel(c.contrato_status)}</span>
-        ${!c.tem_contrato && carteiraVista!=='arquivados' ? '<span class="flag">🔴 sem contrato</span>' : ''}
-      </td>
-    </tr>
+      </div>
+      ${!c.tem_contrato && carteiraVista!=='arquivados' ? '<span class="flag">🔴 sem contrato</span>' : ''}
+    </div>
   `).join('');
 
   root.innerHTML = shell('carteira', `
@@ -661,12 +661,7 @@ async function renderCarteira(){
       <button class="chip ${carteiraVista==='ativos'?'on':''}" onclick="setCarteiraVista('ativos')">Ativos (${ativos.length})</button>
       <button class="chip ${carteiraVista==='arquivados'?'on':''}" onclick="setCarteiraVista('arquivados')">Arquivados (${arquivados.length})</button>
     </div>
-    <div class="tablewrap">
-      <table>
-        <thead><tr><th>Cliente</th><th>Serviço</th><th>Valor mensal</th><th>Vencimento</th><th>Contrato</th></tr></thead>
-        <tbody>${rowsHtml || `<tr><td colspan="5" class="empty">${carteiraVista==='arquivados' ? 'Nenhum cliente arquivado.' : 'Nenhum cliente cadastrado ainda.'}</td></tr>`}</tbody>
-      </table>
-    </div>
+    <div class="gridcards">${cardsHtml || `<div class="empty">${carteiraVista==='arquivados' ? 'Nenhum cliente arquivado.' : 'Nenhum cliente cadastrado ainda.'}</div>`}</div>
   `);
 }
 
@@ -2044,6 +2039,7 @@ function desenharProspect(){
         ${p.origem ? `<span class="muted" style="margin-left:8px;">${esc(p.origem)}</span>` : ''}
       </div>
       <div class="row" style="gap:8px;flex-wrap:wrap;">
+        ${!p.perdido && p.coluna>0 ? `<button class="btn btn-outline btn-sm" onclick="voltarEtapaProspect()">Voltar etapa</button>` : ''}
         ${!p.perdido && p.coluna<5 ? `<button class="btn btn-outline btn-sm" onclick="avancarEtapaProspect()">Avançar etapa</button>` : ''}
         ${!p.perdido && p.coluna===5 ? `<button class="btn btn-primary btn-sm" onclick="abrirConverterProspect()">Converter em cliente</button>` : ''}
         <button class="btn btn-outline btn-sm" onclick="abrirEditarProspect()">Editar</button>
@@ -2096,6 +2092,23 @@ async function avancarEtapaProspect(){
       entrou_em: p.entrou_em, perdido: false, motivo_perda: null, fechado_em: p.fechado_em,
     }});
     toast('Avançou pra "' + KCOLS[p.coluna+1] + '".');
+    prospectsCache = [];
+    renderProspect(p.id);
+  } catch(e){}
+}
+async function voltarEtapaProspect(){
+  const p = prospectAtual;
+  if(p.coluna <= 0) return;
+  try{
+    await rpc('hub_rpc_salvar_prospect', { p: {
+      id: p.id, nome: p.nome, origem: p.origem, contato_whatsapp: p.contato_whatsapp,
+      contato_email: p.contato_email, coluna: p.coluna - 1,
+      valor_estimado_centavos: p.valor_estimado_centavos, gravacao: p.gravacao, nota: p.nota,
+      entrou_em: p.entrou_em, perdido: false, motivo_perda: null,
+      // saindo de "Fechado" o fechamento deixou de valer — some junto
+      fechado_em: p.coluna === 5 ? null : p.fechado_em,
+    }});
+    toast('Voltou pra "' + KCOLS[p.coluna-1] + '".');
     prospectsCache = [];
     renderProspect(p.id);
   } catch(e){}
