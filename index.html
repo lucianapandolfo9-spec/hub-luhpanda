@@ -1930,7 +1930,7 @@ function formContrato(co){
           <label>Como esse contrato termina</label>
           <select id="f-porta-tipo">
             <option value="">— escolhe uma —</option>
-            <option value="manutencao_mensal" ${co.porta_saida_tipo==='manutencao_mensal'?'selected':''}>Manutenção mensal — continua rodando e ela cobra por mês</option>
+            <option value="manutencao_mensal" ${co.porta_saida_tipo==='manutencao_mensal'?'selected':''}>Manutenção mensal — continua rodando e você cobra por mês</option>
             <option value="desligamento_build_30" ${co.porta_saida_tipo==='desligamento_build_30'?'selected':''}>Desligamento — paga o que foi construído + 30% e leva</option>
             <option value="nenhuma" ${co.porta_saida_tipo==='nenhuma'?'selected':''}>Nenhuma — acaba quando parar de pagar</option>
           </select>
