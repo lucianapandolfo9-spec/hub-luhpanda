@@ -223,6 +223,9 @@ h2.section-title{
 }
 
 /* ---------- checkbox row ---------- */
+/* trio compacto de campos numa linha só (form de contrato, D1.1) */
+.field-row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:10px;margin-bottom:12px}
+.field-row3 .field{margin-bottom:0}
 .checkrow{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--texto)}
 .checkrow input[type="checkbox"]{width:16px;height:16px;accent-color:var(--laranja)}
 

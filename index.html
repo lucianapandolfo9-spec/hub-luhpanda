@@ -118,7 +118,7 @@ function friendlyError(err){
   if(m.includes('hub_contrato_ativo_exige_porta_saida')) return 'Não dá pra ativar o contrato sem porta de saída: escolhe o tipo E marca que já está escrita.';
   // D1 (migration 021): contrato novo em branco não vira linha — era assim
   // que nascia contrato duplicado e vazio, escondendo o contrato bom.
-  if(m.includes('hub_contrato_vazio_nao_cria')) return 'Contrato em branco não é salvo — preencha pelo menos número, valor mensal ou dia de vencimento.';
+  if(m.includes('hub_contrato_vazio_nao_cria')) return 'Contrato em branco não é salvo — preencha pelo menos o valor mensal ou o dia de vencimento.';
   // D1 (migration 021): serviço dentro de contrato não se apaga — a mensagem
   // do banco vem com o(s) cliente(s) depois dos dois-pontos.
   if(m.includes('hub_servico_em_uso')){
@@ -1110,7 +1110,18 @@ async function confirmarApagarRecebivel(id){
 
 function formRecebivel(r){
   r = r || {};
-  const opts = carteira.map(c => `<option value="${esc(c.cliente_id)}" ${r.cliente_id===c.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('');
+  // ⚠️ `carteira` agora vem FILTRADA por recorrente (migration 023), então um
+  // recebível de cliente avulso (Pandoka) não acharia o próprio dono na lista
+  // e o <select> cairia no primeiro cliente — salvar REATRIBUIRIA o recebível
+  // pra outra pessoa, em silêncio. Guarda defensiva: o dono do recebível que
+  // está sendo editado sempre entra nas opções.
+  // (Criar recebível NOVO pra cliente avulso continua sem opção na lista —
+  //  é decisão dela, está sinalizado no relatório do D1.1.)
+  let lista = carteira;
+  if(r.cliente_id && !carteira.some(c => c.cliente_id === r.cliente_id)){
+    lista = [{ cliente_id: r.cliente_id, nome: r.cliente_nome || '(cliente avulso)' }, ...carteira];
+  }
+  const opts = lista.map(c => `<option value="${esc(c.cliente_id)}" ${r.cliente_id===c.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('');
   return `
     <form onsubmit="return salvarRecebivel(event)">
       <input type="hidden" id="f-id" value="${esc(r.id||'')}">
@@ -1619,7 +1630,9 @@ function renderPilarFinanceiro(){
       ${co.porta_saida_escrita_em
         ? `<div class="muted" style="margin-top:10px;font-size:12.5px;">✓ Porta de saída escrita (${esc(co.porta_saida_tipo || 'nenhuma')})</div>`
         : ''}
-      ${co.observacao ? `<div class="muted" style="margin-top:8px;font-size:12.5px;">${esc(co.observacao)}</div>` : ''}
+      ${/* a observacao virou o TEXTO do contrato (D1.1) — precisa preservar
+            as quebras de linha que ela escreveu na caixa */''}
+      ${co.observacao ? `<div class="muted" style="margin-top:8px;font-size:12.5px;white-space:pre-wrap;">${esc(co.observacao)}</div>` : ''}
     </div>`;
   }).join('') : `<div class="muted">Nenhum contrato registrado.</div>`;
 
@@ -1653,6 +1666,14 @@ function abrirEditarClienteFicha(){
         </select>
       </div>
       <div class="field"><label>Observação</label><textarea id="f-observacao" rows="3">${esc(c.observacao||'')}</textarea></div>
+      ${/* D1.1 (item 2): a carteira é recorrência. Cliente avulso/freela
+            (Pandoka) sai da carteira e da coluna "Cliente aberto" do CRM,
+            mas continua com ficha, conversa e recebíveis normais. */''}
+      <div class="checkrow" style="margin-bottom:6px;">
+        <input type="checkbox" id="f-recorrente" ${c.recorrente === false ? '' : 'checked'}>
+        <label for="f-recorrente">Cliente recorrente (entra na carteira)</label>
+      </div>
+      <p class="dim" style="font-size:12px;margin:0 0 12px;">Desmarcado = freela/avulso: sai da carteira e do CRM, mas continua aparecendo nos Recebíveis.</p>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
         <button type="submit" class="btn btn-primary">Salvar</button>
@@ -1670,6 +1691,7 @@ async function salvarClienteFicha(ev){
       slug: document.getElementById('f-slug').value,
       segmento: document.getElementById('f-segmento').value || null,
       status: document.getElementById('f-status').value,
+      recorrente: document.getElementById('f-recorrente').checked,
       observacao: document.getElementById('f-observacao').value || null,
       // passthrough obrigatório: o upsert do banco sobrescreve TODAS as
       // colunas — sem repassar o que a ficha não edita, salvar apagaria
@@ -1695,6 +1717,7 @@ async function salvarClientePatch(patch, msg){
     razao_social: c.razao_social, documento: c.documento, segmento: c.segmento,
     origem: c.origem, status: c.status, entrou_em: c.entrou_em,
     saiu_em: c.saiu_em, motivo_saida: c.motivo_saida, observacao: c.observacao,
+    recorrente: c.recorrente,   // D1.1 — senão arquivar/reativar devolveria o avulso pra carteira
     ...patch,
   }});
   closeModal(); toast(msg);
@@ -1833,43 +1856,84 @@ async function confirmarApagarDemanda(id){
 }
 
 // ---- contrato ----
+// D1.1 (item 1): o form de 8 campos virou UMA caixa de texto grande + 3
+// controles. Número, Início, Fim mínimo e Observação saíram da tela — o
+// conteúdo deles passa a viver dentro do texto livre, que é gravado na
+// coluna `observacao` que já existia (só o RÓTULO mudou, a coluna não).
+// Sem IA lendo: o que ela escreve é guardado como escreveu.
+//
+// O contrato carregado fica aqui pro passthrough do upsert destrutivo —
+// ver salvarContrato() logo abaixo.
+let contratoEmEdicao = null;
+
+const CONTRATO_PLACEHOLDER = `Escreve aqui como você contaria pra alguém. Por exemplo:
+
+Contrato nº 002/2026 — tráfego pago.
+Começou em 23/09/2026, vigência mínima de 3 meses (até 23/12).
+Assinado pelos dois no gov.br.
+O ciclo começa quando o pagamento anterior é confirmado, sem data fixa.
+Ficou combinado que a estrutura de campanhas fica com o cliente se parar.`;
+
 function abrirNovoContrato(){
-  openModal('Novo contrato', formContrato({ cliente_id: clienteAtual.cliente.id }));
+  contratoEmEdicao = { cliente_id: clienteAtual.cliente.id };
+  openModal('Novo contrato', formContrato(contratoEmEdicao));
 }
 function abrirEditarContrato(i){
-  openModal('Editar contrato', formContrato(clienteAtual.contratos[i].contrato));
+  contratoEmEdicao = clienteAtual.contratos[i].contrato;
+  openModal('Editar contrato', formContrato(contratoEmEdicao));
 }
+
+// Divulgação progressiva: a porta de saída só aparece quando o status é
+// "Ativo" — que é o único caso em que o banco exige
+// (hub_contrato_ativo_exige_porta_saida, apertado na 021). Assim a trava
+// continua de pé sem jogar jargão na cara dela o tempo todo.
+function togglePortaSaida(){
+  const wrap = document.getElementById('porta-saida-wrap');
+  if(!wrap) return;
+  wrap.style.display = (document.getElementById('f-status').value === 'ativo') ? '' : 'none';
+}
+
 function formContrato(co){
   co = co || {};
   const jaTemPortaSaida = !!co.porta_saida_escrita_em;
+  const ehAtivo = co.status === 'ativo';
   return `
     <form onsubmit="return salvarContrato(event)">
       <input type="hidden" id="f-id" value="${esc(co.id||'')}">
       <input type="hidden" id="f-cliente-id" value="${esc(co.cliente_id||'')}">
-      <div class="field"><label>Número</label><input id="f-numero" value="${esc(co.numero||'')}"></div>
-      <div class="field"><label>Status</label>
-        <select id="f-status">
-          ${['rascunho','emitido','enviado','assinado','ativo','encerrado'].map(s=>`<option value="${s}" ${co.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
-        </select>
+
+      <div class="field">
+        <label>O contrato — escreve à vontade</label>
+        <textarea id="f-texto" rows="11" placeholder="${esc(CONTRATO_PLACEHOLDER)}">${esc(co.observacao||'')}</textarea>
       </div>
-      <div class="field"><label>Valor mensal (R$)</label><input id="f-valor" type="number" step="0.01" value="${centavosToInputValue(co.valor_mensal_centavos)}"></div>
-      <div class="field"><label>Dia de vencimento</label><input id="f-dia" type="number" min="1" max="28" value="${co.dia_vencimento||''}"></div>
-      <div class="field"><label>Início</label><input id="f-inicio" type="date" value="${co.inicio_em||''}"></div>
-      <div class="field"><label>Fim mínimo</label><input id="f-fim" type="date" value="${co.fim_minimo_em||''}"></div>
-      <div class="field"><label>Porta de saída</label>
-        <select id="f-porta-tipo">
-          <option value="">— nenhuma escolhida —</option>
-          <option value="manutencao_mensal" ${co.porta_saida_tipo==='manutencao_mensal'?'selected':''}>Manutenção mensal</option>
-          <option value="desligamento_build_30" ${co.porta_saida_tipo==='desligamento_build_30'?'selected':''}>Desligamento (build + 30%)</option>
-          <option value="nenhuma" ${co.porta_saida_tipo==='nenhuma'?'selected':''}>Nenhuma (ex: tráfego com vigência mínima)</option>
-        </select>
+
+      <div class="field-row3">
+        <div class="field"><label>Valor mensal (R$)</label><input id="f-valor" type="number" step="0.01" value="${centavosToInputValue(co.valor_mensal_centavos)}"></div>
+        <div class="field"><label>Dia de vencimento</label><input id="f-dia" type="number" min="1" max="28" value="${co.dia_vencimento||''}"></div>
+        <div class="field"><label>Status</label>
+          <select id="f-status" onchange="togglePortaSaida()">
+            ${['rascunho','emitido','enviado','assinado','ativo','encerrado'].map(s=>`<option value="${s}" ${co.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
+          </select>
+        </div>
       </div>
-      <div class="checkrow" style="margin-bottom:12px;">
-        <input type="checkbox" id="f-porta-escrita" ${jaTemPortaSaida?'checked':''}>
-        <label for="f-porta-escrita">Porta de saída já escrita/definida</label>
+
+      <div id="porta-saida-wrap" style="${ehAtivo?'':'display:none;'}">
+        <div class="field" style="margin-bottom:6px;">
+          <label>Como esse contrato termina</label>
+          <select id="f-porta-tipo">
+            <option value="">— escolhe uma —</option>
+            <option value="manutencao_mensal" ${co.porta_saida_tipo==='manutencao_mensal'?'selected':''}>Manutenção mensal — continua rodando e ela cobra por mês</option>
+            <option value="desligamento_build_30" ${co.porta_saida_tipo==='desligamento_build_30'?'selected':''}>Desligamento — paga o que foi construído + 30% e leva</option>
+            <option value="nenhuma" ${co.porta_saida_tipo==='nenhuma'?'selected':''}>Nenhuma — acaba quando parar de pagar</option>
+          </select>
+        </div>
+        <p class="dim" style="font-size:12px;margin:0 0 10px;">Contrato ativo precisa disso escrito — é o que evita virar trabalho de graça no mês 3.</p>
+        <div class="checkrow" style="margin-bottom:12px;">
+          <input type="checkbox" id="f-porta-escrita" ${jaTemPortaSaida?'checked':''}>
+          <label for="f-porta-escrita">Já está escrito no contrato</label>
+        </div>
       </div>
-      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(co.observacao||'')}</textarea></div>
-      <p class="muted" style="font-size:12px;">🔒 O banco recusa deixar o contrato "Ativo" sem a porta de saída marcada.</p>
+
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
         <button type="submit" class="btn btn-primary">Salvar</button>
@@ -1879,19 +1943,32 @@ function formContrato(co){
 async function salvarContrato(ev){
   ev.preventDefault();
   try{
+    const id = document.getElementById('f-id').value || undefined;
+    // PASSTHROUGH OBRIGATÓRIO — o upsert de hub.rpc_salvar_contrato sobrescreve
+    // TODAS as colunas. Número, início, fim mínimo e porta_saida_valor_centavos
+    // não estão mais (ou nunca estiveram) na tela, e têm dado real hoje
+    // (F7 nº 002/2026, Dobradinha, Império Ruby). Sem repassar do objeto
+    // carregado, salvar o valor do F7 apagaria o número e as datas dele.
+    const base = (contratoEmEdicao && contratoEmEdicao.id && contratoEmEdicao.id === id)
+      ? contratoEmEdicao : {};
     const portaEscrita = document.getElementById('f-porta-escrita').checked;
     await rpc('hub_rpc_salvar_contrato', { p: {
-      id: document.getElementById('f-id').value || undefined,
+      id,
       cliente_id: document.getElementById('f-cliente-id').value,
-      numero: document.getElementById('f-numero').value || null,
       status: document.getElementById('f-status').value,
       valor_mensal_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
       dia_vencimento: document.getElementById('f-dia').value || null,
-      inicio_em: document.getElementById('f-inicio').value || null,
-      fim_minimo_em: document.getElementById('f-fim').value || null,
       porta_saida_tipo: document.getElementById('f-porta-tipo').value || null,
-      porta_saida_escrita_em: portaEscrita ? new Date().toISOString() : null,
-      observacao: document.getElementById('f-observacao').value || null,
+      porta_saida_escrita_em: portaEscrita
+        ? (base.porta_saida_escrita_em || new Date().toISOString())
+        : null,
+      // o texto livre mora em `observacao` (coluna antiga, rótulo novo)
+      observacao: document.getElementById('f-texto').value || null,
+      // passthrough dos campos que saíram da tela
+      numero: base.numero ?? null,
+      inicio_em: base.inicio_em ?? null,
+      fim_minimo_em: base.fim_minimo_em ?? null,
+      porta_saida_valor_centavos: base.porta_saida_valor_centavos ?? null,
     }});
     closeModal(); toast('Contrato salvo.');
     const slug = clienteAtual.cliente.slug;
