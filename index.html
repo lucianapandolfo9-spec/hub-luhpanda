@@ -115,7 +115,18 @@ function contratoBadgeClass(status){
 }
 function friendlyError(err){
   const m = (err && err.message) || String(err);
-  if(m.includes('hub_contrato_ativo_exige_porta_saida')) return 'Não dá pra ativar o contrato sem porta de saída escrita.';
+  if(m.includes('hub_contrato_ativo_exige_porta_saida')) return 'Não dá pra ativar o contrato sem porta de saída: escolhe o tipo E marca que já está escrita.';
+  // D1 (migration 021): contrato novo em branco não vira linha — era assim
+  // que nascia contrato duplicado e vazio, escondendo o contrato bom.
+  if(m.includes('hub_contrato_vazio_nao_cria')) return 'Contrato em branco não é salvo — preencha pelo menos número, valor mensal ou dia de vencimento.';
+  // D1 (migration 021): serviço dentro de contrato não se apaga — a mensagem
+  // do banco vem com o(s) cliente(s) depois dos dois-pontos.
+  if(m.includes('hub_servico_em_uso')){
+    const onde = (m.split('hub_servico_em_uso:')[1] || '').trim();
+    return onde
+      ? `Esse serviço está em uso no contrato de ${onde} — desmarque "Ativo" em vez de apagar.`
+      : 'Esse serviço está em uso em algum contrato — desmarque "Ativo" em vez de apagar.';
+  }
   if(m.includes('acesso negado')) return 'Sessão sem permissão pra essa ação.';
   if(m.includes('Could not find the function')) return 'Essa função ainda não está instalada no banco — migration pendente de aplicação.';
   return m;
@@ -611,17 +622,46 @@ async function renderDashBody(){
 // ============================================================
 // CARTEIRA
 // ============================================================
+// KPI "Sem contrato formal" saiu no D1 (item 4 do plano): era a mesma
+// informação do selo "🔴 sem contrato" do card, no mesmo lugar da tela.
+// O que fica visível no card agora são as demandas do cliente.
 function kpisCarteira(rows){
   const recorrentes = rows.filter(r => r.valor_mensal_centavos != null);
   const totalMensal = recorrentes.reduce((s,r) => s + Number(r.valor_mensal_centavos), 0);
   const semVencimento = rows.filter(r => !r.tem_vencimento).length;
-  const semContrato = rows.filter(r => !r.tem_contrato).length;
   return `
   <div class="kpis">
     <div class="kpi"><div class="label">Clientes ativos</div><div class="value">${rows.length}</div></div>
     <div class="kpi"><div class="label">Recorrente mensal</div><div class="value">${centavosToBRL(totalMensal)}</div></div>
     <div class="kpi ${semVencimento ? 'bad' : ''}"><div class="label">Sem dia de vencimento</div><div class="value">${semVencimento}</div></div>
-    <div class="kpi ${semContrato ? 'warn' : ''}"><div class="label">Sem contrato formal</div><div class="value">${semContrato}</div></div>
+  </div>`;
+}
+
+// ---- demandas no card da carteira (item 1 do D1) ----
+// Os 3 campos vêm da própria hub_rpc_carteira (migration 021) — uma chamada
+// só, nada de fetch por card. Enquanto a 021 não estiver aplicada os campos
+// chegam undefined e o bloco simplesmente não aparece (degrada limpo).
+// Regra de atrasada idêntica à de renderDemandas(): tem data, a data já
+// passou, e não está entregue.
+function blocoDemandasCard(c){
+  const abertas = Number(c.demandas_abertas || 0);
+  if(!abertas) return '';                       // card sem demanda não polui
+  const atrasadas = Number(c.demandas_atrasadas || 0);
+  const previa = Array.isArray(c.demandas_previa) ? c.demandas_previa : [];
+  const hoje = todayISO();
+
+  const itens = previa.map(d => {
+    const atrasada = d.entrega_em && d.entrega_em < hoje && d.status !== 'entregue';
+    return `<span class="cd-item ${atrasada ? 'atrasada' : ''}">
+      <span class="cd-titulo">${esc(d.titulo)}</span>
+      <span class="cd-quando">${d.entrega_em ? formatDateBR(d.entrega_em) : 'sem data'}</span>
+    </span>`;
+  }).join('');
+
+  return `<div class="card-demandas">
+    <span class="cd-head">${abertas} demanda${abertas>1?'s':''} aberta${abertas>1?'s':''}${
+      atrasadas ? `<span class="flag">🔴 ${atrasadas} atrasada${atrasadas>1?'s':''}</span>` : ''}</span>
+    ${itens}
   </div>`;
 }
 
@@ -647,7 +687,7 @@ async function renderCarteira(){
         <span>${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : (carteiraVista==='arquivados' ? '—' : '<span class="flag">🔴 sem vencimento</span>')}</span>
         <span class="badge ${contratoBadgeClass(c.contrato_status)}">${statusLabel(c.contrato_status)}</span>
       </div>
-      ${!c.tem_contrato && carteiraVista!=='arquivados' ? '<span class="flag">🔴 sem contrato</span>' : ''}
+      ${carteiraVista!=='arquivados' ? blocoDemandasCard(c) : ''}
     </div>
   `).join('');
 
@@ -721,6 +761,7 @@ let precosSelecao = false;                 // modo "montar apresentação"
 let precosSelecionados = new Set();        // ids dos serviços marcados
 
 const EDIT_ICON = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`;
+const TRASH_ICON = `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5h16"/><path d="M9.5 6.5V4.8A1.3 1.3 0 0 1 10.8 3.5h2.4a1.3 1.3 0 0 1 1.3 1.3V6.5"/><path d="M6.4 6.5l.8 12.2A1.8 1.8 0 0 0 9 20.5h6a1.8 1.8 0 0 0 1.8-1.8l.8-12.2"/><line x1="10.2" y1="10" x2="10.2" y2="17"/><line x1="13.8" y1="10" x2="13.8" y2="17"/></svg>`;
 
 async function renderCatalogo(){
   root.innerHTML = shell('catalogo', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
@@ -740,7 +781,10 @@ function desenharCatalogo(){
       ${precosSelecao ? `onclick="toggleServicoSelecionado('${esc(s.id)}')"` : ''}>
       ${precosSelecao
         ? `<input type="checkbox" class="selbox" ${sel?'checked':''} tabindex="-1" onclick="event.stopPropagation();toggleServicoSelecionado('${esc(s.id)}')">`
-        : `<span class="edit"><button class="btn btn-ico" title="Editar serviço" onclick="abrirEditarServico(${i})">${EDIT_ICON}</button></span>`}
+        : `<span class="edit">
+             <button class="btn btn-ico" title="Editar serviço" onclick="abrirEditarServico(${i})">${EDIT_ICON}</button>
+             <button class="btn btn-ico btn-ico-danger" title="Apagar serviço" onclick="abrirApagarServico(${i})">${TRASH_ICON}</button>
+           </span>`}
       <span class="tipo">${tipoServico(s)}${s.ativo?'':' · inativo'}</span>
       <span class="nome">${esc(s.nome)}</span>
       <span class="valor">${esc(precoServico(s))}</span>
@@ -862,6 +906,37 @@ async function salvarServico(ev){
     closeModal(); toast('Serviço salvo.'); renderCatalogo();
   } catch(e){}
   return false;
+}
+
+// ---- apagar serviço (item 8 do D1 — RPC na migration 021) ----
+// Mesmo padrão do apagar contrato (Bloco 1.5): delete real, trigger de
+// auditoria guarda o dados_antes. A diferença é a trava de uso — o banco
+// recusa se o serviço estiver dentro de algum contrato e diz de qual
+// cliente (traduzido em friendlyError()).
+function abrirApagarServico(i){
+  const s = (window.__catalogo || [])[i];
+  if(!s) return;
+  openModal(`Apagar serviço — ${esc(s.nome)}`, `
+    <p class="muted" style="margin-top:0;">
+      Isso apaga de vez <b>${esc(s.nome)}</b> (${esc(precoServico(s))}) do catálogo.
+      O que existia fica registrado na auditoria.
+    </p>
+    <p class="dim" style="font-size:12px;">
+      Se o serviço já estiver dentro de algum contrato, o banco recusa e diz de qual cliente —
+      nesse caso desmarque <b>Ativo</b> em vez de apagar.
+    </p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarApagarServico('${esc(s.id)}')">Apagar serviço</button>
+    </div>`);
+}
+async function confirmarApagarServico(id){
+  try{
+    await rpc('hub_rpc_apagar_servico', { p_id: id });
+    precosSelecionados.delete(id);
+    closeModal(); toast('Serviço apagado — rastro guardado na auditoria.');
+    renderCatalogo();
+  } catch(e){}
 }
 
 // ============================================================
@@ -1537,9 +1612,13 @@ function renderPilarFinanceiro(){
       ${itens.length ? `<ul style="margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13px;">
         ${itens.map(it => `<li>${esc(it.descricao)} — ${centavosToBRL(it.valor_centavos)}</li>`).join('')}
       </ul>` : ''}
+      ${/* item 5 do D1: o ramo vermelho "sem porta de saída escrita" saiu —
+            fica só a confirmação discreta quando existe. A trava do banco
+            (hub_contrato_ativo_exige_porta_saida) continua de pé e o campo
+            continua no form. */''}
       ${co.porta_saida_escrita_em
         ? `<div class="muted" style="margin-top:10px;font-size:12.5px;">✓ Porta de saída escrita (${esc(co.porta_saida_tipo || 'nenhuma')})</div>`
-        : `<div class="flag" style="margin-top:10px;">🔴 sem porta de saída escrita</div>`}
+        : ''}
       ${co.observacao ? `<div class="muted" style="margin-top:8px;font-size:12.5px;">${esc(co.observacao)}</div>` : ''}
     </div>`;
   }).join('') : `<div class="muted">Nenhum contrato registrado.</div>`;
@@ -1904,18 +1983,28 @@ const ONBOARD = ['Reunião com cliente','Gravação no Meetily','Precificação'
 let prospectsCache = [];
 let prospectAtual = null;
 // resumo de TODAS as conversas numa chamada só (Bloco C) — nunca uma por card.
-// Indexado por prospect_id; prospect sem conversa simplesmente não aparece aqui.
+// Indexado por prospect_id E por cliente_id (D1, item 2): a RPC já devolve os
+// dois desde a 013, o front é que jogava o cliente_id fora.
 let conversasResumo = null;
+// clientes ativos que aparecem na última coluna do kanban (D1, item 2).
+// É uma VISÃO da carteira — nada é duplicado no banco, nenhuma migration.
+let clientesCRM = [];
 
 async function renderCRM(){
   root.innerHTML = shell('crm', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
-  const [prospects, resumo] = await Promise.all([
+  const [prospects, resumo, clientes] = await Promise.all([
     rpc('hub_rpc_prospects').catch(()=>[]),
     rpc('hub_rpc_conversas_resumo').catch(()=>[]),
+    rpc('hub_rpc_carteira').catch(()=>[]),
   ]);
   prospectsCache = prospects || [];
+  carteira = clientes || [];            // mesma RPC do cache global da carteira
+  clientesCRM = carteira.filter(c => c.status === 'ativo');
   conversasResumo = {};
-  (resumo || []).forEach(c => { if(c.prospect_id) conversasResumo[c.prospect_id] = c; });
+  (resumo || []).forEach(c => {
+    if(c.prospect_id) conversasResumo[c.prospect_id] = c;
+    if(c.cliente_id)  conversasResumo[c.cliente_id]  = c;
+  });
   desenharCRM();
 }
 
@@ -1940,9 +2029,29 @@ function desenharCRM(){
         </div>` : ''}
       </div>`;
     }).join('');
+
+    // Última coluna ("Cliente aberto") mostra também os clientes ativos da
+    // carteira — visão, não registro: nada é duplicado no banco. Card de
+    // cliente navega pra ficha (#/cliente/:slug), não pra #/prospect/:id.
+    const cardsCliente = (i === 5) ? clientesCRM.map(cl => {
+      const conv = (conversasResumo || {})[cl.cliente_id] || null;
+      return `
+      <div class="kcard kcard-cliente ${conv && conv.nao_lida ? 'tem-nao-lida' : ''}" onclick="location.hash='#/cliente/${esc(cl.slug)}'">
+        <div class="nome">${esc(cl.nome)}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}</div>
+        <div class="meta"><span class="kcli">cliente</span>${cl.valor_mensal_centavos?`<span class="valor">${centavosCompact(cl.valor_mensal_centavos)}</span>`:''}</div>
+        ${conv ? `<div class="conv">
+          <span class="prev">${conv.ultima_msg_direcao === 'saida' ? '<span class="eu">você:</span> ' : ''}${esc(truncar(conv.ultima_msg_previa, 50))}</span>
+          <span class="quando">${esc(tempoRelativo(conv.ultima_msg_em))}</span>
+        </div>` : `<div class="conv">
+          <span class="prev ksemwa" title="Abrir a ficha pra cadastrar o WhatsApp">⚠ sem WhatsApp</span>
+        </div>`}
+      </div>`;
+    }).join('') : '';
+
+    const total = doColuna.length + (i === 5 ? clientesCRM.length : 0);
     return `<div class="kcol">
-      <div class="kcol-head"><span class="kcol-title">${esc(titulo)}</span><span class="kcol-count">${doColuna.length}</span></div>
-      ${cards || '<div class="dim" style="font-size:11.5px;text-align:center;padding:18px 0">vazio</div>'}
+      <div class="kcol-head"><span class="kcol-title">${esc(titulo)}</span><span class="kcol-count">${total}</span></div>
+      ${(cards + cardsCliente) || '<div class="dim" style="font-size:11.5px;text-align:center;padding:18px 0">vazio</div>'}
     </div>`;
   }).join('');
 
@@ -1951,14 +2060,18 @@ function desenharCRM(){
       <h2 class="section-title" style="margin:0;">CRM — funil de prospects</h2>
       <button class="btn btn-primary btn-sm" onclick="abrirNovoProspect()">+ Novo prospect</button>
     </div>
+    ${/* KPIs continuam saindo SÓ de prospectsCache — cliente ativo nunca é
+          contado como prospect no funil (D1, item 2). "Clientes ativos" é um
+          KPI à parte, só pra explicar a contagem da última coluna. */''}
     <div class="kpis">
-      <div class="kpi"><div class="kpi-head">${KPI_ICONS.userCheck}<span class="label">No funil</span></div><div class="value">${ativos.length}</div></div>
+      <div class="kpi"><div class="kpi-head">${KPI_ICONS.userCheck}<span class="label">No funil (prospects)</span></div><div class="value">${ativos.length}</div></div>
       <div class="kpi"><div class="kpi-head">${KPI_ICONS.wallet}<span class="label">Em negociação</span></div><div class="value">${centavosToBRL(emNegociacao)}</div></div>
       <div class="kpi ok"><div class="kpi-head">${KPI_ICONS.check}<span class="label">Fechados no mês</span></div><div class="value">${fechadosMes}</div></div>
+      <div class="kpi"><div class="kpi-head">${KPI_ICONS.briefcase}<span class="label">Clientes ativos</span></div><div class="value">${clientesCRM.length}</div></div>
       ${perdidos ? `<div class="kpi"><div class="kpi-head">${KPI_ICONS.warn}<span class="label">Perdidos</span></div><div class="value">${perdidos}</div></div>` : ''}
     </div>
     <div class="kanban">${cols}</div>
-    <p class="dim" style="font-size:12px;margin-top:14px;">Mover de coluna é uma ação dentro da ficha — clique no cartão pra abrir.</p>
+    <p class="dim" style="font-size:12px;margin-top:14px;">Mover de coluna é uma ação dentro da ficha — clique no cartão pra abrir. Na última coluna, cartão com o selo <b>cliente</b> abre a ficha do cliente.</p>
   `);
 }
 

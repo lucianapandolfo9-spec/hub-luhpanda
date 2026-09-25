@@ -118,6 +118,7 @@ h1.page{font-size:1.55rem;letter-spacing:-.03em;font-weight:600;margin:0;text-wr
 .btn-sm{padding:5px 11px;font-size:12px;border-radius:8px}
 .btn-ico{padding:6px 10px;font-size:13px;border-radius:8px;background:transparent;border-color:var(--borda);color:var(--fraco)}
 .btn-ico:hover{color:var(--texto);border-color:var(--borda-forte)}
+.btn-ico-danger:hover{color:var(--bad);border-color:rgba(255,92,122,.45)}
 
 input,select,textarea{
   font-family:inherit;font-size:13px;background:var(--poco);color:var(--texto);
@@ -284,11 +285,12 @@ h2.section-title{
   display:flex;flex-direction:column;gap:7px;transition:border-color .15s var(--ease);position:relative}
 .preco-card:hover{border-color:var(--borda-forte)}
 .preco-card .tipo{font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--fraco)}
-.preco-card .nome{font-weight:600;font-size:14px;letter-spacing:-.01em;padding-right:30px}
+.preco-card .nome{font-weight:600;font-size:14px;letter-spacing:-.01em;padding-right:66px}
 .preco-card .valor{font-size:19px;font-weight:600;color:var(--laranja);font-variant-numeric:tabular-nums}
 .preco-card .inclui{font-size:12px;color:var(--suave);line-height:1.45}
 .preco-card .obs{font-size:11px;color:var(--fraco);border-top:1px solid var(--borda);padding-top:7px;margin-top:2px}
-.preco-card .edit{position:absolute;top:12px;right:12px}
+.preco-card .edit{position:absolute;top:12px;right:12px;display:flex;gap:4px}
+.preco-card .edit .btn-ico{padding:5px 7px}
 .preco-card.inativo{opacity:.55}
 .preco-card .selbox{position:absolute;top:14px;right:14px;width:18px;height:18px;accent-color:var(--laranja);cursor:pointer}
 .preco-card.selecionavel{cursor:pointer}
@@ -298,6 +300,16 @@ h2.section-title{
 .cliente-card{cursor:pointer}
 .cliente-card .meta{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--suave);
   border-top:1px solid var(--borda);padding-top:7px;margin-top:2px;flex-wrap:wrap;gap:6px}
+
+/* ---------- Carteira — demandas no card (D1, item 1) ---------- */
+.card-demandas{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--borda);padding-top:7px;margin-top:2px}
+.card-demandas .cd-head{display:flex;align-items:center;flex-wrap:wrap;gap:2px;font-size:11.5px;font-weight:600;color:var(--suave)}
+.card-demandas .cd-head .flag{font-size:10.5px;padding:1px 6px}
+.card-demandas .cd-item{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:11.5px;color:var(--fraco)}
+.card-demandas .cd-item .cd-titulo{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card-demandas .cd-item .cd-quando{flex-shrink:0;font-size:10.5px;font-variant-numeric:tabular-nums}
+.card-demandas .cd-item.atrasada,
+.card-demandas .cd-item.atrasada .cd-quando{color:var(--bad)}
 
 /* ---------- CRM — kanban de prospects (portado do mockup v2, Bloco B) ---------- */
 .kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(215px,1fr);gap:12px;overflow-x:auto;padding-bottom:8px}
@@ -327,6 +339,18 @@ h2.section-title{
 .kcard .conv .eu{color:var(--roxo-claro)}
 .kcard.tem-nao-lida .conv .prev{color:var(--suave)}
 .kcard .conv .quando{flex-shrink:0;font-size:10.5px;font-variant-numeric:tabular-nums}
+
+/* ---------- CRM — cliente ativo na coluna "Cliente aberto" (D1, item 2) ----------
+   Mesma anatomia do .kcard (prévia, badge de não-lida, 👥 de grupo); o que
+   muda é o selo "cliente" e um acento roxo pra diferenciar de prospect. */
+.kcard-cliente{box-shadow:inset 3px 0 0 var(--roxo)}
+.kcard-cliente.tem-nao-lida{box-shadow:inset 3px 0 0 var(--laranja)}
+.kcard-cliente .meta .kcli{
+  font-family:var(--mono);font-size:.52rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--roxo-claro);background:rgba(139,75,163,.16);border:1px solid rgba(139,75,163,.45);
+  border-radius:999px;padding:1px 7px;
+}
+.kcard-cliente .conv .ksemwa{color:var(--warn);font-weight:600}
 
 /* ---------- Conversa de WhatsApp — thread + envio (Bloco C) ---------- */
 .conversa{display:flex;flex-direction:column;gap:12px}
