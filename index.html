@@ -674,8 +674,17 @@ async function renderCarteira(){
   root.innerHTML = shell('carteira', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
   carteira = await rpc('hub_rpc_carteira').catch(()=>[]);
 
-  const ativos = carteira.filter(c => c.status !== 'encerrado');
-  const arquivados = carteira.filter(c => c.status === 'encerrado');
+  // D1.1 (item 2): "a carteira é recorrência" — cliente avulso/freela
+  // (Pandoka) não entra. O filtro mora AQUI, na tela que exibe, e não dentro
+  // da RPC: `carteira` é cache de uso geral (loadCarteiraCache alimenta os
+  // <select> de cliente de outros formulários) e filtrar na fonte fazia o
+  // recebível de cliente avulso perder o próprio dono na lista.
+  // `!== false` e não `=== true`: numa aba aberta antes da migration 023 o
+  // campo chega undefined, e aí o cliente APARECE. Sumir em silêncio é o
+  // pior default possível aqui.
+  const daCarteira = carteira.filter(c => c.recorrente !== false);
+  const ativos = daCarteira.filter(c => c.status !== 'encerrado');
+  const arquivados = daCarteira.filter(c => c.status === 'encerrado');
   const visiveis = carteiraVista === 'arquivados' ? arquivados : ativos;
 
   const cardsHtml = visiveis.map(c => `
@@ -1110,13 +1119,12 @@ async function confirmarApagarRecebivel(id){
 
 function formRecebivel(r){
   r = r || {};
-  // ⚠️ `carteira` agora vem FILTRADA por recorrente (migration 023), então um
-  // recebível de cliente avulso (Pandoka) não acharia o próprio dono na lista
-  // e o <select> cairia no primeiro cliente — salvar REATRIBUIRIA o recebível
-  // pra outra pessoa, em silêncio. Guarda defensiva: o dono do recebível que
-  // está sendo editado sempre entra nas opções.
-  // (Criar recebível NOVO pra cliente avulso continua sem opção na lista —
-  //  é decisão dela, está sinalizado no relatório do D1.1.)
+  // CINTO DE SEGURANÇA — hoje redundante, mantido de propósito.
+  // `hub_rpc_carteira` devolve TODOS os clientes (a 023 chegou a filtrar por
+  // recorrente e isso foi revertido justamente por causa daqui), então o dono
+  // do recebível sempre está na lista. Se algum dia alguém filtrar o cache de
+  // novo, sem esta guarda o <select> cairia no primeiro cliente e salvar
+  // REATRIBUIRIA o recebível pra outra pessoa, em silêncio. Custa 3 linhas.
   let lista = carteira;
   if(r.cliente_id && !carteira.some(c => c.cliente_id === r.cliente_id)){
     lista = [{ cliente_id: r.cliente_id, nome: r.cliente_nome || '(cliente avulso)' }, ...carteira];
@@ -2076,7 +2084,9 @@ async function renderCRM(){
   ]);
   prospectsCache = prospects || [];
   carteira = clientes || [];            // mesma RPC do cache global da carteira
-  clientesCRM = carteira.filter(c => c.status === 'ativo');
+  // mesmo filtro da tela Carteira (D1.1): só recorrente entra na coluna
+  // "Cliente aberto". `!== false` pelo mesmo motivo — ver renderCarteira().
+  clientesCRM = carteira.filter(c => c.status === 'ativo' && c.recorrente !== false);
   conversasResumo = {};
   (resumo || []).forEach(c => {
     if(c.prospect_id) conversasResumo[c.prospect_id] = c;
@@ -2449,6 +2459,11 @@ let cobrancaMensagensCache = [];
 let cobrancaEnviosCache = [];
 const ETAPA_LABEL = {'d_menos_3':'D-3 · 3 dias antes','d0':'D0 · dia do vencimento','d_mais_2':'D+2 · 2 dias de atraso','d_mais_7':'D+7 · último aviso','escalado':'Escalado · avisou você'};
 
+// ⚠️ NÃO "consertar": esta tela lista cliente avulso (Pandoka) e a Carteira
+// não — a diferença é INTENCIONAL (D1.1). A carteira é recorrência; Cobranças
+// é "quem me deve", e a Pandoka deve R$ 1.599 com vencimento em 15/11.
+// hub.rpc_cobranca_config_lista (012) lê hub.clientes direto, sem passar pela
+// carteira, e é assim que tem que ser.
 async function renderCobrancas(){
   root.innerHTML = shell('cobrancas', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
   await loadCarteiraCache();

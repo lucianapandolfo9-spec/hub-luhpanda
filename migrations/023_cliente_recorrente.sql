@@ -20,17 +20,29 @@
 -- deixa `create or replace` mudar o shape. Todos os campos da 021 e da 022
 -- seguem intactos aqui; este arquivo é a definição completa e atual.
 --
--- ✅ CONFERIDO ANTES DE ESCREVER (a parte que não pode quebrar):
---   • Nenhuma RPC do banco chama hub.rpc_carteira — `grep -rn rpc_carteira
---     migrations/ supabase/` só acha as definições e os grants. O filtro
---     aqui não vaza pra lugar nenhum do banco.
---   • hub.rpc_dash_periodo (006) lê `from hub.recebiveis` direto, quatro
---     vezes, sem passar por cliente. O recebível de R$ 1.599 da Pandoka
---     (novembro, casamento) continua no total do mês e nos Extras.
---   • hub.rpc_cobranca_config_lista (012) lê `from hub.clientes` direto com
---     `where c.status = 'ativo'` — NÃO passa por rpc_carteira. A Pandoka
---     continua aparecendo na tela de Cobranças. Ver nota no relatório: isso
---     pode ser o que ela quer ou não, é decisão dela, não mexi.
+-- 🔴 A RPC NÃO FILTRA. Ela devolve TODOS os clientes, com a coluna
+-- `recorrente` junto — quem filtra é o front, nas duas telas que exibem
+-- carteira (renderCarteira e clientesCRM).
+--
+-- Por quê: a primeira versão deste arquivo tinha `where c.recorrente`, e isso
+-- transformava um cache de uso geral numa view de uma tela só.
+-- `hub_rpc_carteira` alimenta `loadCarteiraCache()`, que alimenta QUALQUER
+-- formulário que precise escolher um cliente. A primeira vítima foi o
+-- `formRecebivel()`: editar o recebível de R$ 1.599 da Pandoka com ela fora
+-- da lista fazia o <select> cair no primeiro cliente e REATRIBUIR o recebível
+-- em silêncio. Todo consumidor futuro herdaria o filtro sem saber.
+-- Filtro de exibição mora na tela que exibe. Não no cache.
+--
+-- ✅ CONFERIDO (grep no repo + pg_get_functiondef nas 5 RPCs, pelo coordenador):
+--   • Nenhuma RPC do banco chama hub.rpc_carteira.
+--   • hub.rpc_recebiveis, hub.rpc_dash e hub.rpc_dash_periodo leem
+--     `hub.recebiveis` direto. O recebível de R$ 1.599 da Pandoka (novembro,
+--     casamento) continua no total do mês e nos Extras.
+--   • hub.rpc_cobranca_config_lista (012) lê `hub.clientes` direto com
+--     `where c.status = 'ativo'` — NÃO passa por rpc_carteira, então a
+--     Pandoka continua na tela de Cobranças. ISSO ESTÁ CERTO E É DE
+--     PROPÓSITO: a carteira é recorrência, a tela de Cobranças é "quem me
+--     deve". Não "consertar".
 -- ============================================================
 
 -- ---------- coluna nova ----------
@@ -139,9 +151,9 @@ begin
     where d.cliente_id = c.id
   ) dm on true
 
-  -- D1.1: a carteira é recorrência. Avulso não entra.
-  where c.recorrente
-
+  -- SEM `where c.recorrente` — de propósito, ver o cabeçalho. Esta RPC é
+  -- cache de uso geral (loadCarteiraCache alimenta os <select> de cliente);
+  -- quem esconde avulso é a tela que exibe carteira, não o cache.
   order by c.nome;
 end;
 $$;
@@ -219,6 +231,8 @@ grant execute on function hub.rpc_salvar_cliente(jsonb) to authenticated;
 
 update hub.clientes set recorrente = false where slug = 'pandoka';
 
--- Conferência depois de aplicar (esperado: 7 linhas, sem Pandoka):
---   select nome, recorrente from hub.rpc_carteira() order by nome;
---   select nome, recorrente from hub.clientes order by nome;   -- 8 linhas
+-- Conferência depois de aplicar — a RPC devolve os 8, com a Pandoka em false:
+--   select nome, recorrente from hub.rpc_carteira() order by nome;  -- 8 linhas
+--   select count(*) from hub.rpc_carteira() where recorrente;       -- 7
+-- Na tela: carteira 7 · KPI "Clientes ativos" do CRM 7 · <select> de
+-- recebível 8 (o filtro é do front, o cache continua completo).
