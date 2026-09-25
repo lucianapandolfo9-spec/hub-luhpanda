@@ -1645,7 +1645,7 @@ function renderPilarFinanceiro(){
       ${/* D2: mesmos botões da tela #/contratos — gerar PDF pelo molde,
             enviar pelo WhatsApp, subir/ver o PDF assinado */''}
       <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:10px;">
-        ${botoesContrato(co.id, data.cliente.slug, !!co.arquivo_path, co.arquivo_path || '')}
+        ${botoesContrato(co.id, data.cliente.slug, co.status, !!co.arquivo_path, co.arquivo_path || '')}
       </div>
       ${co.arquivo_path ? `<div class="dim" style="font-size:11.5px;margin-top:6px;">📎 ${esc(co.arquivo_nome || 'contrato.pdf')}${co.arquivo_em ? ' · guardado em ' + formatDateBR(co.arquivo_em.slice(0,10)) : ''}</div>` : ''}
       ${itens.length ? `<ul style="margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13px;">
@@ -2798,20 +2798,52 @@ async function salvarAnexoEEmitir(){
 // Leitura SEMPRE por createSignedUrl de 60s — nunca getPublicUrl.
 const CONTRATO_BUCKET = 'contratos';
 
-function abrirSubirContrato(contratoId, clienteSlug, temArquivo){
+// Ordem real do pipeline (mesma do CHECK e do <select> de status do form).
+// Usado SÓ aqui, pra decidir se o checkbox "marcar assinado" pode avançar —
+// não em hub.rpc_status_contrato, que é genérica de propósito (o botão
+// "Enviar" também usa) e não deve carregar regra de ordem escondida: um dia
+// ela pode querer corrigir manualmente pra trás, e a RPC tem que deixar.
+const CT_PIPELINE = ['rascunho','emitido','enviado','assinado','ativo','encerrado'];
+
+// 🔴 Bug real de produção (24/09/2026): o checkbox vinha marcado por padrão e
+// chamava rpc_status_contrato('assinado') incondicionalmente — rebaixou F7,
+// Império Ruby e Dobradinha de 'ativo' pra 'assinado' ao subir o PDF deles
+// (que já estava assinado havia dias). Dado corrigido na hora pelo
+// coordenador; aqui é o conserto de código: o checkbox só AVANÇA o status,
+// nunca rebaixa. Contrato já em 'ativo'/'encerrado' faz upload normal, mas
+// marcar o checkbox vira no-op de status — só sobe o arquivo.
+function statusPodeAvancarPraAssinado(statusAtual){
+  const i = CT_PIPELINE.indexOf(statusAtual);
+  // status desconhecido/vazio (ex: campo não carregou) NÃO avança — o risco
+  // de rebaixar por engano em cima de um valor que não deu pra confirmar é
+  // pior do que deixar de marcar "assinado" numa vez. Só avança quando o
+  // status É um dos 6 valores válidos e está estritamente antes de 'assinado'.
+  if(i === -1) return false;
+  return i < CT_PIPELINE.indexOf('assinado');
+}
+
+function abrirSubirContrato(contratoId, clienteSlug, statusAtual, temArquivo){
+  const podeAvancar = statusPodeAvancarPraAssinado(statusAtual);
   openModal('PDF do contrato assinado', `
     <p class="muted" style="margin-top:0;">
       Sobe aqui o PDF ${temArquivo ? '<b>substituindo</b> o que já está guardado' : 'assinado pelas duas partes'}.
       O arquivo fica num bucket privado — só abre por link temporário, nunca por URL pública.
     </p>
+    <input type="hidden" id="f-status-atual" value="${esc(statusAtual || '')}">
     <div class="field">
       <label>Arquivo (PDF, até 20 MB)</label>
       <input type="file" id="f-arquivo" accept="application/pdf">
     </div>
+    ${podeAvancar ? `
     <div class="checkrow" style="margin-bottom:12px;">
       <input type="checkbox" id="f-marca-assinado" checked>
       <label for="f-marca-assinado">Marcar o contrato como <b>assinado</b></label>
-    </div>
+    </div>` : `
+    <p class="dim" style="font-size:12px;margin:0 0 12px;">
+      ${CT_PIPELINE.includes(statusAtual)
+        ? `Este contrato já está em <b>${esc(statusLabel(statusAtual))}</b> — subir o arquivo não muda o status.`
+        : `Não deu pra confirmar o status atual do contrato — subir o arquivo não muda o status, por segurança.`}
+    </p>`}
     <div id="up-msg" class="dim" style="font-size:12px;"></div>
     <div class="row" style="justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
@@ -2827,7 +2859,15 @@ async function confirmarSubirContrato(contratoId, clienteSlug){
   if(file.type !== 'application/pdf'){ toast('Só PDF — o bucket recusa outros formatos.'); return; }
   if(file.size > 20 * 1024 * 1024){ toast('Arquivo acima de 20 MB.'); return; }
 
-  const marcarAssinado = document.getElementById('f-marca-assinado').checked;
+  // O checkbox só existe no HTML quando dava pra avançar (ver
+  // abrirSubirContrato/statusPodeAvancarPraAssinado) — se o contrato já
+  // passou de 'assinado' no pipeline, o elemento nem é renderizado, então
+  // `marcarAssinado` cai em false sozinho e o rpc_status_contrato nem é
+  // chamado. Dupla checagem aqui (não só ausência de elemento) pra não
+  // depender só do HTML não ter sido montado.
+  const statusAtual = (document.getElementById('f-status-atual') || {}).value || '';
+  const checkboxEl = document.getElementById('f-marca-assinado');
+  const marcarAssinado = !!checkboxEl && checkboxEl.checked && statusPodeAvancarPraAssinado(statusAtual);
   const path = `${clienteSlug}/${contratoId}.pdf`;
   if(msg) msg.textContent = 'Subindo...';
 
@@ -2997,7 +3037,7 @@ function desenharContratos(){
       </td>
       <td data-label="Ações" onclick="event.stopPropagation()">
         <div class="row" style="justify-content:flex-end;gap:6px;flex-wrap:wrap;">
-          ${botoesContrato(c.contrato_id, c.cliente_slug, c.tem_arquivo, c.arquivo_path)}
+          ${botoesContrato(c.contrato_id, c.cliente_slug, c.status, c.tem_arquivo, c.arquivo_path)}
         </div>
       </td>
     </tr>`).join('');
@@ -3049,8 +3089,11 @@ function desenharContratos(){
 }
 
 // os mesmos botões na tela de Contratos e no card da ficha do cliente.
-// Só id, slug e path viajam pelo onclick — todos sem aspas por construção.
-function botoesContrato(id, slug, temArquivo, path){
+// Só id, slug, status e path viajam pelo onclick — status é um dos 6 valores
+// fixos do pipeline (nunca texto livre), o resto sem aspas por construção.
+// `status` vai junto pro upload saber se o checkbox "marcar assinado" pode
+// avançar ou se o contrato já passou desse ponto (statusPodeAvancarPraAssinado).
+function botoesContrato(id, slug, status, temArquivo, path){
   return `
     <button class="btn btn-sm btn-outline" title="Gerar o PDF do contrato pelo modelo" onclick="emitirContrato('${esc(id)}','${esc(slug)}')">Gerar PDF</button>
     <button class="btn btn-sm btn-outline" title="Mandar pro cliente pelo WhatsApp" onclick="abrirEnviarContrato('${esc(id)}','${esc(slug)}')">Enviar</button>
@@ -3058,7 +3101,7 @@ function botoesContrato(id, slug, temArquivo, path){
       ? `<button class="btn btn-sm btn-outline" title="Abrir o PDF assinado" onclick="baixarContratoPDF('${esc(path)}')">Ver PDF</button>
          <button class="btn btn-ico btn-ico-danger" title="Tirar o PDF" onclick="abrirTirarArquivoContrato('${esc(id)}','${esc(slug)}','${esc(path)}')">${TRASH_ICON}</button>`
       : ''}
-    <button class="btn btn-sm btn-outline" title="${temArquivo ? 'Trocar o PDF assinado' : 'Subir o PDF assinado'}" onclick="abrirSubirContrato('${esc(id)}','${esc(slug)}',${temArquivo?'true':'false'})">${temArquivo ? 'Trocar PDF' : 'Subir assinado'}</button>`;
+    <button class="btn btn-sm btn-outline" title="${temArquivo ? 'Trocar o PDF assinado' : 'Subir o PDF assinado'}" onclick="abrirSubirContrato('${esc(id)}','${esc(slug)}','${esc(status||'')}',${temArquivo?'true':'false'})">${temArquivo ? 'Trocar PDF' : 'Subir assinado'}</button>`;
 }
 
 // ============================================================
