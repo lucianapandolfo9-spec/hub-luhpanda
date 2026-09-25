@@ -465,6 +465,59 @@ h2.section-title{
 .ct-page .ct-falta{background:#FFE9C7;color:#8A5A00;font-weight:700;padding:0 4px;border-radius:3px}
 .ct-aviso{font-size:12px;color:var(--warn);align-self:center;margin-right:auto}
 
+/* ============================================================
+   AGENDA (Google Agenda) — Fase 3, Bloco F
+   ============================================================ */
+
+/* botão de calendário no card do kanban */
+.kcard-acoes{display:flex;justify-content:flex-end;margin-top:6px}
+.kcard-cal-btn{
+  background:transparent;border:1px solid var(--borda);color:var(--fraco);
+  border-radius:8px;padding:3px 7px;cursor:pointer;display:inline-flex;align-items:center;
+  transition:all .15s var(--ease);
+}
+.kcard-cal-btn:hover{color:var(--laranja);border-color:rgba(255,107,53,.45)}
+.kcard-cal-btn svg{display:block}
+
+/* banner "sugestão da IA" — dentro da Conversa (desenharConversa) */
+.banner-sugestao-reuniao{border-color:rgba(111,46,143,.5);background:rgba(111,46,143,.08);margin-bottom:14px}
+
+/* card "Agenda" reutilizável (ficha do prospect / pilar do cliente) */
+.agenda-contato .rowcard{cursor:default}
+.agenda-vazio{padding:18px 6px;text-align:center;color:var(--fraco);font-size:12.5px;line-height:1.5}
+
+/* tela #/agenda — toolbar */
+.agenda-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:16px}
+.agenda-nav{display:flex;align-items:center;gap:6px}
+
+/* visão semana: 7 colunas, uma por dia */
+.agenda-semana{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+.agenda-dia{background:var(--superficie);border:1px solid var(--borda);border-radius:12px;padding:10px;min-height:140px}
+.agenda-dia.hoje{border-color:var(--laranja)}
+.agenda-dia-head{
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--fraco);
+  margin-bottom:8px;display:flex;justify-content:space-between;
+}
+.agenda-dia.hoje .agenda-dia-head{color:var(--laranja)}
+.agenda-evento{
+  background:rgba(255,107,53,.1);border:1px solid rgba(255,107,53,.3);border-radius:8px;
+  padding:6px 8px;margin-bottom:6px;font-size:11.5px;
+}
+.agenda-evento .hora{font-weight:600;color:var(--laranja);display:block}
+.agenda-evento .titulo{color:var(--texto);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.agenda-evento.cancelado{opacity:.45;text-decoration:line-through}
+
+/* visão mês: grade 7 colunas (cabeçalho + 42 células) */
+.agenda-mes{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.agenda-mes-cab{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--fraco);text-align:center;padding-bottom:4px}
+.agenda-mes-dia{
+  background:var(--superficie);border:1px solid var(--borda);border-radius:9px;min-height:58px;
+  padding:6px;font-size:11px;color:var(--suave);cursor:pointer;transition:border-color .15s var(--ease);
+}
+.agenda-mes-dia:hover{border-color:var(--borda-forte)}
+.agenda-mes-dia.hoje{border-color:var(--laranja);color:var(--laranja)}
+.agenda-mes-dia.fora{opacity:.35}
+
 @media print{
   body.apres-print-mode{background:#fff !important}
   body.apres-print-mode #root{display:none !important}
@@ -529,6 +582,12 @@ h2.section-title{
   /* conversa: thread mais curta e bolha mais larga na tela pequena */
   .conversa-thread{max-height:320px}
   .bolha{max-width:92%}
+
+  /* agenda: 7 colunas não cabem — semana vira lista de dias empilhados,
+     mês reduz a grade (ainda 7 col, mas compacta) */
+  .agenda-semana{grid-template-columns:1fr}
+  .agenda-mes-dia{min-height:40px;font-size:10px;padding:4px}
+  .agenda-mes-cab{font-size:.52rem}
 
   .kpis{grid-template-columns:repeat(2,1fr)}
   .modal{padding:18px;border-radius:14px}

@@ -228,6 +228,7 @@ const NAV_ICONS = {
   crm: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="5" height="16" rx="1.4"/><rect x="10" y="4" width="5" height="11" rx="1.4"/><rect x="17" y="4" width="4" height="7" rx="1.4"/></svg>`,
   contratos: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8.5 14.5l2 2 4-4.5"/></svg>`,
   reunioes: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="6" width="13" height="12" rx="2.4"/><path d="M15.5 10.5l6-3.5v10l-6-3.5"/></svg>`,
+  agenda: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="5" width="17" height="16" rx="2.2"/><line x1="3.5" y1="10" x2="20.5" y2="10"/><line x1="8" y1="3" x2="8" y2="7"/><line x1="16" y1="3" x2="16" y2="7"/></svg>`,
   posts: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="4.5"/><circle cx="12" cy="12" r="4"/><line x1="17.2" y1="6.8" x2="17.2" y2="6.8" stroke-width="2.6"/></svg>`,
   trafego: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-7 4 4 7-8.5"/><path d="M15 5.5h5v5"/></svg>`,
   criacao: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>`,
@@ -264,6 +265,7 @@ const NAV_GROUPS = [
     ['crm','CRM', NAV_ICONS.crm, true],
     ['contratos','Contratos', NAV_ICONS.contratos, true],
     ['reunioes','Reuniões', NAV_ICONS.reunioes, true],
+    ['agenda','Agenda', NAV_ICONS.agenda, true],
   ]},
   { label: 'Marketing', items: [
     ['posts','Posts', NAV_ICONS.posts, false],
@@ -1418,7 +1420,26 @@ function desenharConversa(slot){
     return;
   }
 
+  // Banner de sugestão de horário (Bloco F, item 5) — o nó de IA do n8n
+  // grava em hub.conversas.sugestao_reuniao; aqui só EXIBE. Nunca cria o
+  // evento sozinho — o botão abre o mini-form já preenchido, ela confirma.
+  const sugestao = conversa && conversa.sugestao_reuniao;
+  const bannerSugestao = (sugestao && sugestao.texto) ? `
+    <div class="card banner-sugestao-reuniao">
+      <div class="row-between" style="align-items:flex-start;flex-wrap:wrap;gap:10px;">
+        <div>
+          <span class="badge badge-roxo">💡 sugestão da IA</span>
+          <p style="margin:6px 0 0;font-size:13px;">${esc(sugestao.texto)}</p>
+        </div>
+        <div class="row" style="gap:6px;flex-shrink:0;">
+          <button class="btn btn-primary btn-sm" onclick="abrirMarcarReuniaoDaConversa('${slot}')">Marcar reunião</button>
+          <button class="btn btn-outline btn-sm" onclick="dispensarSugestaoReuniao('${slot}')">Dispensar</button>
+        </div>
+      </div>
+    </div>` : '';
+
   box.innerHTML = `
+    ${bannerSugestao}
     <div class="conversa-thread" id="${slot}-thread">${bolhas || vazio}</div>
     <div class="conversa-envio">
       ${rascunho ? `<div class="conversa-dica">✨ sugestão da IA — edite antes de mandar</div>` : ''}
@@ -1551,6 +1572,7 @@ function desenharFichaCliente(){
       <div class="pilartab ${pilarAtivo==='marketing'?'active':''}" onclick="trocarPilar('marketing', event)">Marketing</div>
       <div class="pilartab ${pilarAtivo==='comercial'?'active':''}" onclick="trocarPilar('comercial', event)">Comercial</div>
       <div class="pilartab ${pilarAtivo==='conversas'?'active':''}" onclick="trocarPilar('conversas', event)">Conversas</div>
+      <div class="pilartab ${pilarAtivo==='agenda'?'active':''}" onclick="trocarPilar('agenda', event)">Agenda</div>
     </div>
     <div id="pilar-body">${renderPilar()}</div>
 
@@ -1572,7 +1594,19 @@ function renderPilar(){
   if(pilarAtivo === 'marketing') return `<div class="pilar-empty">Em construção — próxima fase do hub.</div>`;
   if(pilarAtivo === 'comercial') return `<div class="pilar-empty">Em construção — próxima fase do hub.</div>`;
   if(pilarAtivo === 'conversas') return renderPilarConversas();
+  if(pilarAtivo === 'agenda') return renderPilarAgenda();
   return renderPilarFinanceiro();
+}
+
+// Pilar Agenda (Fase 3, Bloco F) — eventos do Google Agenda vinculados a
+// este cliente, lidos ao vivo (nunca guardados no Hub) + botão pra marcar
+// reunião nova convidando o contato principal.
+function renderPilarAgenda(){
+  const cliente = clienteAtual.cliente;
+  return `<div class="card">
+    <p class="eyebrow" style="color:var(--fraco)">Agenda</p>
+    ${renderAgendaContato({ cliente_id: cliente.id })}
+  </div>`;
 }
 
 // Pilar Conversas — mesmo componente da ficha do prospect. O telefone vem de
@@ -2163,12 +2197,13 @@ function desenharCRM(){
       const conv = (conversasResumo || {})[p.id] || null;
       return `
       <div class="kcard ${conv && conv.nao_lida ? 'tem-nao-lida' : ''}" onclick="location.hash='#/prospect/${p.id}'">
-        <div class="nome">${esc(p.nome)}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}</div>
+        <div class="nome">${esc(p.nome)}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}${conv && conv.tem_sugestao_reuniao ? '<span class="knova" style="background:var(--roxo);">💡</span>' : ''}</div>
         <div class="meta"><span>${formatDateBR(p.entrou_em)}${p.gravacao?' · 🎥':''}</span>${p.valor_estimado_centavos?`<span class="valor">${centavosCompact(p.valor_estimado_centavos)}</span>`:''}</div>
         ${conv ? `<div class="conv">
           <span class="prev">${conv.ultima_msg_direcao === 'saida' ? '<span class="eu">você:</span> ' : ''}${esc(truncar(conv.ultima_msg_previa, 50))}</span>
           <span class="quando">${esc(tempoRelativo(conv.ultima_msg_em))}</span>
         </div>` : ''}
+        <div class="kcard-acoes"><button class="kcard-cal-btn" title="Marcar reunião" onclick="event.stopPropagation();abrirMarcarReuniaoProspect('${p.id}')">${KPI_ICONS.calendar}</button></div>
       </div>`;
     }).join('');
 
@@ -2179,9 +2214,10 @@ function desenharCRM(){
       const conv = (conversasResumo || {})[cl.cliente_id] || null;
       return `
       <div class="kcard kcard-cliente ${conv && conv.nao_lida ? 'tem-nao-lida' : ''}" onclick="location.hash='#/cliente/${esc(cl.slug)}'">
-        <div class="nome">${esc(cl.nome)}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}</div>
+        <div class="nome">${esc(cl.nome)}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}${conv && conv.tem_sugestao_reuniao ? '<span class="knova" style="background:var(--roxo);">💡</span>' : ''}</div>
         <div class="meta"><span class="kcli">cliente</span>${cl.valor_mensal_centavos?`<span class="valor">${centavosCompact(cl.valor_mensal_centavos)}</span>`:''}</div>
         ${rodapeCardCliente(cl, conv)}
+        <div class="kcard-acoes"><button class="kcard-cal-btn" title="Marcar reunião" onclick="event.stopPropagation();abrirMarcarReuniaoCliente('${cl.cliente_id}','${esc(cl.slug)}')">${KPI_ICONS.calendar}</button></div>
       </div>`;
     }).join('') : '';
 
@@ -2338,6 +2374,10 @@ function desenharProspect(){
         <div class="card" style="margin-bottom:14px;">
           <p class="eyebrow" style="color:var(--fraco)">Contato</p>
           <div class="muted" style="font-size:13px;">${p.contato_whatsapp ? (p.contato_eh_grupo ? '👥 grupo — ' : '') + esc(p.contato_whatsapp) : 'sem WhatsApp'}${p.contato_email ? ' · '+esc(p.contato_email) : ''}</div>
+        </div>
+        <div class="card" style="margin-bottom:14px;">
+          <p class="eyebrow" style="color:var(--fraco)">Agenda</p>
+          ${renderAgendaContato({ prospect_id: p.id })}
         </div>
         <div class="card">
           <p class="eyebrow" style="color:var(--fraco)">Conversa</p>
@@ -3589,6 +3629,453 @@ function erroAnaliseReuniao(err){
 }
 
 // ============================================================
+// AGENDA (Google Agenda) — Fase 3, Bloco F
+//
+// Decisões travadas no /grill-me de 25/09/2026 (Hub Dev.md, "Bloco F"):
+//   • O Google Agenda é a FONTE DA VERDADE — o Hub nunca guarda cópia do
+//     evento (título/horário/convidados). O que existe aqui é só o
+//     VÍNCULO (hub.eventos_agenda) + a leitura AO VIVO via Edge Function
+//     `agenda-google` (calendário principal da conta dela).
+//   • Convite é FORMAL: quem cria o evento manda `attendee_email` pra
+//     Edge Function, que convida de verdade (sendUpdates=all).
+//   • Google Meet é opcional (checkbox no mini-form).
+//   • A IA do n8n só SUGERE horário (hub.conversas.sugestao_reuniao) — o
+//     Hub nunca cria evento sozinho, sempre com confirmação dela (banner
+//     dentro de desenharConversa()).
+//
+// ⚠️ NÃO TESTADO PONTA A PONTA — ela ainda não fez a autorização OAuth do
+// Google (ver relatório da sessão / Hub Dev.md). Até lá, toda chamada à
+// Edge Function `agenda-google` devolve 503 e a tela mostra esse estado
+// explicitamente, em vez de fingir que está funcionando.
+// ============================================================
+
+// ---------- erro em linguagem de gente, reusado em toda a frente ----------
+function erroAgendaGoogle(err){
+  const m = (err && err.message) || String(err);
+  if(/nao conectada|não conectada|GOOGLE_CALENDAR/i.test(m)) return 'Google Agenda ainda não conectada — falta a autorização OAuth (ver Hub Dev.md).';
+  if(/not found|404|failed to (send|fetch)|networkerror|non-2xx/i.test(m)) return 'Não consegui falar com a Agenda — confere se a Edge Function agenda-google está publicada.';
+  return 'A Agenda recusou: ' + m;
+}
+
+// ---------- helpers de contato (email/whatsapp do contato principal) ----------
+function contatoEmailPrincipal(contatos){
+  if(!Array.isArray(contatos) || !contatos.length) return null;
+  const principal = contatos.find(c=>c.is_principal) || contatos[0];
+  return (principal && principal.email) ? principal.email : null;
+}
+function contatoFonePrincipal(contatos){
+  if(!Array.isArray(contatos) || !contatos.length) return null;
+  const principal = contatos.find(c=>c.is_principal) || contatos[0];
+  return (principal && principal.whatsapp_e164) ? principal.whatsapp_e164 : null;
+}
+
+// ============================================================
+// mini-form "Marcar reunião" — usado pelo botão do kanban, da ficha e do
+// banner de sugestão da IA. Sempre pede confirmação dela antes de criar
+// qualquer coisa no Google.
+// ============================================================
+let marcarReuniaoCtx = null;
+
+function abrirMarcarReuniao(opts){
+  opts = opts || {};
+  marcarReuniaoCtx = opts;
+
+  let base = opts.sugestao_iso ? new Date(opts.sugestao_iso) : null;
+  if(!base || isNaN(base.getTime())){
+    base = new Date(Date.now() + 24*3600*1000);
+    base.setMinutes(0, 0, 0);
+    base.setHours(base.getHours() + 1);
+  }
+  const dataVal = base.toLocaleDateString('sv-SE');
+  const horaVal = base.toTimeString().slice(0,5);
+
+  openModal(`Marcar reunião${opts.nome ? ' — ' + esc(opts.nome) : ''}`, `
+    <form onsubmit="return confirmarMarcarReuniao(event)">
+      <div class="f2">
+        <div class="field"><label>Data</label><input id="mr-data" type="date" required value="${dataVal}"></div>
+        <div class="field"><label>Hora</label><input id="mr-hora" type="time" required value="${horaVal}"></div>
+      </div>
+      <div class="field"><label>Duração</label>
+        <select id="mr-duracao">
+          <option value="30">30 min</option>
+          <option value="60" selected>1 hora</option>
+          <option value="90">1h30</option>
+          <option value="120">2 horas</option>
+        </select>
+      </div>
+      <div class="field"><label>Título</label><input id="mr-titulo" required value="Reunião${opts.nome ? ' com ' + esc(opts.nome) : ''}"></div>
+      ${opts.email
+        ? `<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Convite formal vai por e-mail pra <b>${esc(opts.email)}</b>.</p>`
+        : `<p class="dim" style="font-size:12px;margin:0 0 10px;">Sem e-mail cadastrado — o evento é criado, mas ninguém é convidado automaticamente. Cadastre o e-mail na ficha se quiser convite formal.</p>`}
+      <div class="checkrow" style="margin-bottom:14px;"><input type="checkbox" id="mr-meet"> <label for="mr-meet">Criar Google Meet</label></div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="mr-submit">Marcar na Agenda</button>
+      </div>
+    </form>`);
+}
+
+async function confirmarMarcarReuniao(ev){
+  ev.preventDefault();
+  const ctx = marcarReuniaoCtx || {};
+  const data = document.getElementById('mr-data').value;
+  const hora = document.getElementById('mr-hora').value;
+  const duracao = parseInt(document.getElementById('mr-duracao').value, 10);
+  const titulo = document.getElementById('mr-titulo').value.trim();
+  const comMeet = document.getElementById('mr-meet').checked;
+  if(!data || !hora || !titulo){ toast('Preenche data, hora e título.'); return false; }
+  if(!ctx.cliente_id && !ctx.prospect_id){ toast('Sem cliente/prospect pra vincular a reunião.'); return false; }
+
+  const inicioLocal = new Date(`${data}T${hora}:00`);
+  if(isNaN(inicioLocal.getTime())){ toast('Data/hora inválida.'); return false; }
+
+  const btn = document.getElementById('mr-submit');
+  if(btn){ btn.disabled = true; btn.textContent = 'Marcando…'; }
+
+  if(!hubClient.functions){
+    toast('Google Agenda ainda não conectada — falta a autorização OAuth.');
+    if(btn){ btn.disabled = false; btn.textContent = 'Marcar na Agenda'; }
+    return false;
+  }
+
+  try{
+    const { data: resp, error } = await hubClient.functions.invoke('agenda-google', {
+      body: {
+        acao: 'criar', titulo,
+        inicio_iso: inicioLocal.toISOString(), duracao_min: duracao,
+        attendee_email: ctx.email || null, com_meet: comMeet,
+        cliente_id: ctx.cliente_id || null, prospect_id: ctx.prospect_id || null,
+      },
+    });
+    if(error) throw error;
+    if(resp && resp.erro) throw new Error(resp.detalhe || resp.erro);
+
+    closeModal();
+    toast('Reunião marcada na Agenda' + (ctx.email ? ' — convite enviado.' : '.') );
+
+    // a sugestão que originou isso (se veio de uma) já foi usada
+    if(ctx.fone){ rpc('hub_rpc_limpar_sugestao_reuniao', { p: { fone: ctx.fone } }).catch(()=>{}); }
+
+    // redesenha o que estiver na tela agora, se for o mesmo contato
+    if(prospectAtual && ctx.prospect_id === prospectAtual.id) renderProspect(prospectAtual.id);
+    if(clienteAtual && clienteAtual.cliente && ctx.cliente_id === clienteAtual.cliente.id) desenharFichaCliente();
+  } catch(e){
+    toast(erroAgendaGoogle(e));
+    if(btn){ btn.disabled = false; btn.textContent = 'Marcar na Agenda'; }
+  }
+  return false;
+}
+
+// ---------- entradas específicas (kanban, ficha, banner de sugestão) ----------
+function abrirMarcarReuniaoProspect(prospectId, sugestaoIso){
+  const p = (prospectAtual && prospectAtual.id === prospectId) ? prospectAtual : prospectsCache.find(x => x.id === prospectId);
+  if(!p){ toast('Prospect não encontrado.'); return; }
+  abrirMarcarReuniao({
+    prospect_id: p.id, nome: p.nome,
+    email: p.contato_email || null, fone: p.contato_eh_grupo ? null : (p.contato_whatsapp || null),
+    sugestao_iso: sugestaoIso || null,
+  });
+}
+
+async function abrirMarcarReuniaoCliente(clienteId, slug, sugestaoIso){
+  let nome = null, email = null, fone = null;
+  if(clienteAtual && clienteAtual.cliente && clienteAtual.cliente.id === clienteId){
+    nome = clienteAtual.cliente.nome;
+    email = contatoEmailPrincipal(clienteAtual.contatos);
+    fone = contatoFonePrincipal(clienteAtual.contatos);
+  } else {
+    const detalhe = await rpc('hub_rpc_cliente', { p_slug: slug }).catch(()=>null);
+    if(detalhe && detalhe.cliente){
+      nome = detalhe.cliente.nome;
+      email = contatoEmailPrincipal(detalhe.contatos);
+      fone = contatoFonePrincipal(detalhe.contatos);
+    } else {
+      const cl = clientesCRM.find(c => c.cliente_id === clienteId);
+      nome = cl ? cl.nome : null;
+    }
+  }
+  abrirMarcarReuniao({ cliente_id: clienteId, nome, email, fone, sugestao_iso: sugestaoIso || null });
+}
+
+// chamado pelo banner "💡 sugestão da IA" dentro de desenharConversa()
+function abrirMarcarReuniaoDaConversa(slot){
+  const st = conversasCache[slot];
+  if(!st){ toast('Conversa não encontrada.'); return; }
+  const conversa = st.dados && st.dados.conversa;
+  const sugestao = conversa && conversa.sugestao_reuniao;
+  if(st.prospect_id) return abrirMarcarReuniaoProspect(st.prospect_id, sugestao ? sugestao.data_hora_sugerida : null);
+  if(st.cliente_id){
+    const cl = clientesCRM.find(c => c.cliente_id === st.cliente_id);
+    return abrirMarcarReuniaoCliente(st.cliente_id, cl ? cl.slug : (clienteAtual && clienteAtual.cliente ? clienteAtual.cliente.slug : ''), sugestao ? sugestao.data_hora_sugerida : null);
+  }
+  toast('Essa conversa não está vinculada a um prospect/cliente.');
+}
+
+async function dispensarSugestaoReuniao(slot){
+  const st = conversasCache[slot];
+  if(!st) return;
+  try{
+    await rpc('hub_rpc_limpar_sugestao_reuniao', { p: { fone: st.fone } });
+    if(st.dados && st.dados.conversa) st.dados.conversa.sugestao_reuniao = null;
+    desenharConversa(slot);
+    toast('Sugestão dispensada.');
+  } catch(e){}
+}
+
+// ============================================================
+// card "Agenda" reutilizável (ficha do prospect e pilar Agenda do cliente)
+// — mesmo molde de renderConversa(): devolve HTML síncrono com spinner e
+// carrega no tick seguinte.
+// ============================================================
+const agendaContatoCache = {};
+
+function agendaContatoSlot(clienteId, prospectId){ return 'agctt-' + (clienteId || prospectId || 'x'); }
+
+function renderAgendaContato(opts){
+  opts = opts || {};
+  const slot = agendaContatoSlot(opts.cliente_id, opts.prospect_id);
+  agendaContatoCache[slot] = { cliente_id: opts.cliente_id || null, prospect_id: opts.prospect_id || null, eventos: null, erro: null };
+  setTimeout(() => carregarAgendaContato(slot), 0);
+  return `<div class="agenda-contato" id="${slot}">
+    <div class="empty" style="padding:18px 6px;"><div class="spinner" style="margin:0 auto;"></div></div>
+  </div>`;
+}
+
+async function carregarAgendaContato(slot){
+  const st = agendaContatoCache[slot];
+  if(!st || !document.getElementById(slot)) return;
+  try{
+    // chamada direta (sem o wrapper rpc()) pra não estourar toast enquanto a
+    // migration 029 não estiver aplicada — mesmo cuidado já usado em
+    // hub_rpc_demandas_cliente (renderCliente).
+    const { data: vinculos, error: erroVinculos } = await hubClient.rpc('hub_rpc_eventos_agenda_do_contato', {
+      p: { cliente_id: st.cliente_id, prospect_id: st.prospect_id },
+    });
+    if(erroVinculos) throw erroVinculos;
+    const ids = (vinculos || []).map(v => v.google_event_id);
+    if(!ids.length){ st.eventos = []; st.erro = null; desenharAgendaContato(slot); return; }
+    if(!hubClient.functions) throw new Error('Google Agenda ainda não conectada.');
+    const { data, error } = await hubClient.functions.invoke('agenda-google', { body: { acao: 'obter', google_event_ids: ids } });
+    if(error) throw error;
+    if(data && data.erro) throw new Error(data.detalhe || data.erro);
+    st.eventos = data.eventos || [];
+    st.erro = null;
+  } catch(e){
+    st.eventos = null;
+    st.erro = erroAgendaGoogle(e);
+  }
+  desenharAgendaContato(slot);
+}
+
+function desenharAgendaContato(slot){
+  const st = agendaContatoCache[slot];
+  const box = document.getElementById(slot);
+  if(!st || !box) return;
+
+  const btnMarcar = st.cliente_id
+    ? `<button class="btn btn-primary btn-sm" onclick="abrirMarcarReuniaoCliente('${st.cliente_id}','${esc(clienteAtual && clienteAtual.cliente ? clienteAtual.cliente.slug : '')}')">Marcar reunião</button>`
+    : `<button class="btn btn-primary btn-sm" onclick="abrirMarcarReuniaoProspect('${st.prospect_id}')">Marcar reunião</button>`;
+
+  if(st.eventos === null){
+    box.innerHTML = `<div class="agenda-vazio">Não deu pra carregar a agenda — ${esc(st.erro)}</div>
+      <div style="margin-top:10px;">${btnMarcar}</div>`;
+    return;
+  }
+
+  const linhas = st.eventos
+    .filter(e => !e.erro)
+    .sort((a,b) => new Date(a.inicio) - new Date(b.inicio))
+    .map(e => `
+      <div class="rowcard" style="margin-bottom:6px;">
+        <div class="l">
+          <div class="t">${esc(e.titulo)}${e.status==='cancelled' ? ' <span class="dim">(cancelado no Google)</span>' : ''}</div>
+          <div class="s">${e.dia_inteiro ? 'dia todo' : formatarDataHoraReuniao(e.inicio)}</div>
+        </div>
+        <div class="r">
+          ${e.meet_link ? `<a href="${esc(e.meet_link)}" target="_blank" rel="noopener" class="badge badge-ok" onclick="event.stopPropagation();">Meet</a>` : ''}
+          ${e.html_link ? `<a href="${esc(e.html_link)}" target="_blank" rel="noopener" class="badge badge-muted" onclick="event.stopPropagation();">Abrir no Google</a>` : ''}
+        </div>
+      </div>`).join('');
+
+  box.innerHTML = `
+    ${linhas || '<div class="agenda-vazio">Nenhuma reunião marcada ainda.</div>'}
+    <div style="margin-top:10px;">${btnMarcar}</div>`;
+}
+
+// ============================================================
+// tela `#/agenda` — visão geral semana/mês do calendário principal dela
+// ============================================================
+let agendaVista = 'semana'; // 'semana' | 'mes'
+let agendaRef = new Date();
+let agendaEventosCache = null;
+let agendaErroPeriodo = null;
+
+function agendaInicioSemana(d){
+  const x = new Date(d); x.setHours(0,0,0,0);
+  x.setDate(x.getDate() - x.getDay());
+  return x;
+}
+function agendaInicioMes(d){ const x = new Date(d.getFullYear(), d.getMonth(), 1); x.setHours(0,0,0,0); return x; }
+function agendaFimMes(d){ const x = new Date(d.getFullYear(), d.getMonth()+1, 0); x.setHours(23,59,59,999); return x; }
+
+function agendaPeriodoAtual(){
+  if(agendaVista === 'mes'){
+    const inicioGrade = agendaInicioSemana(agendaInicioMes(agendaRef));
+    const fimMes = agendaFimMes(agendaRef);
+    const fimGrade = new Date(fimMes);
+    fimGrade.setDate(fimGrade.getDate() + (6 - fimMes.getDay()));
+    fimGrade.setHours(23,59,59,999);
+    return { desde: inicioGrade, ate: fimGrade };
+  }
+  const desde = agendaInicioSemana(agendaRef);
+  const ate = new Date(desde); ate.setDate(ate.getDate() + 7); ate.setMilliseconds(ate.getMilliseconds() - 1);
+  return { desde, ate };
+}
+
+async function renderAgenda(){
+  root.innerHTML = shell('agenda', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  await carregarAgendaPeriodo();
+  desenharAgenda();
+}
+
+async function carregarAgendaPeriodo(){
+  const { desde, ate } = agendaPeriodoAtual();
+  if(!hubClient.functions){
+    agendaEventosCache = null;
+    agendaErroPeriodo = 'Google Agenda ainda não conectada.';
+    return;
+  }
+  try{
+    const { data, error } = await hubClient.functions.invoke('agenda-google', {
+      body: { acao: 'listar', desde_iso: desde.toISOString(), ate_iso: ate.toISOString() },
+    });
+    if(error) throw error;
+    if(data && data.erro) throw new Error(data.detalhe || data.erro);
+    agendaEventosCache = data.eventos || [];
+    agendaErroPeriodo = null;
+  } catch(e){
+    agendaEventosCache = null;
+    agendaErroPeriodo = erroAgendaGoogle(e);
+  }
+}
+
+function setAgendaVista(v){ agendaVista = v; renderAgenda(); }
+function agendaNavegar(delta){
+  if(agendaVista === 'mes') agendaRef.setMonth(agendaRef.getMonth() + delta);
+  else agendaRef.setDate(agendaRef.getDate() + delta*7);
+  renderAgenda();
+}
+function agendaIrHoje(){ agendaRef = new Date(); renderAgenda(); }
+
+function desenharAgenda(){
+  if(agendaErroPeriodo){
+    root.innerHTML = shell('agenda', `
+      <h2 class="section-title">Agenda</h2>
+      <div class="card" style="text-align:center;padding:54px 20px;">
+        <p class="muted" style="margin:0 0 8px;">Google Agenda ainda não conectada.</p>
+        <p class="dim" style="font-size:12px;margin:0;">${esc(agendaErroPeriodo)}</p>
+        <p class="dim" style="font-size:12px;margin-top:12px;">Passo a passo de autorização (ação da Luciana, uma vez só) documentado no Hub Dev.md.</p>
+      </div>
+    `);
+    return;
+  }
+
+  const eventos = agendaEventosCache || [];
+  const { desde, ate } = agendaPeriodoAtual();
+  const rotulo = agendaVista === 'mes'
+    ? agendaRef.toLocaleDateString('pt-BR', { month:'long', year:'numeric' })
+    : `${desde.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})} – ${new Date(ate.getTime()+1).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})}`;
+
+  const corpo = agendaVista === 'mes' ? desenharAgendaMes(eventos) : desenharAgendaSemana(eventos);
+
+  root.innerHTML = shell('agenda', `
+    <div class="agenda-toolbar">
+      <h2 class="section-title" style="margin:0;">Agenda <span class="muted" style="font-weight:400;text-transform:capitalize;">— ${esc(rotulo)}</span></h2>
+      <div class="row" style="gap:10px;flex-wrap:wrap;">
+        <div class="chips" style="margin:0;">
+          <button class="chip ${agendaVista==='semana'?'on':''}" onclick="setAgendaVista('semana')">Semana</button>
+          <button class="chip ${agendaVista==='mes'?'on':''}" onclick="setAgendaVista('mes')">Mês</button>
+        </div>
+        <div class="agenda-nav">
+          <button class="btn btn-outline btn-ico" onclick="agendaNavegar(-1)">←</button>
+          <button class="btn btn-outline btn-sm" onclick="agendaIrHoje()">Hoje</button>
+          <button class="btn btn-outline btn-ico" onclick="agendaNavegar(1)">→</button>
+        </div>
+      </div>
+    </div>
+    ${corpo}
+    <p class="dim" style="font-size:12px;margin-top:14px;">Lido ao vivo do Google Agenda (calendário principal) — o Hub não guarda cópia do evento, só o vínculo com o cliente/prospect.</p>
+  `);
+}
+
+function desenharAgendaSemana(eventos){
+  const { desde } = agendaPeriodoAtual();
+  const nomesDia = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const hojeStr = new Date().toDateString();
+
+  const cols = Array.from({length:7}, (_,i) => {
+    const d = new Date(desde); d.setDate(d.getDate() + i);
+    const doDia = eventos
+      .filter(e => e.inicio && new Date(e.inicio).toDateString() === d.toDateString())
+      .sort((a,b) => new Date(a.inicio) - new Date(b.inicio));
+    const itens = doDia.map(e => `
+      <div class="agenda-evento ${e.status==='cancelled'?'cancelado':''}" title="${esc(e.titulo)}">
+        <span class="hora">${e.dia_inteiro ? 'dia todo' : new Date(e.inicio).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
+        <span class="titulo">${esc(e.titulo)}</span>
+      </div>`).join('');
+    return `<div class="agenda-dia ${d.toDateString()===hojeStr?'hoje':''}">
+      <div class="agenda-dia-head"><span>${nomesDia[d.getDay()]}</span><span>${d.getDate()}</span></div>
+      ${itens}
+    </div>`;
+  }).join('');
+
+  return `<div class="agenda-semana">${cols}</div>`;
+}
+
+function desenharAgendaMes(eventos){
+  const { desde } = agendaPeriodoAtual(); // já é a grade completa (6 semanas)
+  const mesRef = agendaRef.getMonth();
+  const hojeStr = new Date().toDateString();
+  const nomesDia = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  const cabecalho = nomesDia.map(n => `<div class="agenda-mes-cab">${n}</div>`).join('');
+
+  const celulas = [];
+  const cursor = new Date(desde);
+  for(let i=0;i<42;i++){
+    const d = new Date(cursor);
+    const foraDoMes = d.getMonth() !== mesRef;
+    const qtd = eventos.filter(e => e.inicio && new Date(e.inicio).toDateString() === d.toDateString()).length;
+    const diaISO = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    celulas.push(`<div class="agenda-mes-dia ${foraDoMes?'fora':''} ${d.toDateString()===hojeStr?'hoje':''}" onclick="abrirDiaAgenda('${diaISO}')">
+      <div>${d.getDate()}</div>
+      ${qtd ? `<div class="dim" style="font-size:10px;">${'●'.repeat(Math.min(qtd,4))}${qtd>4?'…':''}</div>` : ''}
+    </div>`);
+    cursor.setDate(cursor.getDate()+1);
+  }
+
+  return `<div class="agenda-mes">${cabecalho}${celulas.join('')}</div>`;
+}
+
+function abrirDiaAgenda(diaISO){
+  const doDia = (agendaEventosCache || [])
+    .filter(e => e.inicio && e.inicio.slice(0,10) === diaISO)
+    .sort((a,b) => new Date(a.inicio) - new Date(b.inicio));
+  const linhas = doDia.map(e => `
+    <div class="rowcard" style="margin-bottom:6px;">
+      <div class="l">
+        <div class="t">${esc(e.titulo)}</div>
+        <div class="s">${e.dia_inteiro ? 'dia todo' : new Date(e.inicio).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
+      </div>
+      <div class="r">
+        ${e.meet_link ? `<a href="${esc(e.meet_link)}" target="_blank" rel="noopener" class="badge badge-ok">Meet</a>` : ''}
+        ${e.html_link ? `<a href="${esc(e.html_link)}" target="_blank" rel="noopener" class="badge badge-muted">Abrir</a>` : ''}
+      </div>
+    </div>`).join('');
+  const tituloDia = new Date(diaISO + 'T00:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+  openModal(tituloDia, linhas || '<p class="muted" style="margin:0;">Nenhum evento nesse dia.</p>');
+}
+
+// ============================================================
 // COBRANÇAS — configuração por cliente + textos da régua (Fase 3, Bloco B)
 // Sem mockup de referência (vCobrancas() do mockup é a fila do bot, não o
 // editor de config) — desenhado no design system das telas #/custos e
@@ -3737,6 +4224,7 @@ async function render(){
   if(page === 'cobrancas') return renderCobrancas();
   if(page === 'contratos') return renderContratos();
   if(page === 'reunioes') return renderReunioes();
+  if(page === 'agenda') return renderAgenda();
   if(['posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
   return renderDash();
 }
