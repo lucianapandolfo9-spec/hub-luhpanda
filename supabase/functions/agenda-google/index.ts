@@ -1,25 +1,39 @@
 // HUB LUH PANDA — agenda-google
 //
-// Ponte entre o Hub e o Google Agenda (Fase 3, Bloco F). CINCO AÇÕES:
+// Ponte entre o Hub e o Google Agenda (Fase 3, Bloco F). SEIS AÇÕES:
 //
-//   "listar"   — eventos do calendário PRINCIPAL da conta dela num
-//                intervalo (pra tela #/agenda, visão semana/mês).
+//   "calendarios" — lista os calendários da conta (calendarList.list) —
+//                usada pra descobrir IDs; não é chamada pelo front hoje.
+//   "listar"   — eventos dos DOIS calendários que ela usa (CALENDARIOS
+//                abaixo: "Gestão PDK" = primary, e "Luh Panda"), buscados
+//                em paralelo, juntados e ordenados por horário de início
+//                (pra tela #/agenda, visão semana/mês). Cada evento
+//                devolvido leva `calendario_id`/`calendario_nome` pra o
+//                front saber de onde veio. 5º ajuste pedido por ela em
+//                25/09/2026: só esses dois, não os outros calendários da
+//                conta (Certo Agro, Pandoka, The Best, etc.).
 //   "obter"    — detalhe ao vivo de uma lista de google_event_id (pra
 //                ficha do cliente/prospect mostrar os eventos vinculados —
 //                o Hub nunca guarda título/horário, só o vínculo em
 //                hub.eventos_agenda; aqui é onde ele pergunta pro Google
-//                de novo, toda vez).
-//   "criar"    — cria o evento no calendário dela, convida o
-//                cliente/prospect (attendees + sendUpdates=all — convite
-//                formal de verdade, não aviso por fora), Google Meet se
-//                marcado, e grava o vínculo (hub.eventos_agenda) + o
-//                rascunho em hub.reunioes.
+//                de novo, toda vez). Aceita `calendario_id` opcional
+//                (default 'primary' — vínculos criados antes do 5º ajuste
+//                não têm essa informação salva, e sempre foram criados no
+//                calendário principal).
+//   "criar"    — cria o evento no calendário PRINCIPAL dela (não muda com
+//                o 5º ajuste — ela só pediu pra LER os dois calendários,
+//                não pra escolher onde criar), convida o cliente/prospect
+//                (attendees + sendUpdates=all — convite formal de
+//                verdade, não aviso por fora), Google Meet se marcado, e
+//                grava o vínculo (hub.eventos_agenda) + o rascunho em
+//                hub.reunioes.
 //   "cancelar" — apaga o evento no Google (DELETE, sendUpdates=all —
 //                avisa quem foi convidado da cancelação) e SÓ DEPOIS
 //                apaga o vínculo em hub.eventos_agenda (RPC
 //                rpc_eventos_agenda_desvincular, migration 030). Pedido
 //                dela em 25/09/2026, ao ver o Bloco F ao vivo: "apagar
-//                reunião clicando nela, igual ao Google Agenda".
+//                reunião clicando nela, igual ao Google Agenda". Aceita
+//                `calendario_id` opcional (default 'primary').
 //   "editar"   — troca título/data/hora/duração/convidado/Meet de um
 //                evento já existente (PATCH, sendUpdates=all — avisa o
 //                convidado da mudança). NÃO mexe em hub.eventos_agenda
@@ -27,7 +41,8 @@
 //                conteúdo do evento no Google muda (fonte da verdade
 //                nunca duplicada no Hub, mesma regra desde o desenho
 //                original do Bloco F). 3º ajuste pedido por ela em
-//                25/09/2026, no mesmo modal de detalhe do "Apagar".
+//                25/09/2026, no mesmo modal de detalhe do "Apagar". Aceita
+//                `calendario_id` opcional (default 'primary').
 //
 // POR QUE ESTA FUNÇÃO EXISTE (mesma razão de wa-send/reuniao-analisar): o
 // Hub é uma página estática. Se o client_secret/refresh_token do Google
@@ -59,6 +74,17 @@ const GOOGLE_CLIENT_ID = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
 const GOOGLE_CLIENT_SECRET = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET");
 const GOOGLE_REFRESH_TOKEN = Deno.env.get("GOOGLE_CALENDAR_REFRESH_TOKEN");
 const TIMEZONE = "America/Recife";
+
+// Os DOIS calendários que ela pediu pra ler (5º ajuste, 25/09/2026) — IDs
+// confirmados via ação "calendarios" (calendarList.list). Hardcoded de
+// propósito: ela pediu só esses dois, não uma tela de configuração pra
+// escolher entre todos os calendários da conta (tem mais: Certo Agro,
+// Calendario Pandoka, The Best, Alma Pipa, Preserve Pipa, Lume Social,
+// Feriados no Brasil — nenhum desses entra aqui).
+const CALENDARIOS = [
+  { id: "primary", nome: "Gestão PDK" },
+  { id: "1dc36bf3a86b75744f57a1cb848425f46ae36465989daec54a4f7d5c011c48a8@group.calendar.google.com", nome: "Luh Panda" },
+];
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -122,15 +148,22 @@ async function chamarGoogleCalendar(caminho: string, init: RequestInit = {}) {
   return texto ? JSON.parse(texto) : null;
 }
 
-// molde enxuto que o front consome — nunca devolve o objeto cru do Google
-function resumirEvento(ev: Record<string, unknown>) {
+// molde enxuto que o front consome — nunca devolve o objeto cru do Google.
+// `calendarioId` marca de qual dos CALENDARIOS o evento veio (pro front
+// guardar e repassar de volta em "obter"/"cancelar"/"editar" — sem isso
+// editar/apagar um evento do calendário "Luh Panda" tentaria mexer no
+// "primary" e devolveria 404).
+function resumirEvento(ev: Record<string, unknown>, calendarioId: string) {
   const start = (ev.start ?? {}) as Record<string, unknown>;
   const end = (ev.end ?? {}) as Record<string, unknown>;
   const conf = (ev.conferenceData ?? {}) as Record<string, unknown>;
   const entryPoints = (conf.entryPoints ?? []) as Array<Record<string, unknown>>;
   const meet = entryPoints.find((p) => p.entryPointType === "video");
+  const cal = CALENDARIOS.find((c) => c.id === calendarioId);
   return {
     id: ev.id,
+    calendario_id: calendarioId,
+    calendario_nome: cal ? cal.nome : calendarioId,
     titulo: ev.summary ?? "(sem título)",
     descricao: ev.description ?? null,
     inicio: start.dateTime ?? start.date ?? null,
@@ -167,7 +200,23 @@ Deno.serve(async (req: Request) => {
   const acao = String(entrada.acao ?? "");
 
   try {
+    // ---------------- calendarios (lista os calendários da conta dela) ----------------
+    // Exige escopo `calendar` (full) — ampliado em 25/09/2026 pra suportar
+    // ler calendários específicos além do principal (pedido dela: "Gestão
+    // Pandoka" e "Luh Panda"). Usada hoje pelo coordenador pra descobrir os
+    // IDs; fica no ar pra uma futura tela de configuração escolher quais
+    // calendários o Hub lê, sem precisar redeployar.
+    if (acao === "calendarios") {
+      const dados = await chamarGoogleCalendar(`/users/me/calendarList`);
+      const calendarios = ((dados?.items ?? []) as Array<Record<string, unknown>>).map((c) => ({
+        id: c.id, nome: c.summary, principal: !!c.primary, acesso: c.accessRole,
+      }));
+      return responder({ ok: true, calendarios });
+    }
+
     // ---------------- listar (mini-calendário) ----------------
+    // Consulta os DOIS calendários de CALENDARIOS em paralelo, junta e
+    // ordena por horário de início — 5º ajuste (25/09/2026).
     if (acao === "listar") {
       const desde = String(entrada.desde_iso ?? "");
       const ate = String(entrada.ate_iso ?? "");
@@ -175,24 +224,29 @@ Deno.serve(async (req: Request) => {
       const qs = new URLSearchParams({
         timeMin: desde, timeMax: ate, singleEvents: "true", orderBy: "startTime", maxResults: "250",
       });
-      const dados = await chamarGoogleCalendar(`/calendars/primary/events?${qs}`);
-      const eventos = ((dados?.items ?? []) as Array<Record<string, unknown>>)
-        .filter((ev) => ev.status !== "cancelled")
-        .map(resumirEvento);
+      const listasPorCalendario = await Promise.all(CALENDARIOS.map(async (cal) => {
+        const dados = await chamarGoogleCalendar(`/calendars/${encodeURIComponent(cal.id)}/events?${qs}`);
+        return ((dados?.items ?? []) as Array<Record<string, unknown>>)
+          .filter((ev) => ev.status !== "cancelled")
+          .map((ev) => resumirEvento(ev, cal.id));
+      }));
+      const eventos = listasPorCalendario.flat()
+        .sort((a, b) => new Date(String(a.inicio)).getTime() - new Date(String(b.inicio)).getTime());
       return responder({ ok: true, eventos });
     }
 
     // ---------------- obter (detalhe ao vivo, pra ficha) ----------------
     if (acao === "obter") {
       const ids = Array.isArray(entrada.google_event_ids) ? entrada.google_event_ids as string[] : [];
+      const calendarioId = String(entrada.calendario_id ?? "primary").trim() || "primary";
       const eventos = [];
       for (const id of ids) {
         try {
-          const ev = await chamarGoogleCalendar(`/calendars/primary/events/${encodeURIComponent(id)}`);
-          eventos.push(resumirEvento(ev));
+          const ev = await chamarGoogleCalendar(`/calendars/${encodeURIComponent(calendarioId)}/events/${encodeURIComponent(id)}`);
+          eventos.push(resumirEvento(ev, calendarioId));
         } catch (e) {
           // evento pode ter sido apagado direto no Google — não derruba os outros
-          eventos.push({ id, erro: String(e).includes("404") ? "apagado no Google" : String(e) });
+          eventos.push({ id, calendario_id: calendarioId, erro: String(e).includes("404") ? "apagado no Google" : String(e) });
         }
       }
       return responder({ ok: true, eventos });
@@ -252,17 +306,18 @@ Deno.serve(async (req: Request) => {
         },
       }, jwt).catch((e) => { throw new Error(`rascunho de reunião não criado: ${e}`); });
 
-      return responder({ ok: true, evento: resumirEvento(criado) });
+      return responder({ ok: true, evento: resumirEvento(criado, "primary") });
     }
 
     // ---------------- cancelar (apagar reunião, clicando nela) ----------------
     if (acao === "cancelar") {
       const googleEventId = String(entrada.google_event_id ?? "").trim();
+      const calendarioId = String(entrada.calendario_id ?? "primary").trim() || "primary";
       if (!googleEventId) return responder({ erro: "google_event_id é obrigatório" }, 400);
 
       const qs = new URLSearchParams({ sendUpdates: "all" });
       try {
-        await chamarGoogleCalendar(`/calendars/primary/events/${encodeURIComponent(googleEventId)}?${qs}`, {
+        await chamarGoogleCalendar(`/calendars/${encodeURIComponent(calendarioId)}/events/${encodeURIComponent(googleEventId)}?${qs}`, {
           method: "DELETE",
         });
       } catch (e) {
@@ -285,6 +340,7 @@ Deno.serve(async (req: Request) => {
     // ---------------- editar (trocar dados de uma reunião já marcada) ----------------
     if (acao === "editar") {
       const googleEventId = String(entrada.google_event_id ?? "").trim();
+      const calendarioId = String(entrada.calendario_id ?? "primary").trim() || "primary";
       const titulo = String(entrada.titulo ?? "").trim();
       const inicioIso = String(entrada.inicio_iso ?? "");
       const duracaoMin = Number(entrada.duracao_min ?? 60);
@@ -301,7 +357,7 @@ Deno.serve(async (req: Request) => {
       // busca o evento atual só pra decidir se mexe no Google Meet — não
       // recriar uma sala que já existe, e só remover se ela desmarcou o
       // checkbox de verdade.
-      const atual = await chamarGoogleCalendar(`/calendars/primary/events/${encodeURIComponent(googleEventId)}`);
+      const atual = await chamarGoogleCalendar(`/calendars/${encodeURIComponent(calendarioId)}/events/${encodeURIComponent(googleEventId)}`);
       const jaTemMeet = !!(((atual?.conferenceData as Record<string, unknown> | undefined)?.entryPoints ?? []) as Array<Record<string, unknown>>)
         .find((p) => p.entryPointType === "video");
 
@@ -327,12 +383,12 @@ Deno.serve(async (req: Request) => {
       const qs = new URLSearchParams({ sendUpdates: "all" });
       if (precisaConferenceVersion) qs.set("conferenceDataVersion", "1");
 
-      const atualizado = await chamarGoogleCalendar(`/calendars/primary/events/${encodeURIComponent(googleEventId)}?${qs}`, {
+      const atualizado = await chamarGoogleCalendar(`/calendars/${encodeURIComponent(calendarioId)}/events/${encodeURIComponent(googleEventId)}?${qs}`, {
         method: "PATCH",
         body: JSON.stringify(body),
       });
 
-      return responder({ ok: true, evento: resumirEvento(atualizado) });
+      return responder({ ok: true, evento: resumirEvento(atualizado, calendarioId) });
     }
 
     return responder({ erro: `ação desconhecida: "${acao}"` }, 400);

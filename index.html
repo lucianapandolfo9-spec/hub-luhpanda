@@ -3856,8 +3856,8 @@ async function confirmarMarcarReuniao(ev){
   try{
     const body = modoEdicao
       ? {
-          acao: 'editar', google_event_id: ctx.google_event_id, titulo,
-          inicio_iso: inicioLocal.toISOString(), duracao_min: duracao,
+          acao: 'editar', google_event_id: ctx.google_event_id, calendario_id: ctx.calendario_id || 'primary',
+          titulo, inicio_iso: inicioLocal.toISOString(), duracao_min: duracao,
           attendee_email: attendeeEmail || null, com_meet: comMeet,
         }
       : {
@@ -3979,13 +3979,26 @@ async function carregarAgendaContato(slot){
       p: { cliente_id: st.cliente_id, prospect_id: st.prospect_id },
     });
     if(erroVinculos) throw erroVinculos;
-    const ids = (vinculos || []).map(v => v.google_event_id);
-    if(!ids.length){ st.eventos = []; st.erro = null; desenharAgendaContato(slot); return; }
+    if(!(vinculos || []).length){ st.eventos = []; st.erro = null; desenharAgendaContato(slot); return; }
     if(!hubClient.functions) throw new Error('Google Agenda ainda não conectada.');
-    const { data, error } = await hubClient.functions.invoke('agenda-google', { body: { acao: 'obter', google_event_ids: ids } });
-    if(error) throw error;
-    if(data && data.erro) throw new Error(data.detalhe || data.erro);
-    st.eventos = data.eventos || [];
+    // vínculos podem vir de calendários diferentes (hub.eventos_agenda.calendario_id,
+    // 5º ajuste 25/09/2026) — agrupa por calendário e chama "obter" uma vez por
+    // grupo (na prática quase sempre um grupo só, "primary"), junta o resultado.
+    const grupos = {};
+    for(const v of (vinculos || [])){
+      const cal = v.calendario_id || 'primary';
+      (grupos[cal] = grupos[cal] || []).push(v.google_event_id);
+    }
+    const eventos = [];
+    for(const [calendarioId, ids] of Object.entries(grupos)){
+      const { data, error } = await hubClient.functions.invoke('agenda-google', {
+        body: { acao: 'obter', google_event_ids: ids, calendario_id: calendarioId },
+      });
+      if(error) throw error;
+      if(data && data.erro) throw new Error(data.detalhe || data.erro);
+      eventos.push(...(data.eventos || []));
+    }
+    st.eventos = eventos;
     st.erro = null;
   } catch(e){
     st.eventos = null;
@@ -4101,6 +4114,7 @@ function abrirEditarReuniaoAgenda(googleEventId, origemSlot){
   abrirMarcarReuniao({
     modo: 'editar',
     google_event_id: ev.id,
+    calendario_id: ev.calendario_id || 'primary',
     origemSlot: origemSlot || null,
     titulo: ev.titulo,
     sugestao_iso: ev.inicio,
@@ -4112,9 +4126,14 @@ function abrirEditarReuniaoAgenda(googleEventId, origemSlot){
 
 async function confirmarApagarReuniaoAgenda(googleEventId, origemSlot){
   if(!hubClient.functions){ toast('Google Agenda ainda não conectada.'); return; }
+  // recupera o calendário certo do evento (pode ser "Luh Panda", não só o
+  // principal — 5º ajuste 25/09/2026) — senão apagar um evento do calendário
+  // "Luh Panda" tentaria mexer no "primary" e devolveria 404.
+  const evAlvo = localizarEventoAgenda(googleEventId, origemSlot);
+  const calendarioId = (evAlvo && evAlvo.calendario_id) || 'primary';
   try{
     const { data, error } = await hubClient.functions.invoke('agenda-google', {
-      body: { acao: 'cancelar', google_event_id: googleEventId },
+      body: { acao: 'cancelar', google_event_id: googleEventId, calendario_id: calendarioId },
     });
     if(error) throw error;
     if(data && data.erro) throw new Error(data.detalhe || data.erro);

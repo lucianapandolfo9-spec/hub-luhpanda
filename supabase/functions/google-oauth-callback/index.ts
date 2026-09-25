@@ -35,7 +35,12 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const CLIENT_ID = Deno.env.get("GOOGLE_CALENDAR_CLIENT_ID");
 const CLIENT_SECRET = Deno.env.get("GOOGLE_CALENDAR_CLIENT_SECRET");
 const REDIRECT_URI = `${SUPABASE_URL}/functions/v1/google-oauth-callback`;
-const SCOPE = "https://www.googleapis.com/auth/calendar.events";
+const SCOPE = "https://www.googleapis.com/auth/calendar";
+// ⚠️ Ampliado de `calendar.events` pra `calendar` (full) em 25/09/2026 — ela
+// pediu pra ler múltiplos calendários específicos (não só o principal), e
+// listar quais calendários existem (`calendarList.list`) exige esse escopo
+// mais amplo; `calendar.events` sozinho dava 403 insufficientPermissions.
+// Continua sem acesso a Gmail/Drive/etc — é só o produto Calendar inteiro.
 
 function paginaHtml(titulo: string, corpoHtml: string, cor = "#FF6B35") {
   return new Response(
