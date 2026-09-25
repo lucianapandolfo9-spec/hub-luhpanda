@@ -444,6 +444,27 @@ h2.section-title{
 }
 .apres-page .apres-foot b{color:#241430}
 
+/* ---------- contrato em PDF (D2) — mesma .apres-page, mesmo window.print() ---------- */
+.ct-page{font-size:12.5px;line-height:1.6}
+.ct-page .ct-titulo{font-weight:700;font-size:15px;text-align:center;margin:22px 0 20px;letter-spacing:-.01em}
+.ct-page .ct-cl{margin-bottom:13px;break-inside:avoid;page-break-inside:avoid}
+.ct-page .ct-cl > b{display:block;margin-bottom:3px;font-size:12.5px}
+.ct-page .ct-cl p{margin:0 0 5px;text-align:justify}
+.ct-page .ct-cl ul{margin:2px 0 6px;padding-left:20px}
+.ct-page .ct-cl li{margin-bottom:1px}
+.ct-page .ct-anexo{margin-top:20px;padding-top:14px;border-top:1px solid #E7DFEE;break-inside:avoid}
+.ct-page .ct-anexo > b{display:block;margin-bottom:8px;font-size:12.5px}
+.ct-page .ct-anexo-corpo{white-space:pre-wrap}
+.ct-page .ct-fecho{margin-top:20px}
+.ct-page .ct-local{margin-top:16px}
+/* ~5cm de espaço pra assinar — o anexo NUNCA vem depois daqui (regra do molde) */
+.ct-page .ct-assinaturas{margin-top:12mm;break-inside:avoid;page-break-inside:avoid}
+.ct-page .ct-assina{margin-top:26mm;font-size:12px}
+.ct-page .ct-assina .linha{display:block;width:78mm;border-top:1px solid #241430;margin-bottom:5px}
+/* campo que faltou: visível no papel, não some em silêncio */
+.ct-page .ct-falta{background:#FFE9C7;color:#8A5A00;font-weight:700;padding:0 4px;border-radius:3px}
+.ct-aviso{font-size:12px;color:var(--warn);align-self:center;margin-right:auto}
+
 @media print{
   body.apres-print-mode{background:#fff !important}
   body.apres-print-mode #root{display:none !important}

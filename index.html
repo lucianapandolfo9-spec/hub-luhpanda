@@ -127,6 +127,12 @@ function friendlyError(err){
       ? `Esse serviço está em uso no contrato de ${onde} — desmarque "Ativo" em vez de apagar.`
       : 'Esse serviço está em uso em algum contrato — desmarque "Ativo" em vez de apagar.';
   }
+  // D2 — Storage do contrato (bucket privado `contratos`, migration 026)
+  if(m.includes('Bucket not found')) return 'O bucket de contratos ainda não existe no Supabase — migration 026 pendente de aplicação.';
+  if(m.includes('mime type') || m.includes('Invalid mime')) return 'Esse arquivo não é PDF — o bucket só aceita PDF.';
+  if(m.includes('exceeded the maximum allowed size') || m.includes('Payload too large')) return 'Arquivo grande demais — o limite é 20 MB.';
+  if(m.includes('new row violates row-level security')) return 'O Storage recusou o arquivo — confira as policies do bucket de contratos (migration 026).';
+  if(m.includes('hub_status_contrato_invalido')) return 'Esse status de contrato não existe.';
   if(m.includes('acesso negado')) return 'Sessão sem permissão pra essa ação.';
   if(m.includes('Could not find the function')) return 'Essa função ainda não está instalada no banco — migration pendente de aplicação.';
   return m;
@@ -254,7 +260,7 @@ const NAV_GROUPS = [
   ]},
   { label: 'Comercial', items: [
     ['crm','CRM', NAV_ICONS.crm, true],
-    ['contratos','Contratos', NAV_ICONS.contratos, false],
+    ['contratos','Contratos', NAV_ICONS.contratos, true],
     ['reunioes','Reuniões', NAV_ICONS.reunioes, false],
   ]},
   { label: 'Marketing', items: [
@@ -889,6 +895,13 @@ function formServico(s){
       <div class="field"><label>Unidade</label><input id="f-unidade" value="${esc(s.unidade||'')}" placeholder="mês, hora..."></div>
       <div class="field"><label>Inclui (o que está dentro do preço)</label><textarea id="f-inclui" rows="2" placeholder="ex: gestão de campanhas + relatório mensal + otimização semanal">${esc(s.inclui||'')}</textarea></div>
       <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(s.observacao||'')}</textarea></div>
+      ${/* D2: o Anexo I deste serviço, que vira {{anexo_servico}} no contrato.
+            Se estiver vazio na hora de emitir, o Hub abre um rascunho montado
+            a partir do "Inclui" acima — template, não IA. */''}
+      <div class="field">
+        <label>Anexo I — escopo no contrato</label>
+        <textarea id="f-anexo-escopo" rows="8" placeholder="Deixe vazio e o Hub propõe um rascunho na primeira vez que você emitir um contrato deste serviço.">${esc(s.anexo_escopo||'')}</textarea>
+      </div>
       <div class="checkrow" style="margin-bottom:12px;"><input type="checkbox" id="f-ativo" ${s.ativo!==false?'checked':''}> <label for="f-ativo">Ativo</label></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
@@ -911,6 +924,7 @@ async function salvarServico(ev){
       inclui: document.getElementById('f-inclui').value || null,
       observacao: document.getElementById('f-observacao').value || null,
       ativo: document.getElementById('f-ativo').checked,
+      anexo_escopo: document.getElementById('f-anexo-escopo').value || null,   // D2
     }});
     closeModal(); toast('Serviço salvo.'); renderCatalogo();
   } catch(e){}
@@ -1628,6 +1642,12 @@ function renderPilarFinanceiro(){
           <button class="btn btn-sm btn-danger" onclick="abrirApagarContrato(${i})">Apagar</button>
         </div>
       </div>
+      ${/* D2: mesmos botões da tela #/contratos — gerar PDF pelo molde,
+            enviar pelo WhatsApp, subir/ver o PDF assinado */''}
+      <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:10px;">
+        ${botoesContrato(co.id, data.cliente.slug, !!co.arquivo_path, co.arquivo_path || '')}
+      </div>
+      ${co.arquivo_path ? `<div class="dim" style="font-size:11.5px;margin-top:6px;">📎 ${esc(co.arquivo_nome || 'contrato.pdf')}${co.arquivo_em ? ' · guardado em ' + formatDateBR(co.arquivo_em.slice(0,10)) : ''}</div>` : ''}
       ${itens.length ? `<ul style="margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13px;">
         ${itens.map(it => `<li>${esc(it.descricao)} — ${centavosToBRL(it.valor_centavos)}</li>`).join('')}
       </ul>` : ''}
@@ -1673,6 +1693,11 @@ function abrirEditarClienteFicha(){
           ${['prospect','ativo','pausado','encerrado'].map(s=>`<option value="${s}" ${c.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
         </select>
       </div>
+      ${/* D2: razão social, CNPJ e endereço entram no contrato (cláusula 1 do
+            MODELO-BASE). Sem eles o PDF sai com [A PREENCHER]. */''}
+      <div class="field"><label>Razão social (como vai no contrato)</label><input id="f-razao" value="${esc(c.razao_social||'')}" placeholder="${esc(c.nome||'')}"></div>
+      <div class="field"><label>CPF / CNPJ</label><input id="f-documento" value="${esc(c.documento||'')}"></div>
+      <div class="field"><label>Endereço completo</label><input id="f-endereco" value="${esc(c.endereco||'')}" placeholder="Rua, nº, bairro, Cidade/UF"></div>
       <div class="field"><label>Observação</label><textarea id="f-observacao" rows="3">${esc(c.observacao||'')}</textarea></div>
       ${/* D1.1 (item 2): a carteira é recorrência. Cliente avulso/freela
             (Pandoka) sai da carteira e da coluna "Cliente aberto" do CRM,
@@ -1701,10 +1726,15 @@ async function salvarClienteFicha(ev){
       status: document.getElementById('f-status').value,
       recorrente: document.getElementById('f-recorrente').checked,
       observacao: document.getElementById('f-observacao').value || null,
+      // D2: razão social, documento e endereço agora SÃO editáveis aqui
+      // (vão pro contrato). Deixaram de ser passthrough e viraram campo.
+      razao_social: document.getElementById('f-razao').value || null,
+      documento: document.getElementById('f-documento').value || null,
+      endereco: document.getElementById('f-endereco').value || null,
       // passthrough obrigatório: o upsert do banco sobrescreve TODAS as
       // colunas — sem repassar o que a ficha não edita, salvar apagaria
-      // razão social, documento, origem e as datas de entrada/saída.
-      razao_social: c.razao_social, documento: c.documento, origem: c.origem,
+      // origem e as datas de entrada/saída.
+      origem: c.origem,
       entrou_em: c.entrou_em, saiu_em: c.saiu_em, motivo_saida: c.motivo_saida,
     }});
     const novoSlug = document.getElementById('f-slug').value;
@@ -1726,6 +1756,7 @@ async function salvarClientePatch(patch, msg){
     origem: c.origem, status: c.status, entrou_em: c.entrou_em,
     saiu_em: c.saiu_em, motivo_saida: c.motivo_saida, observacao: c.observacao,
     recorrente: c.recorrente,   // D1.1 — senão arquivar/reativar devolveria o avulso pra carteira
+    endereco: c.endereco,       // D2 — mesma armadilha, coluna nova
     ...patch,
   }});
   closeModal(); toast(msg);
@@ -2443,6 +2474,594 @@ async function confirmarConverterProspect(ev){
 }
 
 // ============================================================
+// CONTRATOS (Fase 3, Bloco D — D2, itens 6 e 7 do plano)
+//
+// 🔑 O PDF SAI SEM IA. O plano previa uma Edge Function `contrato-gerar` com
+// Gemini extraindo campos; foi CANCELADO no grill. O MODELO-BASE.md do vault
+// é um molde mecânico e toda lacuna tem origem determinística:
+//   {{numero}} {{valor}} {{dia_vencimento}} {{data_inicio}} {{data_fim_minimo}}
+//       → hub.contratos
+//   {{cliente_nome}} {{cliente_doc}} {{cliente_endereco}} → hub.clientes
+//   {{servico}}       → hub.contrato_itens → hub.servicos.nome
+//   {{anexo_servico}} → hub.servicos.anexo_escopo
+//   {{cidade}} {{data_assinatura}} → fixo "Recife/PE" + data de hoje
+//   {{valor_extenso}} → valorPorExtenso(), aqui embaixo, em JS puro
+// Nenhuma chamada de IA em lugar nenhum deste bloco. Cláusula inventada é
+// impossível por construção: o corpo jurídico é constante.
+//
+// ⚠️ A FONTE DA VERDADE do texto continua sendo
+// `Obvision/Luh Panda/Comercial/Contratos/Modelos/MODELO-BASE.md`.
+// Esta constante é o porte dele pra HTML. Mudou lá? Muda aqui também.
+// ============================================================
+
+// Campo que falta NUNCA some em silêncio nem é chutado — aparece no PDF.
+const CT_VAZIO = '[A PREENCHER]';
+
+// ---------- número por extenso (pt-BR) ----------
+// Determinístico, sem IA. Cobre até bilhões, que é muito além do necessário.
+const _EXT_U = ['zero','um','dois','três','quatro','cinco','seis','sete','oito','nove','dez',
+  'onze','doze','treze','quatorze','quinze','dezesseis','dezessete','dezoito','dezenove'];
+const _EXT_D = ['','','vinte','trinta','quarenta','cinquenta','sessenta','setenta','oitenta','noventa'];
+const _EXT_C = ['','cento','duzentos','trezentos','quatrocentos','quinhentos','seiscentos','setecentos','oitocentos','novecentos'];
+
+function _extAte999(n){
+  if(n === 100) return 'cem';                       // 100 é "cem", 101+ é "cento e ..."
+  const partes = [];
+  const c = Math.floor(n / 100), r = n % 100;
+  if(c) partes.push(_EXT_C[c]);
+  if(r < 20){ if(r) partes.push(_EXT_U[r]); }
+  else {
+    const d = Math.floor(r / 10), u = r % 10;
+    partes.push(u ? _EXT_D[d] + ' e ' + _EXT_U[u] : _EXT_D[d]);
+  }
+  return partes.join(' e ');
+}
+function numeroPorExtenso(n){
+  n = Math.floor(Math.abs(Number(n) || 0));
+  if(n === 0) return 'zero';
+  const partes = [];
+  let resto = n;
+  [[1000000000,'bilhão','bilhões'], [1000000,'milhão','milhões'], [1000,'mil','mil']]
+    .forEach(([base, sing, plur]) => {
+      const q = Math.floor(resto / base);
+      if(!q) return;
+      partes.push(base === 1000
+        ? (q === 1 ? 'mil' : _extAte999(q) + ' mil')
+        : _extAte999(q) + ' ' + (q === 1 ? sing : plur));
+      resto = resto % base;
+    });
+  if(resto) partes.push(_extAte999(resto));
+  if(partes.length === 1) return partes[0];
+  // regra pt-BR: " e " antes do último quando ele é < 100 ou centena redonda
+  // ("mil e duzentos", "mil duzentos e cinquenta")
+  // ("mil e duzentos", "mil novecentos e noventa e nove",
+  //  "um milhão, duzentos e trinta e quatro mil quinhentos e sessenta e sete")
+  const usaE = resto > 0 && (resto < 100 || resto % 100 === 0);
+  return partes.slice(0, -1).join(', ') + (usaE ? ' e ' : ' ') + partes[partes.length - 1];
+}
+function valorPorExtenso(centavos){
+  if(centavos == null) return CT_VAZIO;
+  const total = Math.round(Number(centavos));
+  const reais = Math.floor(total / 100), cents = total % 100;
+  const nR = reais === 1 ? 'real' : 'reais';
+  const nC = cents === 1 ? 'centavo' : 'centavos';
+  if(reais && cents) return `${numeroPorExtenso(reais)} ${nR} e ${numeroPorExtenso(cents)} ${nC}`;
+  if(cents) return `${numeroPorExtenso(cents)} ${nC}`;
+  return `${numeroPorExtenso(reais)} ${nR}`;
+}
+
+function ctCampo(v){
+  const s = (v == null ? '' : String(v)).trim();
+  return s ? esc(s) : `<span class="ct-falta">${CT_VAZIO}</span>`;
+}
+function ctDataBR(iso){ return iso ? formatDateBR(iso) : null; }
+
+// ---------- o molde ----------
+// Porte HTML do MODELO-BASE.md. A cláusula 8 (assinatura eletrônica) é NOVA
+// no D2: é ela que ativa o art. 10 §2º da MP 2.200-2/2001 e sustenta
+// juridicamente a assinatura gov.br que ela e os clientes já usam. O foro
+// passou a ser a 9.
+// ⚠️ ORDEM OBRIGATÓRIA, escrita no próprio molde: cláusulas → Anexo I →
+// local/data → assinaturas. O anexo NUNCA vai depois das assinaturas.
+const MODELO_BASE_HTML = `
+<div class="ct-titulo">CONTRATO DE PRESTAÇÃO DE SERVIÇOS Nº {{numero}}</div>
+
+<div class="ct-cl"><b>1. PARTES</b>
+<p>CONTRATADA: <b>Luciana Cristina Goveia Pandolfo</b>, CNPJ 66.521.744/0001-60, com endereço na Rua Félix de Brito e Melo, 945, apt. 1204 B, Recife/PE.</p>
+<p>CONTRATANTE: <b>{{cliente_nome}}</b>, CPF/CNPJ {{cliente_doc}}, {{cliente_endereco}}.</p></div>
+
+<div class="ct-cl"><b>2. OBJETO</b>
+<p>Prestação do serviço de <b>{{servico}}</b>, com escopo descrito no Anexo I deste contrato. O serviço é prestado de forma autônoma e remota, sem exclusividade e sem vínculo empregatício entre as partes.</p></div>
+
+<div class="ct-cl"><b>3. PRAZO</b>
+<p>Vigência mínima de <b>3 (três) meses</b>, de {{data_inicio}} a {{data_fim_minimo}}. Após esse período, o contrato é renovado automaticamente mês a mês.</p></div>
+
+<div class="ct-cl"><b>4. VALOR E PAGAMENTO</b>
+<p>4.1. Valor de <b>R$ {{valor}} ({{valor_extenso}}) por mês</b>, com vencimento todo dia <b>{{dia_vencimento}}</b>.</p>
+<p>4.2. Pagamento via Pix:</p>
+<ul><li><b>Chave (celular):</b> (84) 99412-7476</li><li><b>Titular:</b> Luciana Cristina Goveia Pandolfo</li><li><b>Banco:</b> Itaú</li></ul>
+<p>4.3. Atraso superior a 10 (dez) dias autoriza a suspensão do serviço até a regularização, com multa de 2% e juros de 1% ao mês.</p></div>
+
+<div class="ct-cl"><b>5. CUSTOS DE TERCEIROS</b>
+<p>Ferramentas, plataformas e verbas de terceiros não estão incluídos no valor mensal e são pagos diretamente pela CONTRATANTE.</p></div>
+
+<div class="ct-cl"><b>6. RESCISÃO</b>
+<p>6.1. Após o prazo mínimo de 3 meses, qualquer parte pode encerrar o contrato mediante aviso escrito com 30 (trinta) dias de antecedência, sem multa.</p>
+<p>6.2. Caso a CONTRATANTE encerre antes do fim do prazo mínimo, pagará as mensalidades restantes até completar os 3 meses.</p></div>
+
+<div class="ct-cl"><b>7. CONFIDENCIALIDADE</b>
+<p>As partes mantêm sigilo sobre as informações e dados trocados, que serão usados exclusivamente para a execução deste contrato, nos termos da Lei 13.709/2018 (LGPD).</p></div>
+
+<div class="ct-cl"><b>8. ASSINATURA ELETRÔNICA</b>
+<p>As partes reconhecem expressamente a validade e a eficácia da assinatura eletrônica deste contrato, inclusive por meio de plataformas de assinatura digital, nos termos do art. 10, §2º, da Medida Provisória nº 2.200-2/2001 e da Lei nº 14.063/2020.</p></div>
+
+<div class="ct-cl"><b>9. FORO</b>
+<p>Fica eleito o foro da Comarca de Recife/PE.</p></div>
+
+<div class="ct-anexo"><b>ANEXO I — ESCOPO DO SERVIÇO</b>
+<div class="ct-anexo-corpo">{{anexo_servico}}</div></div>
+
+<p class="ct-fecho">E, por estarem de acordo com este contrato e seu Anexo I, as partes assinam.</p>
+<p class="ct-local">{{cidade}}, {{data_assinatura}}.</p>
+
+<div class="ct-assinaturas">
+  <div class="ct-assina"><span class="linha"></span><b>CONTRATADA</b> — Luciana Cristina Goveia Pandolfo</div>
+  <div class="ct-assina"><span class="linha"></span><b>CONTRATANTE</b> — {{cliente_nome}}</div>
+</div>`;
+
+// ---------- Anexo I: rascunho na primeira vez ----------
+// TEMPLATE, não IA. "Inclui" sai do dado real do serviço; as outras três
+// seções entram como texto-guia genérico pra ela ajustar. Ela salva uma vez e
+// da próxima o anexo daquele serviço já sai pronto.
+function rascunhoAnexo(servico){
+  const nome = (servico && servico.nome) || '';
+  const bruto = ((servico && servico.inclui) || '').trim();
+  const itens = bruto
+    ? bruto.split(/\r?\n|·|;/).map(s => s.replace(/^[-–•\s]+/, '').trim()).filter(Boolean)
+    : [];
+  const inclui = itens.length
+    ? itens.map(i => '- ' + i).join('\n')
+    : '- [A PREENCHER] o que está incluído no serviço';
+  return `**Serviço:** ${nome}
+
+**Inclui**
+${inclui}
+
+**Não inclui**
+- Verbas, licenças e ferramentas de terceiros — pagas diretamente pela CONTRATANTE
+- Produção de material bruto (fotos, vídeos, textos) não acordada acima
+- Qualquer escopo não listado em "Inclui"
+
+**Responsabilidades da CONTRATANTE**
+- Dar os acessos necessários à execução do serviço
+- Enviar material e aprovar entregas em até 48 horas
+- Manter ativas as contas e formas de pagamento envolvidas
+
+**Resultados**
+A CONTRATADA se compromete com a boa execução do serviço descrito acima, e não com
+volume de vendas, leads ou faturamento, que dependem também da oferta, do atendimento
+da CONTRATANTE e de fatores fora do controle da CONTRATADA.`;
+}
+
+// texto simples do anexo → HTML (preserva quebras, entende **negrito**)
+function anexoParaHtml(txt){
+  return esc(txt || '').replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+}
+
+// ---------- gerar o PDF ----------
+// Reaproveita INTEIRO o pipeline de gerarApresentacao(): mesma .apres-overlay,
+// mesma .apres-page, mesmo body.apres-print-mode, mesmo window.print().
+// Não existe segundo pipeline de impressão neste projeto.
+function gerarContratoPDF(ctx){
+  const { contrato, cliente, servicoNome, anexoTexto } = ctx;
+  const hoje = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+
+  const valores = {
+    numero:            ctCampo(contrato.numero),
+    cliente_nome:      ctCampo(cliente.razao_social || cliente.nome),
+    cliente_doc:       ctCampo(cliente.documento),
+    cliente_endereco:  ctCampo(cliente.endereco),
+    servico:           ctCampo(servicoNome),
+    data_inicio:       ctCampo(ctDataBR(contrato.inicio_em)),
+    data_fim_minimo:   ctCampo(ctDataBR(contrato.fim_minimo_em)),
+    valor:             contrato.valor_mensal_centavos != null
+                         ? esc((Number(contrato.valor_mensal_centavos)/100).toLocaleString('pt-BR',{minimumFractionDigits:2}))
+                         : `<span class="ct-falta">${CT_VAZIO}</span>`,
+    valor_extenso:     contrato.valor_mensal_centavos != null
+                         ? esc(valorPorExtenso(contrato.valor_mensal_centavos))
+                         : `<span class="ct-falta">${CT_VAZIO}</span>`,
+    dia_vencimento:    ctCampo(contrato.dia_vencimento),
+    anexo_servico:     (anexoTexto || '').trim()
+                         ? anexoParaHtml(anexoTexto)
+                         : `<span class="ct-falta">${CT_VAZIO} — escreva o Anexo I deste serviço</span>`,
+    cidade:            'Recife/PE',
+    data_assinatura:   esc(hoje),
+  };
+
+  const corpo = MODELO_BASE_HTML.replace(/\{\{(\w+)\}\}/g, (todo, chave) =>
+    Object.prototype.hasOwnProperty.call(valores, chave)
+      ? valores[chave]
+      : `<span class="ct-falta">${CT_VAZIO}</span>`);
+
+  const faltando = (corpo.match(/ct-falta/g) || []).length;
+
+  modalRoot.innerHTML = `
+    <div class="apres-overlay">
+      <div class="apres-toolbar">
+        ${faltando ? `<span class="ct-aviso">${faltando} campo${faltando>1?'s':''} sem preencher — aparece${faltando>1?'m':''} como ${CT_VAZIO} no PDF</span>` : ''}
+        <button class="btn btn-primary btn-sm" onclick="window.print()">Imprimir / Salvar PDF</button>
+        <button class="btn btn-outline btn-sm" onclick="fecharApresentacao()">Fechar</button>
+      </div>
+      <div class="apres-page ct-page">
+        <div class="apres-head">
+          <span class="apres-logo">🐼</span>
+          <div>
+            <div class="apres-marca">Luh Panda</div>
+            <div class="apres-tag">Automação &amp; IA para negócios</div>
+          </div>
+        </div>
+        ${corpo}
+      </div>
+    </div>`;
+  document.body.classList.add('apres-print-mode');
+}
+
+// Monta o contexto e decide se precisa pedir o Anexo I antes.
+// Usado na ficha do cliente (tem clienteAtual) e na tela #/contratos
+// (precisa buscar o cliente).
+async function emitirContrato(contratoId, clienteSlug){
+  let dados;
+  if(clienteAtual && clienteAtual.cliente && clienteAtual.cliente.slug === clienteSlug){
+    dados = clienteAtual;
+  } else {
+    dados = await rpc('hub_rpc_cliente', { p_slug: clienteSlug }).catch(()=>null);
+  }
+  if(!dados){ toast('Não achei a ficha desse cliente.'); return; }
+
+  const item = (dados.contratos || []).find(x => x.contrato.id === contratoId);
+  if(!item){ toast('Contrato não encontrado na ficha.'); return; }
+
+  const catalogo = window.__catalogo && window.__catalogo.length
+    ? window.__catalogo
+    : await rpc('hub_rpc_catalogo').catch(()=>[]);
+  window.__catalogo = catalogo;
+
+  // o serviço do contrato vem dos itens; o anexo vem do serviço do catálogo
+  const itens = item.itens || [];
+  const servicoNome = itens.length
+    ? [...new Set(itens.map(i => i.descricao))].join(' + ')
+    : null;
+  const servicoId = itens.map(i => i.servico_id).find(Boolean) || null;
+  const servico = servicoId ? catalogo.find(s => s.id === servicoId) : null;
+
+  const ctx = {
+    contrato: item.contrato,
+    cliente: dados.cliente,
+    servicoNome,
+    anexoTexto: servico ? servico.anexo_escopo : null,
+  };
+
+  // Primeira vez com esse serviço: abre o Anexo I já com um rascunho pronto,
+  // ela revisa e salva, e aí o contrato sai. Não bloqueia — se não houver
+  // serviço amarrado, dá pra seguir e o anexo entra como [A PREENCHER].
+  if(servico && !(servico.anexo_escopo || '').trim()){
+    abrirAnexoServico(servico, ctx);
+    return;
+  }
+  gerarContratoPDF(ctx);
+}
+
+let anexoPendente = null;   // { servicoId, ctx } enquanto o modal do anexo está aberto
+function abrirAnexoServico(servico, ctx){
+  anexoPendente = { servicoId: servico.id, ctx };
+  openModal(`Anexo I — ${esc(servico.nome)}`, `
+    <p class="muted" style="margin-top:0;">
+      Este serviço ainda não tem Anexo I escrito. Montei um <b>rascunho</b> a partir do que
+      está no catálogo — <b>revise antes de emitir</b>. Depois de salvar, todo contrato desse
+      serviço já sai com ele pronto.
+    </p>
+    <div class="field">
+      <label>Anexo I — escopo do serviço</label>
+      <textarea id="f-anexo" rows="16">${esc(rascunhoAnexo(servico))}</textarea>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="salvarAnexoEEmitir()">Salvar e gerar contrato</button>
+    </div>`);
+}
+async function salvarAnexoEEmitir(){
+  if(!anexoPendente) return;
+  const texto = document.getElementById('f-anexo').value;
+  const servico = (window.__catalogo || []).find(s => s.id === anexoPendente.servicoId);
+  if(!servico){ toast('Serviço não encontrado no catálogo.'); return; }
+  try{
+    // passthrough — o upsert de hub.rpc_salvar_servico sobrescreve tudo
+    await rpc('hub_rpc_salvar_servico', { p: {
+      id: servico.id, slug: servico.slug, nome: servico.nome, modalidade: servico.modalidade,
+      preco_referencia_centavos: servico.preco_referencia_centavos, unidade: servico.unidade,
+      inclui: servico.inclui, observacao: servico.observacao, ativo: servico.ativo,
+      anexo_escopo: texto || null,
+    }});
+    servico.anexo_escopo = texto;
+    const ctx = { ...anexoPendente.ctx, anexoTexto: texto };
+    anexoPendente = null;
+    closeModal();
+    gerarContratoPDF(ctx);
+  } catch(e){}
+}
+
+// ============================================================
+// CONTRATOS — PDF assinado no Storage (primeiro uso de Storage no Hub)
+// ============================================================
+// Bucket PRIVADO `contratos` (migration 026). Caminho previsível
+// <cliente_slug>/<contrato_id>.pdf: reenviar sobrescreve em vez de acumular.
+// Leitura SEMPRE por createSignedUrl de 60s — nunca getPublicUrl.
+const CONTRATO_BUCKET = 'contratos';
+
+function abrirSubirContrato(contratoId, clienteSlug, temArquivo){
+  openModal('PDF do contrato assinado', `
+    <p class="muted" style="margin-top:0;">
+      Sobe aqui o PDF ${temArquivo ? '<b>substituindo</b> o que já está guardado' : 'assinado pelas duas partes'}.
+      O arquivo fica num bucket privado — só abre por link temporário, nunca por URL pública.
+    </p>
+    <div class="field">
+      <label>Arquivo (PDF, até 20 MB)</label>
+      <input type="file" id="f-arquivo" accept="application/pdf">
+    </div>
+    <div class="checkrow" style="margin-bottom:12px;">
+      <input type="checkbox" id="f-marca-assinado" checked>
+      <label for="f-marca-assinado">Marcar o contrato como <b>assinado</b></label>
+    </div>
+    <div id="up-msg" class="dim" style="font-size:12px;"></div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarSubirContrato('${esc(contratoId)}','${esc(clienteSlug)}')">Subir</button>
+    </div>`);
+}
+
+async function confirmarSubirContrato(contratoId, clienteSlug){
+  const input = document.getElementById('f-arquivo');
+  const msg = document.getElementById('up-msg');
+  const file = input && input.files && input.files[0];
+  if(!file){ toast('Escolhe o PDF primeiro.'); return; }
+  if(file.type !== 'application/pdf'){ toast('Só PDF — o bucket recusa outros formatos.'); return; }
+  if(file.size > 20 * 1024 * 1024){ toast('Arquivo acima de 20 MB.'); return; }
+
+  const marcarAssinado = document.getElementById('f-marca-assinado').checked;
+  const path = `${clienteSlug}/${contratoId}.pdf`;
+  if(msg) msg.textContent = 'Subindo...';
+
+  try{
+    const { error } = await hubClient.storage.from(CONTRATO_BUCKET)
+      .upload(path, file, { contentType: 'application/pdf', upsert: true });
+    if(error) throw error;
+
+    await rpc('hub_rpc_arquivo_contrato', { p: {
+      contrato_id: contratoId, arquivo_path: path,
+      arquivo_nome: file.name, arquivo_tipo: file.type,
+    }});
+    if(marcarAssinado){
+      await rpc('hub_rpc_status_contrato', { p: { contrato_id: contratoId, status: 'assinado' } });
+    }
+    closeModal();
+    toast('PDF guardado.' + (marcarAssinado ? ' Contrato marcado como assinado.' : ''));
+    recarregarDepoisDoContrato(clienteSlug);
+  } catch(e){
+    if(msg) msg.textContent = '';
+    toast(friendlyError(e));
+  }
+}
+
+async function baixarContratoPDF(path){
+  try{
+    const { data, error } = await hubClient.storage.from(CONTRATO_BUCKET)
+      .createSignedUrl(path, 60);           // 60s — link morre logo, de propósito
+    if(error) throw error;
+    window.open(data.signedUrl, '_blank', 'noopener');
+  } catch(e){ toast(friendlyError(e)); }
+}
+
+function abrirTirarArquivoContrato(contratoId, clienteSlug, path){
+  openModal('Tirar o PDF do contrato', `
+    <p class="muted" style="margin-top:0;">
+      Isso apaga o arquivo do bucket e desanexa do contrato. O contrato em si continua intacto.
+    </p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarTirarArquivoContrato('${esc(contratoId)}','${esc(clienteSlug)}','${esc(path)}')">Tirar o PDF</button>
+    </div>`);
+}
+async function confirmarTirarArquivoContrato(contratoId, clienteSlug, path){
+  try{
+    const { error } = await hubClient.storage.from(CONTRATO_BUCKET).remove([path]);
+    if(error) throw error;
+    await rpc('hub_rpc_arquivo_contrato', { p: {
+      contrato_id: contratoId, arquivo_path: null, arquivo_nome: null, arquivo_tipo: null,
+    }});
+    closeModal(); toast('PDF removido.');
+    recarregarDepoisDoContrato(clienteSlug);
+  } catch(e){ toast(friendlyError(e)); }
+}
+
+// ---------- enviar pro cliente pelo WhatsApp (item 7) ----------
+// Sem infra nova: reusa a Edge Function `wa-send`, que já está no ar desde o
+// Bloco C (mesmo padrão de enviarConversa()). O Hub só ORQUESTRA — quem
+// assina é ela e o cliente, no gov.br, como já fazem hoje.
+// ⚠️ só id e slug viajam pelo onclick. Nome de cliente NÃO: esc() escapa aspas
+// pra entidade HTML, que o parser devolve como aspas dentro do atributo e
+// quebraria a string JS num nome tipo "D'Angelo". Nome e número são lidos do
+// dado carregado, aqui dentro.
+async function abrirEnviarContrato(contratoId, clienteSlug){
+  const dados = (clienteAtual && clienteAtual.cliente && clienteAtual.cliente.slug === clienteSlug)
+    ? clienteAtual
+    : await rpc('hub_rpc_cliente', { p_slug: clienteSlug }).catch(()=>null);
+  if(!dados){ toast('Não achei a ficha desse cliente.'); return; }
+  const clienteNome = dados.cliente.nome;
+  const item = (dados.contratos || []).find(x => x.contrato.id === contratoId);
+  const numero = item && item.contrato.numero;
+
+  const texto = `Oi! Segue o contrato${numero ? ' nº ' + numero : ''} pra você conferir e assinar.\n\n`
+    + `Pode assinar pelo gov.br (assinador.iti.br) e me devolver o PDF assinado por aqui mesmo.\n\n`
+    + `Qualquer dúvida, é só me chamar.`;
+  openModal(`Enviar contrato — ${esc(clienteNome)}`, `
+    <p class="muted" style="margin-top:0;">
+      Vai pelo WhatsApp do contato principal. O <b>PDF você anexa na mão</b> — o Hub manda o
+      texto e move o contrato pra <b>Enviado</b>.
+    </p>
+    <div class="field">
+      <label>Mensagem</label>
+      <textarea id="f-msg-contrato" rows="7">${esc(texto)}</textarea>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" onclick="confirmarEnviarContrato('${esc(contratoId)}','${esc(clienteSlug)}')">Enviar e marcar Enviado</button>
+    </div>`);
+}
+async function confirmarEnviarContrato(contratoId, clienteSlug){
+  const corpo = document.getElementById('f-msg-contrato').value.trim();
+  if(!corpo){ toast('Escreve a mensagem antes de enviar.'); return; }
+
+  const dados = (clienteAtual && clienteAtual.cliente && clienteAtual.cliente.slug === clienteSlug)
+    ? clienteAtual
+    : await rpc('hub_rpc_cliente', { p_slug: clienteSlug }).catch(()=>null);
+  const contato = ((dados && dados.contatos) || [])
+    .filter(c => c.whatsapp_e164)
+    .sort((a,b) => (b.is_principal?1:0) - (a.is_principal?1:0))[0];
+  if(!contato){ toast('Esse cliente não tem WhatsApp cadastrado na ficha.'); return; }
+  if(!hubClient.functions){ toast('Envio ainda não ativado — falta configurar a chave da Evolution.'); return; }
+
+  try{
+    const { data, error } = await hubClient.functions.invoke('wa-send', {
+      body: { fone: contato.whatsapp_e164, corpo, cliente_id: dados.cliente.id, eh_grupo: !!contato.eh_grupo },
+    });
+    if(error) throw error;
+    if(data && data.erro) throw new Error(data.erro);
+    await rpc('hub_rpc_status_contrato', { p: { contrato_id: contratoId, status: 'enviado' } });
+    conversasResumo = null;
+    closeModal(); toast('Contrato enviado — status agora é Enviado.');
+    recarregarDepoisDoContrato(clienteSlug);
+  } catch(e){ toast(erroEnvioWhats(e)); }
+}
+
+// depois de mexer num contrato, redesenha a tela em que ela está
+function recarregarDepoisDoContrato(clienteSlug){
+  const { page } = currentRoute();
+  if(page === 'contratos') renderContratos();
+  else renderCliente(clienteSlug);
+}
+
+// ---------- a tela #/contratos ----------
+// Layout portado do vContratos() do mockup-v2-frontend.html (tabela
+// Cliente · Nº · Serviço · Valor · Status · ações), com os KPIs dele e o
+// filtro por status no padrão .chips já usado na Carteira.
+let contratosCache = [];
+let contratosFiltro = 'todos';
+const CT_DIAS_ESPERA = 7;   // "esperando devolução" a partir daqui
+
+function setContratosFiltro(f){ contratosFiltro = f; desenharContratos(); }
+
+async function renderContratos(){
+  root.innerHTML = shell('contratos', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  contratosCache = await rpc('hub_rpc_contratos').catch(()=>[]);
+  desenharContratos();
+}
+
+function desenharContratos(){
+  const todos = contratosCache || [];
+  const assinados = todos.filter(c => ['assinado','ativo'].includes(c.status)).length;
+  const naRua = todos.filter(c => ['emitido','enviado','rascunho'].includes(c.status)).length;
+  const comPdf = todos.filter(c => c.tem_arquivo).length;
+
+  // "Esperando devolução": enviado e sem movimento há mais de N dias.
+  // ⚠️ o relógio é `updated_at`, que é "sem movimento desde", não "enviado
+  // em" — qualquer edição do contrato zera a contagem. Ver relatório do D2.
+  const agora = Date.now();
+  const diasParados = c => Math.floor((agora - new Date(c.updated_at).getTime()) / 86400000);
+  const esperando = todos
+    .filter(c => c.status === 'enviado' && diasParados(c) >= CT_DIAS_ESPERA)
+    .sort((a,b) => diasParados(b) - diasParados(a));
+
+  const visiveis = contratosFiltro === 'todos'
+    ? todos : todos.filter(c => c.status === contratosFiltro);
+
+  const linhas = visiveis.map(c => `
+    <tr>
+      <td data-label="Cliente" onclick="location.hash='#/cliente/${esc(c.cliente_slug)}'" style="cursor:pointer;"><b>${esc(c.cliente_nome)}</b></td>
+      <td data-label="Nº" class="dim">${c.numero ? esc(c.numero) : '—'}</td>
+      <td data-label="Serviço" class="muted">${esc(c.servico || '—')}</td>
+      <td data-label="Valor" style="text-align:right;">${centavosToBRL(c.valor_mensal_centavos)}</td>
+      <td data-label="Vencimento">${c.dia_vencimento ? 'dia ' + c.dia_vencimento : '—'}</td>
+      <td data-label="Status">
+        <span class="badge ${contratoBadgeClass(c.status)}">${statusLabel(c.status)}</span>
+        ${c.tem_arquivo ? '<span class="badge badge-ok" style="margin-left:5px;" title="PDF assinado guardado">PDF</span>' : ''}
+      </td>
+      <td data-label="Ações" onclick="event.stopPropagation()">
+        <div class="row" style="justify-content:flex-end;gap:6px;flex-wrap:wrap;">
+          ${botoesContrato(c.contrato_id, c.cliente_slug, c.tem_arquivo, c.arquivo_path)}
+        </div>
+      </td>
+    </tr>`).join('');
+
+  const chip = (k, rotulo, n) =>
+    `<button class="chip ${contratosFiltro===k?'on':''}" onclick="setContratosFiltro('${k}')">${rotulo} (${n})</button>`;
+
+  root.innerHTML = shell('contratos', `
+    <div class="row-between" style="margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+      <h2 class="section-title" style="margin:0;">Contratos</h2>
+    </div>
+    <div class="kpis">
+      <div class="kpi ok"><div class="kpi-head">${KPI_ICONS.check}<span class="label">Assinados / ativos</span></div><div class="value">${assinados}</div></div>
+      <div class="kpi ${naRua?'warn':''}"><div class="kpi-head">${KPI_ICONS.clock}<span class="label">Na rua</span></div><div class="value">${naRua}</div></div>
+      <div class="kpi"><div class="kpi-head">${KPI_ICONS.briefcase}<span class="label">Com PDF guardado</span></div><div class="value">${comPdf}</div></div>
+    </div>
+
+    ${esperando.length ? `
+      <div class="card" style="margin-bottom:16px;">
+        <p class="eyebrow" style="color:var(--warn);margin:0 0 8px;">Esperando devolução</p>
+        ${esperando.map(c => `<div class="rowcard" style="margin-bottom:6px;">
+          <div class="l">
+            <div class="t">${esc(c.cliente_nome)}${c.numero ? ' · nº ' + esc(c.numero) : ''}</div>
+            <div class="s">sem movimento há ${diasParados(c)} dias</div>
+          </div>
+          <div class="r">
+            <button class="btn btn-sm btn-outline" onclick="abrirEnviarContrato('${esc(c.contrato_id)}','${esc(c.cliente_slug)}')">Cobrar</button>
+          </div>
+        </div>`).join('')}
+      </div>` : ''}
+
+    <div class="chips">
+      ${chip('todos','Todos', todos.length)}
+      ${['ativo','assinado','enviado','emitido','rascunho','encerrado']
+        .map(s => chip(s, statusLabel(s), todos.filter(c=>c.status===s).length)).join('')}
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Cliente</th><th>Nº</th><th>Serviço</th><th style="text-align:right">Valor</th><th>Vencimento</th><th>Status</th><th></th></tr></thead>
+        <tbody>${linhas || `<tr><td colspan="7" class="empty">Nenhum contrato nesse filtro.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <p class="dim" style="font-size:12px;margin-top:16px;">
+      Padrão MODELO-BASE: vigência mínima 3 meses · Pix · foro Recife · Anexo I por serviço.
+      O PDF é montado do molde, sem IA. Quem assina é você e o cliente, no gov.br — o Hub só acompanha.
+    </p>
+  `);
+}
+
+// os mesmos botões na tela de Contratos e no card da ficha do cliente.
+// Só id, slug e path viajam pelo onclick — todos sem aspas por construção.
+function botoesContrato(id, slug, temArquivo, path){
+  return `
+    <button class="btn btn-sm btn-outline" title="Gerar o PDF do contrato pelo modelo" onclick="emitirContrato('${esc(id)}','${esc(slug)}')">Gerar PDF</button>
+    <button class="btn btn-sm btn-outline" title="Mandar pro cliente pelo WhatsApp" onclick="abrirEnviarContrato('${esc(id)}','${esc(slug)}')">Enviar</button>
+    ${temArquivo
+      ? `<button class="btn btn-sm btn-outline" title="Abrir o PDF assinado" onclick="baixarContratoPDF('${esc(path)}')">Ver PDF</button>
+         <button class="btn btn-ico btn-ico-danger" title="Tirar o PDF" onclick="abrirTirarArquivoContrato('${esc(id)}','${esc(slug)}','${esc(path)}')">${TRASH_ICON}</button>`
+      : ''}
+    <button class="btn btn-sm btn-outline" title="${temArquivo ? 'Trocar o PDF assinado' : 'Subir o PDF assinado'}" onclick="abrirSubirContrato('${esc(id)}','${esc(slug)}',${temArquivo?'true':'false'})">${temArquivo ? 'Trocar PDF' : 'Subir assinado'}</button>`;
+}
+
+// ============================================================
 // COBRANÇAS — configuração por cliente + textos da régua (Fase 3, Bloco B)
 // Sem mockup de referência (vCobrancas() do mockup é a fila do bot, não o
 // editor de config) — desenhado no design system das telas #/custos e
@@ -2589,7 +3208,8 @@ async function render(){
   if(page === 'crm') return renderCRM();
   if(page === 'prospect' && param) return renderProspect(param);
   if(page === 'cobrancas') return renderCobrancas();
-  if(['contratos','reunioes','posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
+  if(page === 'contratos') return renderContratos();
+  if(['reunioes','posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
   return renderDash();
 }
 
