@@ -3689,8 +3689,18 @@ function abrirMarcarReuniao(opts){
   const dataVal = base.toLocaleDateString('sv-SE');
   const horaVal = base.toTimeString().slice(0,5);
 
+  // sem cliente/prospect implícito (ex: botão "+ Nova reunião" da tela
+  // #/agenda) — precisa de um campo a mais no topo pra escolher o alvo antes
+  // do resto do form, que continua idêntico ao usado pelo kanban/ficha.
+  const precisaAlvo = !!opts.semAlvo && !opts.cliente_id && !opts.prospect_id;
+  const campoAlvo = precisaAlvo ? `
+    <div class="field"><label>Cliente ou prospect</label>
+      <select id="mr-alvo" required onchange="selecionarAlvoReuniao()">${optsAlvoReuniao()}</select>
+    </div>` : '';
+
   openModal(`Marcar reunião${opts.nome ? ' — ' + esc(opts.nome) : ''}`, `
     <form onsubmit="return confirmarMarcarReuniao(event)">
+      ${campoAlvo}
       <div class="f2">
         <div class="field"><label>Data</label><input id="mr-data" type="date" required value="${dataVal}"></div>
         <div class="field"><label>Hora</label><input id="mr-hora" type="time" required value="${horaVal}"></div>
@@ -3703,16 +3713,89 @@ function abrirMarcarReuniao(opts){
           <option value="120">2 horas</option>
         </select>
       </div>
-      <div class="field"><label>Título</label><input id="mr-titulo" required value="Reunião${opts.nome ? ' com ' + esc(opts.nome) : ''}"></div>
-      ${opts.email
-        ? `<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Convite formal vai por e-mail pra <b>${esc(opts.email)}</b>.</p>`
-        : `<p class="dim" style="font-size:12px;margin:0 0 10px;">Sem e-mail cadastrado — o evento é criado, mas ninguém é convidado automaticamente. Cadastre o e-mail na ficha se quiser convite formal.</p>`}
+      <div class="field"><label>Título</label><input id="mr-titulo" required value="Reunião${opts.nome ? ' com ' + esc(opts.nome) : ''}" oninput="this.dataset.auto='false'"></div>
+      <div id="mr-convite-info">${conviteInfoReuniaoHtml(opts)}</div>
       <div class="checkrow" style="margin-bottom:14px;"><input type="checkbox" id="mr-meet"> <label for="mr-meet">Criar Google Meet</label></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
         <button type="submit" class="btn btn-primary" id="mr-submit">Marcar na Agenda</button>
       </div>
     </form>`);
+}
+
+// ---------- seletor de alvo (só aparece quando abre sem cliente/prospect no
+// contexto — hoje só a tela #/agenda; o card do kanban e a ficha já sabem
+// quem é o alvo e nunca mostram este campo) ----------
+function optsAlvoReuniao(){
+  const optsProspect = prospectsCache
+    .map(p => `<option value="prospect:${esc(p.id)}">${esc(p.nome)}</option>`).join('');
+  const optsCliente = carteira
+    .map(c => `<option value="cliente:${esc(c.cliente_id)}">${esc(c.nome)}</option>`).join('');
+  return `<option value="">Selecione…</option>`
+    + (optsProspect ? `<optgroup label="Prospects (CRM)">${optsProspect}</optgroup>` : '')
+    + (optsCliente ? `<optgroup label="Clientes">${optsCliente}</optgroup>` : '');
+}
+
+function conviteInfoReuniaoHtml(ctx){
+  ctx = ctx || {};
+  if(ctx.email) return `<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Convite formal vai por e-mail pra <b>${esc(ctx.email)}</b>.</p>`;
+  if(ctx.cliente_id || ctx.prospect_id) return `<p class="dim" style="font-size:12px;margin:0 0 10px;">Sem e-mail cadastrado — o evento é criado, mas ninguém é convidado automaticamente. Cadastre o e-mail na ficha se quiser convite formal.</p>`;
+  return `<p class="dim" style="font-size:12px;margin:0 0 10px;">Escolhe o cliente/prospect acima pra ver se dá pra mandar convite.</p>`;
+}
+
+// disparado pelo onchange do #mr-alvo — atualiza o contexto (cliente_id/
+// prospect_id/e-mail) sem redesenhar o form inteiro, pra não perder data/
+// hora/duração que ela já tiver preenchido
+async function selecionarAlvoReuniao(){
+  const sel = document.getElementById('mr-alvo');
+  if(!sel || !sel.value) return;
+  const [tipo, id] = sel.value.split(':');
+  const tituloInput = document.getElementById('mr-titulo');
+  const tituloEraAuto = !tituloInput || !tituloInput.value || tituloInput.dataset.auto !== 'false';
+
+  let nome = null, email = null, fone = null;
+  if(tipo === 'prospect'){
+    const p = prospectsCache.find(x => x.id === id);
+    nome = p ? p.nome : null;
+    email = p ? (p.contato_email || null) : null;
+    fone = p ? (p.contato_eh_grupo ? null : (p.contato_whatsapp || null)) : null;
+    marcarReuniaoCtx = Object.assign({}, marcarReuniaoCtx, { prospect_id: id, cliente_id: null, nome, email, fone });
+    atualizarFormAlvoReuniao(nome, tituloInput, tituloEraAuto);
+  } else if(tipo === 'cliente'){
+    const c = carteira.find(x => x.cliente_id === id);
+    nome = c ? c.nome : null;
+    marcarReuniaoCtx = Object.assign({}, marcarReuniaoCtx, { cliente_id: id, prospect_id: null, nome, email: null, fone: null });
+    atualizarFormAlvoReuniao(nome, tituloInput, tituloEraAuto);
+    // e-mail/whatsapp do contato principal não vêm no cache leve da carteira
+    // — busca a ficha completa, igual abrirMarcarReuniaoCliente já faz
+    const detalhe = await rpc('hub_rpc_cliente', { p_slug: c ? c.slug : '' }).catch(()=>null);
+    if(detalhe && marcarReuniaoCtx.cliente_id === id){
+      marcarReuniaoCtx.email = contatoEmailPrincipal(detalhe.contatos);
+      marcarReuniaoCtx.fone = contatoFonePrincipal(detalhe.contatos);
+      const info = document.getElementById('mr-convite-info');
+      if(info) info.innerHTML = conviteInfoReuniaoHtml(marcarReuniaoCtx);
+    }
+  }
+}
+
+function atualizarFormAlvoReuniao(nome, tituloInput, tituloEraAuto){
+  if(tituloInput && tituloEraAuto){
+    tituloInput.value = 'Reunião' + (nome ? ' com ' + nome : '');
+    tituloInput.dataset.auto = 'true';
+  }
+  const info = document.getElementById('mr-convite-info');
+  if(info) info.innerHTML = conviteInfoReuniaoHtml(marcarReuniaoCtx);
+}
+
+// entrada nova (25/09): botão "+ Nova reunião" da tela #/agenda, que não tem
+// cliente/prospect implícito — carrega os caches (se ainda não tiver) e abre
+// o mesmo mini-form com o seletor de alvo no topo.
+async function abrirNovaReuniaoAgenda(){
+  await Promise.all([
+    loadCarteiraCache(),
+    (async () => { if(!prospectsCache.length) prospectsCache = await rpc('hub_rpc_prospects').catch(()=>[]); })(),
+  ]);
+  abrirMarcarReuniao({ semAlvo: true });
 }
 
 async function confirmarMarcarReuniao(ev){
@@ -4001,6 +4084,7 @@ function desenharAgenda(){
           <button class="btn btn-outline btn-sm" onclick="agendaIrHoje()">Hoje</button>
           <button class="btn btn-outline btn-ico" onclick="agendaNavegar(1)">→</button>
         </div>
+        <button class="btn btn-primary btn-sm" onclick="abrirNovaReuniaoAgenda()">+ Nova reunião</button>
       </div>
     </div>
     ${corpo}
