@@ -116,12 +116,16 @@ function statusLabel(s){
     rascunho:'Rascunho', emitido:'Emitido', enviado:'Enviado', assinado:'Assinado',
     aberto:'Aberto', parcial:'Parcial', pago:'Pago', vencido:'Vencido',
     aberta:'Aberta', fazendo:'Fazendo', entregue:'Entregue',
+    arquivado:'Arquivado', // Bloco H, item 3 — contrato/demanda pausados em cascata pelo arquivamento do cliente
   }[s] || s;
 }
 function contratoBadgeClass(status){
   if(status === 'ativo' || status === 'assinado' || status === 'pago') return 'badge-ok';
   if(status === 'rascunho' || status === 'parcial' || status === 'aberto') return 'badge-warn';
   if(status === 'vencido') return 'badge-bad';
+  // roxa, de propósito — não pode se confundir com 'encerrado'/'entregue'
+  // (badge-muted), que são estado final real. 'arquivado' é pausado e volta.
+  if(status === 'arquivado') return 'badge-roxo';
   return 'badge-muted';
 }
 function friendlyError(err){
@@ -1582,6 +1586,18 @@ async function renderCliente(slug){
   desenharFichaCliente();
 }
 
+// Bloco H, item 1 (25/09/2026) — e-mail do contato principal direto na
+// ficha, sem precisar abrir "Editar contato". Motivo real: os 3 contratos
+// "assinados" antigos (F7/Império Ruby/Dobradinha) só têm a assinatura
+// DELA — pra reemitir pelo DocuSeal precisa do e-mail do cliente à mão.
+// Só mostra se existir contato is_principal COM e-mail — senão não mostra
+// nada (sem quebrar layout, sem inventar fallback pra outro contato).
+function emailContatoPrincipalHtml(contatos){
+  const principal = (contatos || []).find(ct => ct.is_principal);
+  if(!principal || !principal.email) return '';
+  return `<div class="muted" style="margin-top:4px;font-size:13px;">✉️ ${esc(principal.email)}</div>`;
+}
+
 function desenharFichaCliente(){
   const data = clienteAtual;
   const c = data.cliente;
@@ -1596,6 +1612,7 @@ function desenharFichaCliente(){
         <h1 style="margin:0 0 4px;font-size:24px;">${esc(c.nome)}</h1>
         <span class="badge ${c.status==='ativo'?'badge-ok':'badge-muted'}">${statusLabel(c.status)}</span>
         ${c.segmento ? `<span class="muted" style="margin-left:8px;">${esc(c.segmento)}</span>` : ''}
+        ${emailContatoPrincipalHtml(data.contatos)}
       </div>
       <div class="row" style="gap:8px;flex-wrap:wrap;">
         ${arquivado
@@ -1831,28 +1848,18 @@ async function salvarClienteFicha(ev){
   return false;
 }
 
-// ---- arquivar / reativar (item 2 do Bloco 1.5) ----
-// Arquivar NUNCA apaga: usa o status 'encerrado' que já existe no CHECK de
-// hub.clientes + saiu_em/motivo_saida. Reversível pelo botão "Reativar".
-async function salvarClientePatch(patch, msg){
-  const c = clienteAtual.cliente;
-  await rpc('hub_rpc_salvar_cliente', { p: {
-    id: c.id, empresa_id: c.empresa_id, nome: c.nome, slug: c.slug,
-    razao_social: c.razao_social, documento: c.documento, segmento: c.segmento,
-    origem: c.origem, status: c.status, entrou_em: c.entrou_em,
-    saiu_em: c.saiu_em, motivo_saida: c.motivo_saida, observacao: c.observacao,
-    recorrente: c.recorrente,   // D1.1 — senão arquivar/reativar devolveria o avulso pra carteira
-    endereco: c.endereco,       // D2 — mesma armadilha, coluna nova
-    tipo_cobranca: c.tipo_cobranca, percentual_comissao: c.percentual_comissao, // Bloco G — mesma armadilha
-    ...patch,
-  }});
-  closeModal(); toast(msg);
-  renderCliente(c.slug);
-}
+// ---- arquivar / reativar em cascata (Bloco H, item 3 — 25/09/2026) ----
+// Antes (Bloco 1.5): arquivar só mudava hub.clientes via salvarClientePatch
+// genérico — contrato e demanda ficavam rodando como se nada tivesse
+// acontecido. Agora chama 2 RPCs atômicas (migration 033) que também pausam
+// contrato ATIVO (vira 'arquivado') e demanda ABERTA/FAZENDO (vira
+// 'arquivado') — 'encerrado'/'entregue' nunca são tocados, já são estado
+// final real. Reativar é regra simples, sem guardar o status anterior
+// detalhado: contrato sempre volta pra 'ativo', demanda sempre pra 'aberta'.
 function abrirArquivarCliente(){
   const c = clienteAtual.cliente;
   openModal(`Arquivar — ${esc(c.nome)}`, `
-    <p class="muted" style="margin-top:0;">O cliente sai da lista de ativos mas <b>nada é apagado</b> — contratos, recebíveis e histórico continuam guardados, e dá pra reativar quando quiser.</p>
+    <p class="muted" style="margin-top:0;">O cliente sai da lista de ativos e isso também <b>pausa</b> o contrato ativo (se tiver) e as demandas em aberto/em andamento — <b>nada é apagado</b>, contratos, recebíveis e histórico continuam guardados, e dá pra reativar quando quiser (contrato volta pra Ativo, demanda volta pra Aberta).</p>
     <div class="field"><label>Motivo (opcional)</label><input id="f-motivo" placeholder="ex: encerrou o contrato, pausa por tempo indeterminado..."></div>
     <div class="row" style="justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
@@ -1860,27 +1867,29 @@ function abrirArquivarCliente(){
     </div>`);
 }
 async function confirmarArquivarCliente(){
+  const c = clienteAtual.cliente;
   const motivo = document.getElementById('f-motivo').value.trim();
   try{
-    await salvarClientePatch(
-      { status:'encerrado', saiu_em: todayISO(), motivo_saida: motivo || null },
-      'Cliente arquivado — reversível pelo botão Reativar.');
+    await rpc('hub_rpc_arquivar_cliente', { p: { cliente_id: c.id, motivo_saida: motivo || null } });
+    closeModal(); toast('Cliente arquivado — contrato ativo e demandas abertas pausados junto. Reversível pelo botão Reativar.');
+    renderCliente(c.slug);
   } catch(e){}
 }
 function abrirReativarCliente(){
   const c = clienteAtual.cliente;
   openModal(`Reativar — ${esc(c.nome)}`, `
-    <p class="muted" style="margin-top:0;">O cliente volta pra lista de ativos, com todo o histórico intacto.</p>
+    <p class="muted" style="margin-top:0;">O cliente volta pra lista de ativos, com todo o histórico intacto. Contrato pausado volta pra Ativo e demanda pausada volta pra Aberta.</p>
     <div class="row" style="justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
       <button class="btn btn-primary" onclick="confirmarReativarCliente()">Reativar</button>
     </div>`);
 }
 async function confirmarReativarCliente(){
+  const c = clienteAtual.cliente;
   try{
-    await salvarClientePatch(
-      { status:'ativo', saiu_em: null, motivo_saida: null },
-      'Cliente reativado.');
+    await rpc('hub_rpc_reativar_cliente', { p: { cliente_id: c.id } });
+    closeModal(); toast('Cliente reativado — contrato e demandas pausados voltaram junto.');
+    renderCliente(c.slug);
   } catch(e){}
 }
 
@@ -1888,6 +1897,9 @@ async function confirmarReativarCliente(){
 function demandaBadgeClass(status){
   if(status === 'entregue') return 'badge-ok';
   if(status === 'fazendo') return 'badge-warn';
+  // Bloco H, item 3 — pausada pelo arquivamento em cascata do cliente; roxa
+  // de propósito, pra não se confundir com 'entregue' (estado final real).
+  if(status === 'arquivado') return 'badge-roxo';
   return 'badge-muted';
 }
 function renderDemandas(){
@@ -2038,7 +2050,7 @@ function formContrato(co){
         <div class="field"><label>Dia de vencimento</label><input id="f-dia" type="number" min="1" max="28" value="${co.dia_vencimento||''}"></div>
         <div class="field"><label>Status</label>
           <select id="f-status" onchange="togglePortaSaida()">
-            ${['rascunho','emitido','enviado','assinado','ativo','encerrado'].map(s=>`<option value="${s}" ${co.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
+            ${CT_PIPELINE.concat('arquivado').map(s=>`<option value="${s}" ${co.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
           </select>
         </div>
       </div>
@@ -3095,6 +3107,11 @@ const CONTRATO_BUCKET = 'contratos';
 // não em hub.rpc_status_contrato, que é genérica de propósito (o botão
 // "Enviar" também usa) e não deve carregar regra de ordem escondida: um dia
 // ela pode querer corrigir manualmente pra trás, e a RPC tem que deixar.
+// 'arquivado' fica de fora de propósito (Bloco H, item 3): não é etapa do
+// pipeline, é pausa reversível vinda do arquivamento em cascata do
+// cliente — não deve contar pra "pode avançar pra assinado" nem pra ordem
+// normal. formContrato() concatena 'arquivado' à parte, só pra aparecer
+// como opção manual no <select> sem entrar nessa lógica de ordem.
 const CT_PIPELINE = ['rascunho','emitido','enviado','assinado','ativo','encerrado'];
 
 // 🔴 Bug real de produção (24/09/2026): o checkbox vinha marcado por padrão e
@@ -3132,7 +3149,7 @@ function abrirSubirContrato(contratoId, clienteSlug, statusAtual, temArquivo){
       <label for="f-marca-assinado">Marcar o contrato como <b>assinado</b></label>
     </div>` : `
     <p class="dim" style="font-size:12px;margin:0 0 12px;">
-      ${CT_PIPELINE.includes(statusAtual)
+      ${CT_PIPELINE.includes(statusAtual) || statusAtual === 'arquivado'
         ? `Este contrato já está em <b>${esc(statusLabel(statusAtual))}</b> — subir o arquivo não muda o status.`
         : `Não deu pra confirmar o status atual do contrato — subir o arquivo não muda o status, por segurança.`}
     </p>`}
