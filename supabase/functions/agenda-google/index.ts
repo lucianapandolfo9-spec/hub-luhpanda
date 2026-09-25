@@ -1,18 +1,25 @@
 // HUB LUH PANDA — agenda-google
 //
-// Ponte entre o Hub e o Google Agenda (Fase 3, Bloco F). TRÊS AÇÕES:
+// Ponte entre o Hub e o Google Agenda (Fase 3, Bloco F). QUATRO AÇÕES:
 //
-//   "listar" — eventos do calendário PRINCIPAL da conta dela num intervalo
-//              (pra tela #/agenda, visão semana/mês).
-//   "obter"  — detalhe ao vivo de uma lista de google_event_id (pra ficha
-//              do cliente/prospect mostrar os eventos vinculados — o Hub
-//              nunca guarda título/horário, só o vínculo em
-//              hub.eventos_agenda; aqui é onde ele pergunta pro Google de
-//              novo, toda vez).
-//   "criar"  — cria o evento no calendário dela, convida o cliente/prospect
-//              (attendees + sendUpdates=all — convite formal de verdade,
-//              não aviso por fora), Google Meet se marcado, e grava o
-//              vínculo (hub.eventos_agenda) + o rascunho em hub.reunioes.
+//   "listar"   — eventos do calendário PRINCIPAL da conta dela num
+//                intervalo (pra tela #/agenda, visão semana/mês).
+//   "obter"    — detalhe ao vivo de uma lista de google_event_id (pra
+//                ficha do cliente/prospect mostrar os eventos vinculados —
+//                o Hub nunca guarda título/horário, só o vínculo em
+//                hub.eventos_agenda; aqui é onde ele pergunta pro Google
+//                de novo, toda vez).
+//   "criar"    — cria o evento no calendário dela, convida o
+//                cliente/prospect (attendees + sendUpdates=all — convite
+//                formal de verdade, não aviso por fora), Google Meet se
+//                marcado, e grava o vínculo (hub.eventos_agenda) + o
+//                rascunho em hub.reunioes.
+//   "cancelar" — apaga o evento no Google (DELETE, sendUpdates=all —
+//                avisa quem foi convidado da cancelação) e SÓ DEPOIS
+//                apaga o vínculo em hub.eventos_agenda (RPC
+//                rpc_eventos_agenda_desvincular, migration 030). Pedido
+//                dela em 25/09/2026, ao ver o Bloco F ao vivo: "apagar
+//                reunião clicando nela, igual ao Google Agenda".
 //
 // POR QUE ESTA FUNÇÃO EXISTE (mesma razão de wa-send/reuniao-analisar): o
 // Hub é uma página estática. Se o client_secret/refresh_token do Google
@@ -238,6 +245,33 @@ Deno.serve(async (req: Request) => {
       }, jwt).catch((e) => { throw new Error(`rascunho de reunião não criado: ${e}`); });
 
       return responder({ ok: true, evento: resumirEvento(criado) });
+    }
+
+    // ---------------- cancelar (apagar reunião, clicando nela) ----------------
+    if (acao === "cancelar") {
+      const googleEventId = String(entrada.google_event_id ?? "").trim();
+      if (!googleEventId) return responder({ erro: "google_event_id é obrigatório" }, 400);
+
+      const qs = new URLSearchParams({ sendUpdates: "all" });
+      try {
+        await chamarGoogleCalendar(`/calendars/primary/events/${encodeURIComponent(googleEventId)}?${qs}`, {
+          method: "DELETE",
+        });
+      } catch (e) {
+        // 404/410: já não existe mais no Google (apagado por fora, duplo-clique
+        // dela, etc.) — segue pra limpar o vínculo do Hub mesmo assim, de forma
+        // idempotente, em vez de deixar um vínculo órfão preso.
+        if (!/\b(404|410)\b/.test(String(e))) throw e;
+      }
+
+      // só chega aqui depois do Google confirmar (ou já não ter o evento) —
+      // nunca o contrário, senão um erro no Google deixaria o vínculo apagado
+      // apontando pra um evento que ainda existe na agenda dela.
+      const resultado = await rpc("hub_rpc_eventos_agenda_desvincular", {
+        p: { google_event_id: googleEventId },
+      }, jwt).catch((e) => { throw new Error(`vínculo não removido: ${e}`); });
+
+      return responder({ ok: true, ...(resultado && typeof resultado === "object" ? resultado : {}) });
     }
 
     return responder({ erro: `ação desconhecida: "${acao}"` }, 400);

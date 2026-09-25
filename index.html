@@ -3714,7 +3714,11 @@ function abrirMarcarReuniao(opts){
         </select>
       </div>
       <div class="field"><label>Título</label><input id="mr-titulo" required value="Reunião${opts.nome ? ' com ' + esc(opts.nome) : ''}" oninput="this.dataset.auto='false'"></div>
-      <div id="mr-convite-info">${conviteInfoReuniaoHtml(opts)}</div>
+      <div class="field"><label>E-mail do convidado</label>
+        <input id="mr-email" type="email" value="${esc(opts.email||'')}" placeholder="email@exemplo.com"
+          oninput="this.dataset.auto='false'; document.getElementById('mr-convite-info').innerHTML = conviteInfoReuniaoHtml(this.value);">
+      </div>
+      <div id="mr-convite-info">${conviteInfoReuniaoHtml(opts.email)}</div>
       <div class="checkrow" style="margin-bottom:14px;"><input type="checkbox" id="mr-meet"> <label for="mr-meet">Criar Google Meet</label></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
@@ -3736,22 +3740,27 @@ function optsAlvoReuniao(){
     + (optsCliente ? `<optgroup label="Clientes">${optsCliente}</optgroup>` : '');
 }
 
-function conviteInfoReuniaoHtml(ctx){
-  ctx = ctx || {};
-  if(ctx.email) return `<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Convite formal vai por e-mail pra <b>${esc(ctx.email)}</b>.</p>`;
-  if(ctx.cliente_id || ctx.prospect_id) return `<p class="dim" style="font-size:12px;margin:0 0 10px;">Sem e-mail cadastrado — o evento é criado, mas ninguém é convidado automaticamente. Cadastre o e-mail na ficha se quiser convite formal.</p>`;
-  return `<p class="dim" style="font-size:12px;margin:0 0 10px;">Escolhe o cliente/prospect acima pra ver se dá pra mandar convite.</p>`;
+// ⚠️ Recebe o e-mail (string), não o ctx inteiro — desde que o campo
+// #mr-email virou editável, o convite segue O QUE ESTÁ NO CAMPO na hora de
+// confirmar, não o que veio da ficha (ela pode apagar/trocar antes de
+// marcar, igual ao "Adicionar convidados" do Google Calendar).
+function conviteInfoReuniaoHtml(email){
+  email = (email || '').trim();
+  if(email) return `<p class="muted" style="font-size:12.5px;margin:0 0 10px;">Convite formal vai por e-mail pra <b>${esc(email)}</b>.</p>`;
+  return `<p class="dim" style="font-size:12px;margin:0 0 10px;">Sem e-mail — o evento é criado, mas ninguém é convidado automaticamente.</p>`;
 }
 
 // disparado pelo onchange do #mr-alvo — atualiza o contexto (cliente_id/
 // prospect_id/e-mail) sem redesenhar o form inteiro, pra não perder data/
-// hora/duração que ela já tiver preenchido
+// hora/duração/e-mail que ela já tiver preenchido/editado
 async function selecionarAlvoReuniao(){
   const sel = document.getElementById('mr-alvo');
   if(!sel || !sel.value) return;
   const [tipo, id] = sel.value.split(':');
   const tituloInput = document.getElementById('mr-titulo');
   const tituloEraAuto = !tituloInput || !tituloInput.value || tituloInput.dataset.auto !== 'false';
+  const emailInput = document.getElementById('mr-email');
+  const emailEraAuto = !emailInput || !emailInput.value || emailInput.dataset.auto !== 'false';
 
   let nome = null, email = null, fone = null;
   if(tipo === 'prospect'){
@@ -3760,31 +3769,39 @@ async function selecionarAlvoReuniao(){
     email = p ? (p.contato_email || null) : null;
     fone = p ? (p.contato_eh_grupo ? null : (p.contato_whatsapp || null)) : null;
     marcarReuniaoCtx = Object.assign({}, marcarReuniaoCtx, { prospect_id: id, cliente_id: null, nome, email, fone });
-    atualizarFormAlvoReuniao(nome, tituloInput, tituloEraAuto);
+    atualizarFormAlvoReuniao(nome, email, tituloInput, tituloEraAuto, emailInput, emailEraAuto);
   } else if(tipo === 'cliente'){
     const c = carteira.find(x => x.cliente_id === id);
     nome = c ? c.nome : null;
     marcarReuniaoCtx = Object.assign({}, marcarReuniaoCtx, { cliente_id: id, prospect_id: null, nome, email: null, fone: null });
-    atualizarFormAlvoReuniao(nome, tituloInput, tituloEraAuto);
+    atualizarFormAlvoReuniao(nome, null, tituloInput, tituloEraAuto, emailInput, emailEraAuto);
     // e-mail/whatsapp do contato principal não vêm no cache leve da carteira
     // — busca a ficha completa, igual abrirMarcarReuniaoCliente já faz
     const detalhe = await rpc('hub_rpc_cliente', { p_slug: c ? c.slug : '' }).catch(()=>null);
     if(detalhe && marcarReuniaoCtx.cliente_id === id){
       marcarReuniaoCtx.email = contatoEmailPrincipal(detalhe.contatos);
       marcarReuniaoCtx.fone = contatoFonePrincipal(detalhe.contatos);
+      if(emailInput && emailEraAuto){
+        emailInput.value = marcarReuniaoCtx.email || '';
+        emailInput.dataset.auto = 'true';
+      }
       const info = document.getElementById('mr-convite-info');
-      if(info) info.innerHTML = conviteInfoReuniaoHtml(marcarReuniaoCtx);
+      if(info) info.innerHTML = conviteInfoReuniaoHtml(emailInput ? emailInput.value : marcarReuniaoCtx.email);
     }
   }
 }
 
-function atualizarFormAlvoReuniao(nome, tituloInput, tituloEraAuto){
+function atualizarFormAlvoReuniao(nome, email, tituloInput, tituloEraAuto, emailInput, emailEraAuto){
   if(tituloInput && tituloEraAuto){
     tituloInput.value = 'Reunião' + (nome ? ' com ' + nome : '');
     tituloInput.dataset.auto = 'true';
   }
+  if(emailInput && emailEraAuto){
+    emailInput.value = email || '';
+    emailInput.dataset.auto = 'true';
+  }
   const info = document.getElementById('mr-convite-info');
-  if(info) info.innerHTML = conviteInfoReuniaoHtml(marcarReuniaoCtx);
+  if(info) info.innerHTML = conviteInfoReuniaoHtml(emailInput ? emailInput.value : email);
 }
 
 // entrada nova (25/09): botão "+ Nova reunião" da tela #/agenda, que não tem
@@ -3806,6 +3823,10 @@ async function confirmarMarcarReuniao(ev){
   const duracao = parseInt(document.getElementById('mr-duracao').value, 10);
   const titulo = document.getElementById('mr-titulo').value.trim();
   const comMeet = document.getElementById('mr-meet').checked;
+  // e-mail vem sempre do CAMPO, nunca do cache — ela pode ter apagado/trocado
+  // antes de confirmar (igual ao "Adicionar convidados" do Google Calendar)
+  const emailInput = document.getElementById('mr-email');
+  const attendeeEmail = emailInput ? emailInput.value.trim() : '';
   if(!data || !hora || !titulo){ toast('Preenche data, hora e título.'); return false; }
   if(!ctx.cliente_id && !ctx.prospect_id){ toast('Sem cliente/prospect pra vincular a reunião.'); return false; }
 
@@ -3826,7 +3847,7 @@ async function confirmarMarcarReuniao(ev){
       body: {
         acao: 'criar', titulo,
         inicio_iso: inicioLocal.toISOString(), duracao_min: duracao,
-        attendee_email: ctx.email || null, com_meet: comMeet,
+        attendee_email: attendeeEmail || null, com_meet: comMeet,
         cliente_id: ctx.cliente_id || null, prospect_id: ctx.prospect_id || null,
       },
     });
@@ -3834,7 +3855,7 @@ async function confirmarMarcarReuniao(ev){
     if(resp && resp.erro) throw new Error(resp.detalhe || resp.erro);
 
     closeModal();
-    toast('Reunião marcada na Agenda' + (ctx.email ? ' — convite enviado.' : '.') );
+    toast('Reunião marcada na Agenda' + (attendeeEmail ? ' — convite enviado.' : '.') );
 
     // a sugestão que originou isso (se veio de uma) já foi usada
     if(ctx.fone){ rpc('hub_rpc_limpar_sugestao_reuniao', { p: { fone: ctx.fone } }).catch(()=>{}); }
@@ -3969,7 +3990,7 @@ function desenharAgendaContato(slot){
     .filter(e => !e.erro)
     .sort((a,b) => new Date(a.inicio) - new Date(b.inicio))
     .map(e => `
-      <div class="rowcard" style="margin-bottom:6px;">
+      <div class="rowcard" style="margin-bottom:6px;cursor:pointer;" onclick="abrirDetalheEventoAgenda('${e.id}','${slot}')">
         <div class="l">
           <div class="t">${esc(e.titulo)}${e.status==='cancelled' ? ' <span class="dim">(cancelado no Google)</span>' : ''}</div>
           <div class="s">${e.dia_inteiro ? 'dia todo' : formatarDataHoraReuniao(e.inicio)}</div>
@@ -3983,6 +4004,78 @@ function desenharAgendaContato(slot){
   box.innerHTML = `
     ${linhas || '<div class="agenda-vazio">Nenhuma reunião marcada ainda.</div>'}
     <div style="margin-top:10px;">${btnMarcar}</div>`;
+}
+
+// ============================================================
+// apagar reunião clicando nela — igual ao Google Agenda (pedido dela,
+// 25/09/2026, depois de aprovar o Bloco F ao vivo). Reaproveita 100% a
+// Edge Function `agenda-google` (ação nova "cancelar") e as duas listas de
+// evento que já existem (agendaEventosCache da tela #/agenda,
+// agendaContatoCache[slot].eventos da ficha) — nenhuma delas some daqui,
+// só é lida.
+// ============================================================
+
+// acha o evento pelo id, no lugar certo: se veio de um card de ficha
+// (origemSlot preenchido), procura ali primeiro; senão cai na lista da
+// tela #/agenda.
+function localizarEventoAgenda(googleEventId, origemSlot){
+  if(origemSlot && agendaContatoCache[origemSlot] && agendaContatoCache[origemSlot].eventos){
+    const ev = agendaContatoCache[origemSlot].eventos.find(e => e.id === googleEventId);
+    if(ev) return ev;
+  }
+  return (agendaEventosCache || []).find(e => e.id === googleEventId) || null;
+}
+
+// detalhe do evento + botão "Apagar reunião" — a mesma ação serve pros 3
+// lugares que mostram evento (semana, mês → dia, ficha do cliente/prospect).
+function abrirDetalheEventoAgenda(googleEventId, origemSlot){
+  const ev = localizarEventoAgenda(googleEventId, origemSlot);
+  if(!ev){ toast('Não achei esse evento na tela — recarrega e tenta de novo.'); return; }
+
+  const attendees = (ev.attendees || [])
+    .map(a => esc(a.email) + (a.resposta ? ` <span class="dim">(${esc(a.resposta)})</span>` : ''))
+    .join('<br>');
+
+  openModal(esc(ev.titulo || '(sem título)'), `
+    <div class="field"><label>Quando</label>
+      <div class="muted">${ev.dia_inteiro ? 'dia todo' : formatarDataHoraReuniao(ev.inicio)}${ev.status==='cancelled' ? ' <span class="dim">(cancelado no Google)</span>' : ''}</div>
+    </div>
+    ${ev.descricao ? `<div class="field"><label>Descrição</label><div class="muted" style="white-space:pre-wrap;">${esc(ev.descricao)}</div></div>` : ''}
+    ${attendees ? `<div class="field"><label>Convidados</label><div class="muted" style="font-size:13px;">${attendees}</div></div>` : ''}
+    <div class="row" style="gap:8px;margin:2px 0 4px;">
+      ${ev.meet_link ? `<a href="${esc(ev.meet_link)}" target="_blank" rel="noopener" class="badge badge-ok">Meet</a>` : ''}
+      ${ev.html_link ? `<a href="${esc(ev.html_link)}" target="_blank" rel="noopener" class="badge badge-muted">Abrir no Google</a>` : ''}
+    </div>
+    <p class="dim" style="font-size:12px;margin:14px 0 0;">Apagar cancela o evento no Google Agenda e avisa quem foi convidado.</p>
+    <div class="row" style="justify-content:space-between;margin-top:12px;">
+      <button type="button" class="btn btn-danger" onclick="confirmarApagarReuniaoAgenda('${ev.id}','${origemSlot||''}')">Apagar reunião</button>
+      <button type="button" class="btn btn-outline" onclick="closeModal()">Fechar</button>
+    </div>
+  `);
+}
+
+async function confirmarApagarReuniaoAgenda(googleEventId, origemSlot){
+  if(!hubClient.functions){ toast('Google Agenda ainda não conectada.'); return; }
+  try{
+    const { data, error } = await hubClient.functions.invoke('agenda-google', {
+      body: { acao: 'cancelar', google_event_id: googleEventId },
+    });
+    if(error) throw error;
+    if(data && data.erro) throw new Error(data.detalhe || data.erro);
+
+    closeModal();
+    toast('Reunião apagada — cancelada na Agenda e desvinculada do Hub.');
+
+    // atualiza a tela sem recarregar a página inteira
+    if(origemSlot){
+      await carregarAgendaContato(origemSlot);
+    } else if(currentRoute().page === 'agenda'){
+      await carregarAgendaPeriodo();
+      desenharAgenda();
+    }
+  } catch(e){
+    toast(erroAgendaGoogle(e));
+  }
 }
 
 // ============================================================
@@ -4103,7 +4196,7 @@ function desenharAgendaSemana(eventos){
       .filter(e => e.inicio && new Date(e.inicio).toDateString() === d.toDateString())
       .sort((a,b) => new Date(a.inicio) - new Date(b.inicio));
     const itens = doDia.map(e => `
-      <div class="agenda-evento ${e.status==='cancelled'?'cancelado':''}" title="${esc(e.titulo)}">
+      <div class="agenda-evento ${e.status==='cancelled'?'cancelado':''}" title="${esc(e.titulo)}" onclick="abrirDetalheEventoAgenda('${e.id}')">
         <span class="hora">${e.dia_inteiro ? 'dia todo' : new Date(e.inicio).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</span>
         <span class="titulo">${esc(e.titulo)}</span>
       </div>`).join('');
@@ -4145,14 +4238,14 @@ function abrirDiaAgenda(diaISO){
     .filter(e => e.inicio && e.inicio.slice(0,10) === diaISO)
     .sort((a,b) => new Date(a.inicio) - new Date(b.inicio));
   const linhas = doDia.map(e => `
-    <div class="rowcard" style="margin-bottom:6px;">
+    <div class="rowcard" style="margin-bottom:6px;cursor:pointer;" onclick="abrirDetalheEventoAgenda('${e.id}')">
       <div class="l">
         <div class="t">${esc(e.titulo)}</div>
         <div class="s">${e.dia_inteiro ? 'dia todo' : new Date(e.inicio).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</div>
       </div>
       <div class="r">
-        ${e.meet_link ? `<a href="${esc(e.meet_link)}" target="_blank" rel="noopener" class="badge badge-ok">Meet</a>` : ''}
-        ${e.html_link ? `<a href="${esc(e.html_link)}" target="_blank" rel="noopener" class="badge badge-muted">Abrir</a>` : ''}
+        ${e.meet_link ? `<a href="${esc(e.meet_link)}" target="_blank" rel="noopener" class="badge badge-ok" onclick="event.stopPropagation();">Meet</a>` : ''}
+        ${e.html_link ? `<a href="${esc(e.html_link)}" target="_blank" rel="noopener" class="badge badge-muted" onclick="event.stopPropagation();">Abrir</a>` : ''}
       </div>
     </div>`).join('');
   const tituloDia = new Date(diaISO + 'T00:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
