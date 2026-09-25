@@ -1611,6 +1611,7 @@ function desenharFichaCliente(){
 
     <div class="pilartabs">
       <div class="pilartab ${pilarAtivo==='financeiro'?'active':''}" onclick="trocarPilar('financeiro', event)">Financeiro</div>
+      <div class="pilartab ${pilarAtivo==='contratos'?'active':''}" onclick="trocarPilar('contratos', event)">Contratos</div>
       <div class="pilartab ${pilarAtivo==='marketing'?'active':''}" onclick="trocarPilar('marketing', event)">Marketing</div>
       <div class="pilartab ${pilarAtivo==='comercial'?'active':''}" onclick="trocarPilar('comercial', event)">Comercial</div>
       <div class="pilartab ${pilarAtivo==='conversas'?'active':''}" onclick="trocarPilar('conversas', event)">Conversas</div>
@@ -1633,6 +1634,7 @@ function trocarPilar(p, ev){
 }
 
 function renderPilar(){
+  if(pilarAtivo === 'contratos') return renderPilarContratos();
   if(pilarAtivo === 'marketing') return `<div class="pilar-empty">Em construção — próxima fase do hub.</div>`;
   if(pilarAtivo === 'comercial') return `<div class="pilar-empty">Em construção — próxima fase do hub.</div>`;
   if(pilarAtivo === 'conversas') return renderPilarConversas();
@@ -1688,21 +1690,12 @@ function trocarContatoConversa(id){
   document.getElementById('pilar-body').innerHTML = renderPilar();
 }
 
-function renderPilarFinanceiro(){
+// Pilar Contratos — separado do Financeiro (pedido dela, 25/09/2026): "deixa
+// nos balões em cima como estão... aí abro e vejo o contrato quando preciso"
+// — vira aba própria em vez de sempre aparecer dentro de Financeiro.
+function renderPilarContratos(){
   const data = clienteAtual;
-  const contatos = data.contatos || [];
   const contratos = data.contratos || [];
-
-  const contatosHtml = contatos.length ? contatos.map((ct,i) => `
-    <div class="row-between" style="padding:9px 0;border-top:1px solid var(--line);">
-      <div><b>${esc(ct.nome)}</b> <span class="muted">${esc(ct.papel||'')}</span>
-        <div class="muted" style="font-size:12px;">${ct.eh_grupo?'👥 ':''}${esc(ct.whatsapp_e164 || '')} ${ct.email?'· '+esc(ct.email):''}</div>
-      </div>
-      <div class="row">
-        ${ct.is_principal ? '<span class="badge badge-ok">Principal</span>' : ''}
-        <button class="btn btn-sm btn-outline" onclick="abrirEditarContato(${i})">Editar</button>
-      </div>
-    </div>`).join('') : `<div class="muted">Nenhum contato cadastrado.</div>`;
 
   const contratosHtml = contratos.length ? contratos.map((item,i) => {
     const co = item.contrato;
@@ -1720,8 +1713,6 @@ function renderPilarFinanceiro(){
           <button class="btn btn-sm btn-danger" onclick="abrirApagarContrato(${i})">Apagar</button>
         </div>
       </div>
-      ${/* D2: mesmos botões da tela #/contratos — gerar PDF pelo molde,
-            enviar pelo WhatsApp, subir/ver o PDF assinado */''}
       <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:10px;">
         ${botoesContrato(co.id, data.cliente.slug, co.status, !!co.arquivo_path, co.arquivo_path || '', co.docuseal_submission_id)}
       </div>
@@ -1729,15 +1720,9 @@ function renderPilarFinanceiro(){
       ${itens.length ? `<ul style="margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13px;">
         ${itens.map(it => `<li>${esc(it.descricao)} — ${centavosToBRL(it.valor_centavos)}</li>`).join('')}
       </ul>` : ''}
-      ${/* item 5 do D1: o ramo vermelho "sem porta de saída escrita" saiu —
-            fica só a confirmação discreta quando existe. A trava do banco
-            (hub_contrato_ativo_exige_porta_saida) continua de pé e o campo
-            continua no form. */''}
       ${co.porta_saida_escrita_em
         ? `<div class="muted" style="margin-top:10px;font-size:12.5px;">✓ Porta de saída escrita (${esc(co.porta_saida_tipo || 'nenhuma')})</div>`
         : ''}
-      ${/* a observacao virou o TEXTO do contrato (D1.1) — precisa preservar
-            as quebras de linha que ela escreveu na caixa */''}
       ${co.observacao ? `<div class="muted" style="margin-top:8px;font-size:12.5px;white-space:pre-wrap;">${esc(co.observacao)}</div>` : ''}
     </div>`;
   }).join('') : `<div class="muted">Nenhum contrato registrado.</div>`;
@@ -1747,9 +1732,26 @@ function renderPilarFinanceiro(){
       <h2 class="section-title" style="margin:0;">Contratos</h2>
       <button class="btn btn-sm btn-outline" onclick="abrirNovoContrato()">+ Novo contrato</button>
     </div>
-    ${contratosHtml}
+    ${contratosHtml}`;
+}
 
-    <div class="row-between" style="margin-top:28px;margin-bottom:12px;">
+function renderPilarFinanceiro(){
+  const data = clienteAtual;
+  const contatos = data.contatos || [];
+
+  const contatosHtml = contatos.length ? contatos.map((ct,i) => `
+    <div class="row-between" style="padding:9px 0;border-top:1px solid var(--line);">
+      <div><b>${esc(ct.nome)}</b> <span class="muted">${esc(ct.papel||'')}</span>
+        <div class="muted" style="font-size:12px;">${ct.eh_grupo?'👥 ':''}${esc(ct.whatsapp_e164 || '')} ${ct.email?'· '+esc(ct.email):''}</div>
+      </div>
+      <div class="row">
+        ${ct.is_principal ? '<span class="badge badge-ok">Principal</span>' : ''}
+        <button class="btn btn-sm btn-outline" onclick="abrirEditarContato(${i})">Editar</button>
+      </div>
+    </div>`).join('') : `<div class="muted">Nenhum contato cadastrado.</div>`;
+
+  return `
+    <div class="row-between" style="margin-bottom:12px;">
       <h2 class="section-title" style="margin:0;">Contatos</h2>
       <button class="btn btn-sm btn-outline" onclick="abrirNovoContato()">+ Novo contato</button>
     </div>
