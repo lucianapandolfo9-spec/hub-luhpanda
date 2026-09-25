@@ -350,7 +350,10 @@ h2.section-title{
   color:var(--roxo-claro);background:rgba(139,75,163,.16);border:1px solid rgba(139,75,163,.45);
   border-radius:999px;padding:1px 7px;
 }
+/* só "sem WhatsApp cadastrado" pede ação (âmbar). "Sem conversa ainda" é
+   estado normal de cliente novo — fica cinza, nunca vermelho. */
 .kcard-cliente .conv .ksemwa{color:var(--warn);font-weight:600}
+.kcard-cliente .conv .ksemconversa{color:var(--fraco);font-style:italic}
 
 /* ---------- Conversa de WhatsApp — thread + envio (Bloco C) ---------- */
 .conversa{display:flex;flex-direction:column;gap:12px}

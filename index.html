@@ -2008,6 +2008,28 @@ async function renderCRM(){
   desenharCRM();
 }
 
+// Rodapé do card de cliente no kanban — três estados que NÃO se confundem
+// (defeito achado no teste real do D1: o selo vinha da conversa, e a GL4/Gio
+// aparecia "sem WhatsApp" tendo número cadastrado desde 24/09):
+//   1. tem conversa            → prévia normal
+//   2. tem número, sem conversa→ nota discreta, cinza: não é problema
+//   3. não tem número          → ⚠ âmbar, é o único estado que pede ação dela
+// `tem_whatsapp` chega undefined enquanto a migration 022 não for aplicada —
+// nesse caso não mostra nada, em vez de chutar um dos dois estados.
+function rodapeCardCliente(cl, conv){
+  if(conv) return `<div class="conv">
+    <span class="prev">${conv.ultima_msg_direcao === 'saida' ? '<span class="eu">você:</span> ' : ''}${esc(truncar(conv.ultima_msg_previa, 50))}</span>
+    <span class="quando">${esc(tempoRelativo(conv.ultima_msg_em))}</span>
+  </div>`;
+  if(cl.tem_whatsapp === false) return `<div class="conv">
+    <span class="prev ksemwa" title="Abrir a ficha pra cadastrar o WhatsApp">⚠ sem WhatsApp</span>
+  </div>`;
+  if(cl.tem_whatsapp === true) return `<div class="conv">
+    <span class="prev ksemconversa">sem conversa ainda</span>
+  </div>`;
+  return '';
+}
+
 function desenharCRM(){
   const ativos = prospectsCache.filter(p=>!p.perdido);
   const perdidos = prospectsCache.length - ativos.length;
@@ -2039,12 +2061,7 @@ function desenharCRM(){
       <div class="kcard kcard-cliente ${conv && conv.nao_lida ? 'tem-nao-lida' : ''}" onclick="location.hash='#/cliente/${esc(cl.slug)}'">
         <div class="nome">${esc(cl.nome)}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}</div>
         <div class="meta"><span class="kcli">cliente</span>${cl.valor_mensal_centavos?`<span class="valor">${centavosCompact(cl.valor_mensal_centavos)}</span>`:''}</div>
-        ${conv ? `<div class="conv">
-          <span class="prev">${conv.ultima_msg_direcao === 'saida' ? '<span class="eu">você:</span> ' : ''}${esc(truncar(conv.ultima_msg_previa, 50))}</span>
-          <span class="quando">${esc(tempoRelativo(conv.ultima_msg_em))}</span>
-        </div>` : `<div class="conv">
-          <span class="prev ksemwa" title="Abrir a ficha pra cadastrar o WhatsApp">⚠ sem WhatsApp</span>
-        </div>`}
+        ${rodapeCardCliente(cl, conv)}
       </div>`;
     }).join('') : '';
 
