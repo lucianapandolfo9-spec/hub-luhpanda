@@ -144,10 +144,12 @@ async function rpc(name, params){
 }
 
 // ---------- modal genérico ----------
-function openModal(titleHtml, bodyHtml){
+// `extraClass` opcional (ex.: 'wide') — retrocompatível, quem já chama com 2
+// argumentos continua igual.
+function openModal(titleHtml, bodyHtml, extraClass){
   modalRoot.innerHTML = `
     <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
-      <div class="modal">
+      <div class="modal ${extraClass||''}">
         <h3>${titleHtml}</h3>
         ${bodyHtml}
       </div>
@@ -261,7 +263,7 @@ const NAV_GROUPS = [
   { label: 'Comercial', items: [
     ['crm','CRM', NAV_ICONS.crm, true],
     ['contratos','Contratos', NAV_ICONS.contratos, true],
-    ['reunioes','Reuniões', NAV_ICONS.reunioes, false],
+    ['reunioes','Reuniões', NAV_ICONS.reunioes, true],
   ]},
   { label: 'Marketing', items: [
     ['posts','Posts', NAV_ICONS.posts, false],
@@ -3105,6 +3107,283 @@ function botoesContrato(id, slug, status, temArquivo, path){
 }
 
 // ============================================================
+// REUNIÕES — ponte com o Meetily (Fase 3, Bloco D — D3)
+//
+// Sem mockup de referência fiel (vReunioes() do mockup-v2-frontend.html
+// listava reunião fictícia com "Abrir no Meetily" — aqui a reunião já chega
+// pronta no banco, então o card abre o DETALHE, não um app externo).
+// Layout: rowcards no padrão de Contratos/Cobranças + modal largo pro
+// detalhe (resumo, vínculo, análise comercial, transcrição colapsável).
+//
+// A transcrição NUNCA aparece na lista (hub_rpc_reunioes não devolve o
+// campo, de propósito — só o detalhe, uma reunião por vez, igual à cautela
+// já usada em Conversas).
+// ============================================================
+let reunioesCache = [];
+let reuniaoFiltro = 'todas'; // todas | sem_vinculo | vinculadas
+
+function formatarDataHoraReuniao(ts){
+  if(!ts) return 'sem data';
+  const d = new Date(ts);
+  if(isNaN(d.getTime())) return 'sem data';
+  return d.toLocaleDateString('pt-BR', {day:'2-digit',month:'2-digit',year:'numeric'})
+    + ' às ' + d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+}
+
+function setReuniaoFiltro(f){ reuniaoFiltro = f; desenharReunioes(); }
+
+async function renderReunioes(){
+  root.innerHTML = shell('reunioes', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  reunioesCache = await rpc('hub_rpc_reunioes').catch(()=>[]);
+  desenharReunioes();
+}
+
+function desenharReunioes(){
+  const todas = reunioesCache || [];
+  const comAnalise = todas.filter(r => r.tem_analise).length;
+  const semVinculo = todas.filter(r => !r.prospect_id && !r.cliente_id).length;
+
+  const visiveis = todas.filter(r => {
+    if(reuniaoFiltro === 'sem_vinculo') return !r.prospect_id && !r.cliente_id;
+    if(reuniaoFiltro === 'vinculadas') return !!(r.prospect_id || r.cliente_id);
+    return true;
+  });
+
+  const linhas = visiveis.map(r => {
+    const vinculo = r.cliente_nome
+      ? `<span class="badge badge-ok" onclick="event.stopPropagation();location.hash='#/cliente/${esc(r.cliente_slug)}'" style="cursor:pointer;">${esc(r.cliente_nome)}</span>`
+      : (r.prospect_nome
+          ? `<span class="badge badge-roxo" onclick="event.stopPropagation();location.hash='#/prospect/${esc(r.prospect_id)}'" style="cursor:pointer;">${esc(r.prospect_nome)}</span>`
+          : `<span class="badge badge-muted">sem vínculo</span>`);
+    const chars = r.transcricao_chars
+      ? `${Number(r.transcricao_chars).toLocaleString('pt-BR')} caract. de transcrição`
+      : (r.tem_transcricao ? 'com transcrição' : 'sem transcrição');
+    return `
+    <div class="rowcard" style="cursor:pointer;" onclick="abrirReuniao('${esc(r.id)}')">
+      <div class="l">
+        <div class="t">${esc(r.titulo || 'Reunião sem título')}</div>
+        <div class="s">${formatarDataHoraReuniao(r.realizada_em)} · ${chars}</div>
+      </div>
+      <div class="r">
+        ${vinculo}
+        ${r.tem_analise ? '<span class="badge badge-ok">Análise pronta</span>' : '<span class="badge badge-muted">Sem análise</span>'}
+      </div>
+    </div>`;
+  }).join('');
+
+  root.innerHTML = shell('reunioes', `
+    <div class="row-between" style="margin-bottom:14px;">
+      <h2 class="section-title" style="margin:0;">Reuniões</h2>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="kpi-head">${KPI_ICONS.calendar}<span class="label">Total</span></div><div class="value">${todas.length}</div></div>
+      <div class="kpi ok"><div class="kpi-head">${KPI_ICONS.check}<span class="label">Com análise</span></div><div class="value">${comAnalise}</div></div>
+      <div class="kpi ${semVinculo?'warn':''}"><div class="kpi-head">${KPI_ICONS.userCheck}<span class="label">Sem vínculo</span></div><div class="value">${semVinculo}</div></div>
+    </div>
+    <div class="chips">
+      <button class="chip ${reuniaoFiltro==='todas'?'on':''}" onclick="setReuniaoFiltro('todas')">Todas (${todas.length})</button>
+      <button class="chip ${reuniaoFiltro==='sem_vinculo'?'on':''}" onclick="setReuniaoFiltro('sem_vinculo')">Sem vínculo (${semVinculo})</button>
+      <button class="chip ${reuniaoFiltro==='vinculadas'?'on':''}" onclick="setReuniaoFiltro('vinculadas')">Vinculadas (${todas.length - semVinculo})</button>
+    </div>
+    ${linhas || '<div class="empty">Nenhuma reunião ainda. A ponte <code>subir-reuniao</code> sobe uma de cada vez, direto do Meetily no seu Mac — nunca sozinha.</div>'}
+    <p class="dim" style="font-size:12px;margin-top:16px;">
+      Reunião só entra aqui quando você escolhe subir ela do Meetily. Clique num card pra ver resumo,
+      vincular a um prospect/cliente, gerar a análise comercial ou ler a transcrição inteira.
+    </p>
+  `);
+}
+
+// ---------- detalhe (modal largo) ----------
+async function abrirReuniao(id){
+  openModal('Carregando…', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`, 'wide');
+  const [detalhe] = await Promise.all([
+    rpc('hub_rpc_reuniao', { p_id: id }).catch(()=>null),
+    loadCarteiraCache(),
+    (async () => { if(!prospectsCache.length) prospectsCache = await rpc('hub_rpc_prospects').catch(()=>[]); })(),
+  ]);
+  if(!detalhe || !detalhe.reuniao){ closeModal(); toast('Não achei essa reunião.'); return; }
+  desenharReuniao(detalhe);
+}
+
+function desenharReuniao(detalhe){
+  const r = detalhe.reuniao;
+
+  const optsProspect = ['<option value="">— nenhum —</option>']
+    .concat(prospectsCache.map(p => `<option value="${esc(p.id)}" ${r.prospect_id===p.id?'selected':''}>${esc(p.nome)}</option>`))
+    .join('');
+  const optsCliente = ['<option value="">— nenhum —</option>']
+    .concat(carteira.map(c => `<option value="${esc(c.cliente_id)}" ${r.cliente_id===c.cliente_id?'selected':''}>${esc(c.nome)}</option>`))
+    .join('');
+
+  const analiseHtml = r.analise
+    ? renderAnaliseReuniao(r.analise, r.id)
+    : `
+      <p class="muted" style="margin:8px 0 12px;">Ainda sem análise.</p>
+      <button class="btn btn-primary btn-sm" id="btn-analisar-reuniao"
+        onclick="gerarAnaliseReuniao('${esc(r.id)}')"
+        ${(!r.transcricao && !r.resumo) ? 'disabled title="Essa reunião não tem transcrição nem resumo"' : ''}>
+        Analisar com IA
+      </button>`;
+
+  const transcricaoHtml = r.transcricao ? `
+    <details style="margin-top:14px;">
+      <summary style="cursor:pointer;font-size:12.5px;color:var(--fraco);">Ver transcrição completa (${String(r.transcricao).length.toLocaleString('pt-BR')} caracteres)</summary>
+      <pre style="white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:11.5px;color:var(--suave);background:var(--poco);border:1px solid var(--borda);border-radius:10px;padding:12px;margin-top:8px;max-height:280px;overflow:auto;">${esc(r.transcricao)}</pre>
+    </details>` : '';
+
+  openModal(esc(r.titulo || 'Reunião sem título'), `
+    <p class="dim" style="font-size:12px;margin-top:-6px;margin-bottom:16px;">
+      ${formatarDataHoraReuniao(r.realizada_em)} · <span style="font-family:var(--mono);">${esc(r.meetily_meeting_id)}</span>
+    </p>
+
+    <div class="f2">
+      <div class="field">
+        <label>Vincular ao prospect</label>
+        <select id="f-reuniao-prospect">${optsProspect}</select>
+      </div>
+      <div class="field">
+        <label>Vincular ao cliente</label>
+        <select id="f-reuniao-cliente">${optsCliente}</select>
+      </div>
+    </div>
+    <button class="btn btn-outline btn-sm" style="margin-bottom:18px;" onclick="salvarVinculoReuniao('${esc(r.id)}')">Salvar vínculo</button>
+
+    ${r.resumo ? `
+      <p class="eyebrow">Resumo</p>
+      <div class="card" style="white-space:pre-wrap;font-size:13px;margin-bottom:18px;">${esc(r.resumo)}</div>
+    ` : ''}
+
+    <p class="eyebrow">Análise comercial</p>
+    <div id="bloco-analise-reuniao">${analiseHtml}</div>
+
+    ${transcricaoHtml}
+
+    <div class="row" style="justify-content:flex-end;margin-top:18px;">
+      <button class="btn btn-outline" onclick="closeModal()">Fechar</button>
+    </div>
+  `, 'wide');
+}
+
+// preço SÓ do que a Edge Function já validou contra o catálogo (ver
+// supabase/functions/reuniao-analisar) — aqui é só desenhar o que voltou.
+function renderAnaliseReuniao(a, reuniaoId){
+  const cliente = a.cliente || {};
+  const prazo = a.prazo || {};
+  const proposta = a.proposta || {};
+  const urgenciaCls = {alta:'badge-bad', media:'badge-warn', baixa:'badge-muted'}[prazo.urgencia] || 'badge-muted';
+  const confiancaCls = {alta:'badge-ok', media:'badge-warn', baixa:'badge-bad'}[cliente.confianca] || 'badge-muted';
+
+  const listaOu = (arr, vazio) => (Array.isArray(arr) && arr.length)
+    ? `<ul style="margin:6px 0 0;padding-left:18px;font-size:13px;color:var(--suave);">${arr.map(i=>`<li style="margin-bottom:3px;">${esc(i)}</li>`).join('')}</ul>`
+    : `<p class="dim" style="font-size:12.5px;margin:4px 0 0;">${esc(vazio)}</p>`;
+
+  const itens = (proposta.itens || []).map(it => `
+    <div class="rowcard" style="margin-bottom:6px;">
+      <div class="l">
+        <div class="t">${esc(it.servico_nome || 'item')}${it.quantidade > 1 ? ' × ' + it.quantidade : ''}</div>
+        ${it.fora_do_catalogo
+          ? `<div class="s" style="color:var(--warn);">${esc(it.observacao || 'fora do catálogo')}</div>`
+          : (it.justificativa ? `<div class="s">${esc(it.justificativa)}</div>` : '')}
+      </div>
+      <div class="r">
+        ${it.preco_centavos != null ? `<b>${centavosToBRL(it.subtotal_centavos)}</b>` : '<span class="badge badge-muted">sem preço</span>'}
+      </div>
+    </div>`).join('');
+
+  return `
+    <div class="card" style="margin-bottom:12px;">
+      <div class="row-between" style="margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+        <b style="font-size:14px;">${esc(cliente.nome || 'a confirmar')}</b>
+        <span class="badge ${confiancaCls}">confiança ${esc(cliente.confianca || '—')}</span>
+      </div>
+      ${cliente.quem_e ? `<p class="muted" style="font-size:13px;margin:0 0 10px;">${esc(cliente.quem_e)}</p>` : ''}
+
+      <p class="eyebrow">Dor real</p>
+      <p style="font-size:13px;margin:2px 0 10px;">${esc(a.dor || '—')}</p>
+
+      <p class="eyebrow">Escopo pedido</p>
+      ${listaOu(a.escopo_pedido, 'nada registrado')}
+
+      <p class="eyebrow" style="margin-top:10px;">Prazo</p>
+      <p style="font-size:13px;margin:2px 0 10px;">
+        <span class="badge ${urgenciaCls}">urgência ${esc(prazo.urgencia || '—')}</span>
+        ${prazo.prazo_citado ? ' · ' + esc(prazo.prazo_citado) : ''}
+        ${prazo.por_que ? `<br><span class="dim" style="font-size:12px;">${esc(prazo.por_que)}</span>` : ''}
+      </p>
+
+      <p class="eyebrow">Combinados</p>
+      ${listaOu(a.combinados, 'nada registrado')}
+
+      <p class="eyebrow" style="margin-top:10px;">Próximos passos</p>
+      ${listaOu(a.proximos_passos, 'nada registrado')}
+
+      ${(a.alertas && a.alertas.length) ? `
+        <p class="eyebrow" style="margin-top:10px;color:var(--warn);">Alertas</p>
+        ${listaOu(a.alertas, '')}
+      ` : ''}
+    </div>
+
+    <p class="eyebrow">Proposta (preço só do catálogo)</p>
+    ${itens || '<p class="dim" style="font-size:12.5px;">Sem itens.</p>'}
+    ${proposta.total_centavos != null
+      ? `<div class="row-between" style="margin-top:8px;"><b>Total${proposta.total_parcial ? ' (parcial)' : ''}</b><b>${centavosToBRL(proposta.total_centavos)}</b></div>`
+      : (proposta.itens && proposta.itens.length ? '<p class="dim" style="font-size:12px;margin-top:6px;">Total não calculado — algum item sem preço de referência.</p>' : '')}
+    ${proposta.raciocinio ? `<p class="muted" style="font-size:12.5px;margin-top:8px;">${esc(proposta.raciocinio)}</p>` : ''}
+
+    <button class="btn btn-outline btn-sm" id="btn-analisar-reuniao" style="margin-top:14px;" onclick="gerarAnaliseReuniao('${esc(reuniaoId)}')">Analisar de novo</button>
+  `;
+}
+
+async function salvarVinculoReuniao(id){
+  const prospectId = document.getElementById('f-reuniao-prospect').value || null;
+  const clienteId = document.getElementById('f-reuniao-cliente').value || null;
+  try{
+    await rpc('hub_rpc_amarrar_reuniao', { p: { id, prospect_id: prospectId, cliente_id: clienteId } });
+    toast('Vínculo salvo.');
+    reunioesCache = await rpc('hub_rpc_reunioes').catch(()=>reunioesCache);
+    desenharReunioes();
+    const detalhe = await rpc('hub_rpc_reuniao', { p_id: id }).catch(()=>null);
+    if(detalhe && detalhe.reuniao) desenharReuniao(detalhe);
+  } catch(e){ toast(friendlyError(e)); }
+}
+
+// A Edge Function já valida cada item da proposta contra o catálogo antes de
+// gravar (ver header de reuniao-analisar) — aqui só chama, espera e redesenha.
+async function gerarAnaliseReuniao(id){
+  const botao = document.getElementById('btn-analisar-reuniao');
+  if(botao){ botao.disabled = true; botao.textContent = 'Analisando…'; }
+
+  if(!hubClient.functions){
+    toast('Análise ainda não ativada — falta configurar a chave do Gemini.');
+    if(botao){ botao.disabled = false; botao.textContent = 'Analisar com IA'; }
+    return;
+  }
+
+  try{
+    const { data, error } = await hubClient.functions.invoke('reuniao-analisar', { body: { reuniao_id: id } });
+    if(error) throw error;
+    if(data && data.erro) throw new Error(data.detalhe || data.erro);
+    toast('Análise gerada.');
+    reunioesCache = await rpc('hub_rpc_reunioes').catch(()=>reunioesCache);
+    desenharReunioes();
+    const detalhe = await rpc('hub_rpc_reuniao', { p_id: id }).catch(()=>null);
+    if(detalhe && detalhe.reuniao) desenharReuniao(detalhe);
+  } catch(e){
+    toast(erroAnaliseReuniao(e));
+    if(botao){ botao.disabled = false; botao.textContent = 'Analisar com IA'; }
+  }
+}
+
+function erroAnaliseReuniao(err){
+  const m = (err && err.message) || String(err);
+  if(/GEMINI_API_KEY|nao ativada|não ativada/i.test(m)) return 'Análise ainda não ativada — falta configurar a chave do Gemini no Supabase.';
+  if(/catalogo de servicos vazio|catálogo de serviços vazio/i.test(m)) return 'Sem catálogo de serviços cadastrado — a proposta precisa dele.';
+  if(/sem transcricao nem resumo|sem transcrição nem resumo/i.test(m)) return 'Essa reunião não tem transcrição nem resumo pra analisar.';
+  if(/not found|404|failed to (send|fetch)|networkerror|non-2xx/i.test(m)) return 'Não consegui falar com a análise — confere se a Edge Function reuniao-analisar está publicada e a chave do Gemini está configurada.';
+  return 'A análise não foi gerada: ' + m;
+}
+
+// ============================================================
 // COBRANÇAS — configuração por cliente + textos da régua (Fase 3, Bloco B)
 // Sem mockup de referência (vCobrancas() do mockup é a fila do bot, não o
 // editor de config) — desenhado no design system das telas #/custos e
@@ -3252,7 +3531,8 @@ async function render(){
   if(page === 'prospect' && param) return renderProspect(param);
   if(page === 'cobrancas') return renderCobrancas();
   if(page === 'contratos') return renderContratos();
-  if(['reunioes','posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
+  if(page === 'reunioes') return renderReunioes();
+  if(['posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
   return renderDash();
 }
 
