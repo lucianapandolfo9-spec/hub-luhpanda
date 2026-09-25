@@ -491,8 +491,8 @@ h2.section-title{
 .agenda-nav{display:flex;align-items:center;gap:6px}
 
 /* visão semana: 7 colunas, uma por dia */
-.agenda-semana{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
-.agenda-dia{background:var(--superficie);border:1px solid var(--borda);border-radius:12px;padding:10px;min-height:140px}
+.agenda-semana{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px}
+.agenda-dia{background:var(--superficie);border:1px solid var(--borda);border-radius:12px;padding:10px;min-height:140px;min-width:0}
 .agenda-dia.hoje{border-color:var(--laranja)}
 .agenda-dia-head{
   font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--fraco);
@@ -508,12 +508,12 @@ h2.section-title{
 .agenda-evento.cancelado{opacity:.45;text-decoration:line-through}
 
 /* visão mês: grade 7 colunas (cabeçalho + 42 células) */
-.agenda-mes{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.agenda-mes{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .agenda-mes-cab{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--fraco);text-align:center;padding-bottom:4px}
 .agenda-mes-dia{
   background:var(--superficie);border:1px solid var(--borda);border-radius:9px;min-height:86px;
   padding:6px;font-size:11px;color:var(--suave);cursor:pointer;transition:border-color .15s var(--ease);
-  display:flex;flex-direction:column;gap:3px;
+  display:flex;flex-direction:column;gap:3px;min-width:0;
 }
 .agenda-mes-dia:hover{border-color:var(--borda-forte)}
 .agenda-mes-dia.hoje{border-color:var(--laranja);color:var(--laranja)}
@@ -525,7 +525,7 @@ h2.section-title{
 .agenda-mes-evento{
   background:rgba(255,107,53,.12);border:1px solid rgba(255,107,53,.28);border-radius:5px;
   padding:1px 5px;font-size:9.5px;line-height:1.55;color:var(--texto);
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;min-width:0;
 }
 .agenda-mes-evento:hover{border-color:var(--laranja)}
 .agenda-mes-evento.cancelado{opacity:.45;text-decoration:line-through}
