@@ -48,6 +48,17 @@ function centavosToInputValue(c){
   if(c == null) return '';
   return (Number(c)/100).toFixed(2);
 }
+// Bloco G — cliente por comissão não tem mensalidade, mostra o percentual
+// no lugar do "R$ X/mês" do card da carteira.
+function valorCarteiraCard(c){
+  if(c.tipo_cobranca === 'percentual'){
+    const pct = c.percentual_comissao != null
+      ? Number(c.percentual_comissao).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:2})
+      : '—';
+    return `${pct}% sobre vendas`;
+  }
+  return centavosToBRL(c.valor_mensal_centavos);
+}
 function todayISO(){
   return new Date().toLocaleDateString('sv-SE'); // yyyy-mm-dd no fuso local
 }
@@ -701,7 +712,7 @@ async function renderCarteira(){
     <div class="preco-card cliente-card" onclick="location.hash='#/cliente/${esc(c.slug)}'">
       <span class="tipo">${esc(c.servico || '—')}</span>
       <span class="nome">${esc(c.nome)}${c.status!=='ativo' ? ` <span class="badge badge-muted" style="margin-left:4px;">${statusLabel(c.status)}</span>` : ''}</span>
-      <span class="valor">${centavosToBRL(c.valor_mensal_centavos)}</span>
+      <span class="valor">${valorCarteiraCard(c)}</span>
       <div class="meta">
         <span>${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : (carteiraVista==='arquivados' ? '—' : '<span class="flag">🔴 sem vencimento</span>')}</span>
         <span class="badge ${contratoBadgeClass(c.contrato_status)}">${statusLabel(c.contrato_status)}</span>
@@ -724,6 +735,32 @@ async function renderCarteira(){
   `);
 }
 
+// Bloco G — seletor Valor fixo × Porcentagem sobre vendas. Mesmo padrão de
+// toggle já usado em togglePortaSaida(): select dispara, um <div> muda
+// display. Sem motor de cálculo novo — percentual é só referência/registro,
+// o recebível de comissão continua lançado manual (decisão do grill-me).
+function toggleTipoCobranca(){
+  const tipo = document.getElementById('f-tipo-cobranca').value;
+  const wrapPct = document.getElementById('wrap-percentual');
+  if(wrapPct) wrapPct.style.display = (tipo === 'percentual') ? '' : 'none';
+}
+function campoTipoCobranca(c){
+  c = c || {};
+  const tipo = c.tipo_cobranca === 'percentual' ? 'percentual' : 'fixo';
+  return `
+    <div class="field"><label>Tipo de cobrança</label>
+      <select id="f-tipo-cobranca" onchange="toggleTipoCobranca()">
+        <option value="fixo" ${tipo==='fixo'?'selected':''}>Valor fixo — mensalidade combinada</option>
+        <option value="percentual" ${tipo==='percentual'?'selected':''}>Porcentagem sobre vendas — comissão</option>
+      </select>
+    </div>
+    <div id="wrap-percentual" class="field" style="${tipo==='percentual'?'':'display:none;'}">
+      <label>Percentual (%)</label>
+      <input id="f-percentual" type="number" step="0.01" min="0" max="100" value="${c.percentual_comissao != null ? c.percentual_comissao : ''}" placeholder="ex: 33.3">
+      <p class="dim" style="font-size:12px;margin:4px 0 0;">Só registro — o valor mensal fica em branco, o recebível de cada venda continua lançado manual (Financeiro → Recebíveis), igual hoje.</p>
+    </div>`;
+}
+
 async function abrirNovoCliente(){
   const empresas = await rpc('hub_rpc_empresas').catch(()=>[]);
   const empresaId = empresas[0]?.id || '';
@@ -740,6 +777,7 @@ async function abrirNovoCliente(){
           <option value="pausado">Pausado</option>
         </select>
       </div>
+      ${campoTipoCobranca()}
       <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2"></textarea></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
@@ -750,6 +788,7 @@ async function abrirNovoCliente(){
 async function salvarCliente(ev){
   ev.preventDefault();
   try{
+    const tipoCobranca = document.getElementById('f-tipo-cobranca').value;
     await rpc('hub_rpc_salvar_cliente', { p: {
       empresa_id: document.getElementById('f-empresa-id').value,
       nome: document.getElementById('f-nome').value,
@@ -757,6 +796,9 @@ async function salvarCliente(ev){
       segmento: document.getElementById('f-segmento').value || null,
       status: document.getElementById('f-status').value,
       observacao: document.getElementById('f-observacao').value || null,
+      tipo_cobranca: tipoCobranca,
+      percentual_comissao: tipoCobranca === 'percentual'
+        ? (document.getElementById('f-percentual').value || null) : null,
     }});
     closeModal(); toast('Cliente salvo.'); carteira = []; renderCarteira();
   } catch(e){}
@@ -1734,6 +1776,7 @@ function abrirEditarClienteFicha(){
       <div class="field"><label>Razão social (como vai no contrato)</label><input id="f-razao" value="${esc(c.razao_social||'')}" placeholder="${esc(c.nome||'')}"></div>
       <div class="field"><label>CPF / CNPJ</label><input id="f-documento" value="${esc(c.documento||'')}"></div>
       <div class="field"><label>Endereço completo</label><input id="f-endereco" value="${esc(c.endereco||'')}" placeholder="Rua, nº, bairro, Cidade/UF"></div>
+      ${campoTipoCobranca(c)}
       <div class="field"><label>Observação</label><textarea id="f-observacao" rows="3">${esc(c.observacao||'')}</textarea></div>
       ${/* D1.1 (item 2): a carteira é recorrência. Cliente avulso/freela
             (Pandoka) sai da carteira e da coluna "Cliente aberto" do CRM,
@@ -1753,6 +1796,7 @@ async function salvarClienteFicha(ev){
   ev.preventDefault();
   const c = clienteAtual.cliente;
   try{
+    const tipoCobranca = document.getElementById('f-tipo-cobranca').value;
     await rpc('hub_rpc_salvar_cliente', { p: {
       id: document.getElementById('f-id').value,
       empresa_id: document.getElementById('f-empresa-id').value,
@@ -1767,6 +1811,10 @@ async function salvarClienteFicha(ev){
       razao_social: document.getElementById('f-razao').value || null,
       documento: document.getElementById('f-documento').value || null,
       endereco: document.getElementById('f-endereco').value || null,
+      // Bloco G — tipo de cobrança (fixo × porcentagem)
+      tipo_cobranca: tipoCobranca,
+      percentual_comissao: tipoCobranca === 'percentual'
+        ? (document.getElementById('f-percentual').value || null) : null,
       // passthrough obrigatório: o upsert do banco sobrescreve TODAS as
       // colunas — sem repassar o que a ficha não edita, salvar apagaria
       // origem e as datas de entrada/saída.
@@ -1793,6 +1841,7 @@ async function salvarClientePatch(patch, msg){
     saiu_em: c.saiu_em, motivo_saida: c.motivo_saida, observacao: c.observacao,
     recorrente: c.recorrente,   // D1.1 — senão arquivar/reativar devolveria o avulso pra carteira
     endereco: c.endereco,       // D2 — mesma armadilha, coluna nova
+    tipo_cobranca: c.tipo_cobranca, percentual_comissao: c.percentual_comissao, // Bloco G — mesma armadilha
     ...patch,
   }});
   closeModal(); toast(msg);
