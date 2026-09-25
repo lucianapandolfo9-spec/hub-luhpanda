@@ -1,6 +1,6 @@
 // HUB LUH PANDA — agenda-google
 //
-// Ponte entre o Hub e o Google Agenda (Fase 3, Bloco F). QUATRO AÇÕES:
+// Ponte entre o Hub e o Google Agenda (Fase 3, Bloco F). CINCO AÇÕES:
 //
 //   "listar"   — eventos do calendário PRINCIPAL da conta dela num
 //                intervalo (pra tela #/agenda, visão semana/mês).
@@ -20,6 +20,14 @@
 //                rpc_eventos_agenda_desvincular, migration 030). Pedido
 //                dela em 25/09/2026, ao ver o Bloco F ao vivo: "apagar
 //                reunião clicando nela, igual ao Google Agenda".
+//   "editar"   — troca título/data/hora/duração/convidado/Meet de um
+//                evento já existente (PATCH, sendUpdates=all — avisa o
+//                convidado da mudança). NÃO mexe em hub.eventos_agenda
+//                nem em hub.reunioes — o vínculo continua o mesmo, só o
+//                conteúdo do evento no Google muda (fonte da verdade
+//                nunca duplicada no Hub, mesma regra desde o desenho
+//                original do Bloco F). 3º ajuste pedido por ela em
+//                25/09/2026, no mesmo modal de detalhe do "Apagar".
 //
 // POR QUE ESTA FUNÇÃO EXISTE (mesma razão de wa-send/reuniao-analisar): o
 // Hub é uma página estática. Se o client_secret/refresh_token do Google
@@ -272,6 +280,59 @@ Deno.serve(async (req: Request) => {
       }, jwt).catch((e) => { throw new Error(`vínculo não removido: ${e}`); });
 
       return responder({ ok: true, ...(resultado && typeof resultado === "object" ? resultado : {}) });
+    }
+
+    // ---------------- editar (trocar dados de uma reunião já marcada) ----------------
+    if (acao === "editar") {
+      const googleEventId = String(entrada.google_event_id ?? "").trim();
+      const titulo = String(entrada.titulo ?? "").trim();
+      const inicioIso = String(entrada.inicio_iso ?? "");
+      const duracaoMin = Number(entrada.duracao_min ?? 60);
+      const attendeeEmail = entrada.attendee_email ? String(entrada.attendee_email).trim() : null;
+      const comMeet = !!entrada.com_meet;
+
+      if (!googleEventId) return responder({ erro: "google_event_id é obrigatório" }, 400);
+      if (!titulo || !inicioIso) return responder({ erro: "titulo e inicio_iso são obrigatórios" }, 400);
+
+      const inicio = new Date(inicioIso);
+      if (isNaN(inicio.getTime())) return responder({ erro: "inicio_iso inválido" }, 400);
+      const fim = new Date(inicio.getTime() + duracaoMin * 60000);
+
+      // busca o evento atual só pra decidir se mexe no Google Meet — não
+      // recriar uma sala que já existe, e só remover se ela desmarcou o
+      // checkbox de verdade.
+      const atual = await chamarGoogleCalendar(`/calendars/primary/events/${encodeURIComponent(googleEventId)}`);
+      const jaTemMeet = !!(((atual?.conferenceData as Record<string, unknown> | undefined)?.entryPoints ?? []) as Array<Record<string, unknown>>)
+        .find((p) => p.entryPointType === "video");
+
+      const body: Record<string, unknown> = {
+        summary: titulo,
+        description: entrada.descricao !== undefined ? (entrada.descricao ? String(entrada.descricao) : null) : undefined,
+        start: { dateTime: inicio.toISOString(), timeZone: TIMEZONE },
+        end: { dateTime: fim.toISOString(), timeZone: TIMEZONE },
+        attendees: attendeeEmail ? [{ email: attendeeEmail }] : [],
+      };
+
+      let precisaConferenceVersion = false;
+      if (comMeet && !jaTemMeet) {
+        body.conferenceData = {
+          createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } },
+        };
+        precisaConferenceVersion = true;
+      } else if (!comMeet && jaTemMeet) {
+        body.conferenceData = null;
+        precisaConferenceVersion = true;
+      }
+
+      const qs = new URLSearchParams({ sendUpdates: "all" });
+      if (precisaConferenceVersion) qs.set("conferenceDataVersion", "1");
+
+      const atualizado = await chamarGoogleCalendar(`/calendars/primary/events/${encodeURIComponent(googleEventId)}?${qs}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+
+      return responder({ ok: true, evento: resumirEvento(atualizado) });
     }
 
     return responder({ erro: `ação desconhecida: "${acao}"` }, 400);

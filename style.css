@@ -511,12 +511,26 @@ h2.section-title{
 .agenda-mes{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 .agenda-mes-cab{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;color:var(--fraco);text-align:center;padding-bottom:4px}
 .agenda-mes-dia{
-  background:var(--superficie);border:1px solid var(--borda);border-radius:9px;min-height:58px;
+  background:var(--superficie);border:1px solid var(--borda);border-radius:9px;min-height:86px;
   padding:6px;font-size:11px;color:var(--suave);cursor:pointer;transition:border-color .15s var(--ease);
+  display:flex;flex-direction:column;gap:3px;
 }
 .agenda-mes-dia:hover{border-color:var(--borda-forte)}
 .agenda-mes-dia.hoje{border-color:var(--laranja);color:var(--laranja)}
 .agenda-mes-dia.fora{opacity:.35}
+.agenda-mes-num{font-weight:600}
+/* título da reunião escrito dentro da célula do dia (pedido dela, 25/09) —
+   truncado com reticências porque a célula é pequena; título completo no
+   atributo title="" (tooltip nativo) e o clique já abre o modal de detalhe */
+.agenda-mes-evento{
+  background:rgba(255,107,53,.12);border:1px solid rgba(255,107,53,.28);border-radius:5px;
+  padding:1px 5px;font-size:9.5px;line-height:1.55;color:var(--texto);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;
+}
+.agenda-mes-evento:hover{border-color:var(--laranja)}
+.agenda-mes-evento.cancelado{opacity:.45;text-decoration:line-through}
+.agenda-mes-mais{font-size:9px;color:var(--fraco);cursor:pointer;padding-left:3px}
+.agenda-mes-mais:hover{color:var(--laranja)}
 
 @media print{
   body.apres-print-mode{background:#fff !important}
@@ -586,8 +600,9 @@ h2.section-title{
   /* agenda: 7 colunas não cabem — semana vira lista de dias empilhados,
      mês reduz a grade (ainda 7 col, mas compacta) */
   .agenda-semana{grid-template-columns:1fr}
-  .agenda-mes-dia{min-height:40px;font-size:10px;padding:4px}
+  .agenda-mes-dia{min-height:52px;font-size:10px;padding:4px;gap:2px}
   .agenda-mes-cab{font-size:.52rem}
+  .agenda-mes-evento{font-size:8.5px;padding:1px 3px}
 
   .kpis{grid-template-columns:repeat(2,1fr)}
   .modal{padding:18px;border-radius:14px}

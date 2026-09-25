@@ -3679,6 +3679,7 @@ let marcarReuniaoCtx = null;
 function abrirMarcarReuniao(opts){
   opts = opts || {};
   marcarReuniaoCtx = opts;
+  const modoEdicao = opts.modo === 'editar';
 
   let base = opts.sugestao_iso ? new Date(opts.sugestao_iso) : null;
   if(!base || isNaN(base.getTime())){
@@ -3692,13 +3693,25 @@ function abrirMarcarReuniao(opts){
   // sem cliente/prospect implícito (ex: botão "+ Nova reunião" da tela
   // #/agenda) — precisa de um campo a mais no topo pra escolher o alvo antes
   // do resto do form, que continua idêntico ao usado pelo kanban/ficha.
-  const precisaAlvo = !!opts.semAlvo && !opts.cliente_id && !opts.prospect_id;
+  // Nunca aparece em modo edição — editar reunião não mexe no vínculo.
+  const precisaAlvo = !modoEdicao && !!opts.semAlvo && !opts.cliente_id && !opts.prospect_id;
   const campoAlvo = precisaAlvo ? `
     <div class="field"><label>Cliente ou prospect</label>
       <select id="mr-alvo" required onchange="selecionarAlvoReuniao()">${optsAlvoReuniao()}</select>
     </div>` : '';
 
-  openModal(`Marcar reunião${opts.nome ? ' — ' + esc(opts.nome) : ''}`, `
+  // duração: as 4 opções padrão + a duração real do evento (quando editando
+  // um evento com duração fora do padrão, tipo 45min marcado direto no
+  // Google) — pra não mentir qual opção está selecionada.
+  const duracoesBase = [30, 60, 90, 120];
+  const duracaoAtual = Number(opts.duracao_min) || 60;
+  const duracoes = duracoesBase.includes(duracaoAtual) ? duracoesBase : [...duracoesBase, duracaoAtual].sort((a,b)=>a-b);
+  const rotuloDuracao = (m) => m < 60 ? `${m} min` : (m % 60 === 0 ? `${m/60} hora${m>60?'s':''}` : `${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`);
+  const optsDuracao = duracoes.map(m => `<option value="${m}" ${m===duracaoAtual?'selected':''}>${rotuloDuracao(m)}</option>`).join('');
+
+  const tituloVal = opts.titulo != null ? opts.titulo : ('Reunião' + (opts.nome ? ' com ' + opts.nome : ''));
+
+  openModal(modoEdicao ? 'Editar reunião' : `Marcar reunião${opts.nome ? ' — ' + esc(opts.nome) : ''}`, `
     <form onsubmit="return confirmarMarcarReuniao(event)">
       ${campoAlvo}
       <div class="f2">
@@ -3706,23 +3719,18 @@ function abrirMarcarReuniao(opts){
         <div class="field"><label>Hora</label><input id="mr-hora" type="time" required value="${horaVal}"></div>
       </div>
       <div class="field"><label>Duração</label>
-        <select id="mr-duracao">
-          <option value="30">30 min</option>
-          <option value="60" selected>1 hora</option>
-          <option value="90">1h30</option>
-          <option value="120">2 horas</option>
-        </select>
+        <select id="mr-duracao">${optsDuracao}</select>
       </div>
-      <div class="field"><label>Título</label><input id="mr-titulo" required value="Reunião${opts.nome ? ' com ' + esc(opts.nome) : ''}" oninput="this.dataset.auto='false'"></div>
+      <div class="field"><label>Título</label><input id="mr-titulo" required value="${esc(tituloVal)}" oninput="this.dataset.auto='false'"></div>
       <div class="field"><label>E-mail do convidado</label>
         <input id="mr-email" type="email" value="${esc(opts.email||'')}" placeholder="email@exemplo.com"
           oninput="this.dataset.auto='false'; document.getElementById('mr-convite-info').innerHTML = conviteInfoReuniaoHtml(this.value);">
       </div>
       <div id="mr-convite-info">${conviteInfoReuniaoHtml(opts.email)}</div>
-      <div class="checkrow" style="margin-bottom:14px;"><input type="checkbox" id="mr-meet"> <label for="mr-meet">Criar Google Meet</label></div>
+      <div class="checkrow" style="margin-bottom:14px;"><input type="checkbox" id="mr-meet" ${opts.com_meet?'checked':''}> <label for="mr-meet">Criar Google Meet</label></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button type="submit" class="btn btn-primary" id="mr-submit">Marcar na Agenda</button>
+        <button type="submit" class="btn btn-primary" id="mr-submit">${modoEdicao ? 'Salvar alterações' : 'Marcar na Agenda'}</button>
       </div>
     </form>`);
 }
@@ -3818,6 +3826,7 @@ async function abrirNovaReuniaoAgenda(){
 async function confirmarMarcarReuniao(ev){
   ev.preventDefault();
   const ctx = marcarReuniaoCtx || {};
+  const modoEdicao = ctx.modo === 'editar';
   const data = document.getElementById('mr-data').value;
   const hora = document.getElementById('mr-hora').value;
   const duracao = parseInt(document.getElementById('mr-duracao').value, 10);
@@ -3828,44 +3837,58 @@ async function confirmarMarcarReuniao(ev){
   const emailInput = document.getElementById('mr-email');
   const attendeeEmail = emailInput ? emailInput.value.trim() : '';
   if(!data || !hora || !titulo){ toast('Preenche data, hora e título.'); return false; }
-  if(!ctx.cliente_id && !ctx.prospect_id){ toast('Sem cliente/prospect pra vincular a reunião.'); return false; }
+  if(!modoEdicao && !ctx.cliente_id && !ctx.prospect_id){ toast('Sem cliente/prospect pra vincular a reunião.'); return false; }
 
   const inicioLocal = new Date(`${data}T${hora}:00`);
   if(isNaN(inicioLocal.getTime())){ toast('Data/hora inválida.'); return false; }
 
   const btn = document.getElementById('mr-submit');
-  if(btn){ btn.disabled = true; btn.textContent = 'Marcando…'; }
+  const textoAcao = modoEdicao ? 'Salvando…' : 'Marcando…';
+  const textoBotaoOriginal = modoEdicao ? 'Salvar alterações' : 'Marcar na Agenda';
+  if(btn){ btn.disabled = true; btn.textContent = textoAcao; }
 
   if(!hubClient.functions){
     toast('Google Agenda ainda não conectada — falta a autorização OAuth.');
-    if(btn){ btn.disabled = false; btn.textContent = 'Marcar na Agenda'; }
+    if(btn){ btn.disabled = false; btn.textContent = textoBotaoOriginal; }
     return false;
   }
 
   try{
-    const { data: resp, error } = await hubClient.functions.invoke('agenda-google', {
-      body: {
-        acao: 'criar', titulo,
-        inicio_iso: inicioLocal.toISOString(), duracao_min: duracao,
-        attendee_email: attendeeEmail || null, com_meet: comMeet,
-        cliente_id: ctx.cliente_id || null, prospect_id: ctx.prospect_id || null,
-      },
-    });
+    const body = modoEdicao
+      ? {
+          acao: 'editar', google_event_id: ctx.google_event_id, titulo,
+          inicio_iso: inicioLocal.toISOString(), duracao_min: duracao,
+          attendee_email: attendeeEmail || null, com_meet: comMeet,
+        }
+      : {
+          acao: 'criar', titulo,
+          inicio_iso: inicioLocal.toISOString(), duracao_min: duracao,
+          attendee_email: attendeeEmail || null, com_meet: comMeet,
+          cliente_id: ctx.cliente_id || null, prospect_id: ctx.prospect_id || null,
+        };
+    const { data: resp, error } = await hubClient.functions.invoke('agenda-google', { body });
     if(error) throw error;
     if(resp && resp.erro) throw new Error(resp.detalhe || resp.erro);
 
     closeModal();
-    toast('Reunião marcada na Agenda' + (attendeeEmail ? ' — convite enviado.' : '.') );
+    toast(modoEdicao
+      ? 'Reunião atualizada na Agenda' + (attendeeEmail ? ' — convidado avisado.' : '.')
+      : 'Reunião marcada na Agenda' + (attendeeEmail ? ' — convite enviado.' : '.'));
 
-    // a sugestão que originou isso (se veio de uma) já foi usada
-    if(ctx.fone){ rpc('hub_rpc_limpar_sugestao_reuniao', { p: { fone: ctx.fone } }).catch(()=>{}); }
-
-    // redesenha o que estiver na tela agora, se for o mesmo contato
-    if(prospectAtual && ctx.prospect_id === prospectAtual.id) renderProspect(prospectAtual.id);
-    if(clienteAtual && clienteAtual.cliente && ctx.cliente_id === clienteAtual.cliente.id) desenharFichaCliente();
+    if(modoEdicao){
+      // atualiza a tela de onde veio, sem reload — mesmo padrão do "Apagar"
+      if(ctx.origemSlot){ await carregarAgendaContato(ctx.origemSlot); }
+      else if(currentRoute().page === 'agenda'){ await carregarAgendaPeriodo(); desenharAgenda(); }
+    } else {
+      // a sugestão que originou isso (se veio de uma) já foi usada
+      if(ctx.fone){ rpc('hub_rpc_limpar_sugestao_reuniao', { p: { fone: ctx.fone } }).catch(()=>{}); }
+      // redesenha o que estiver na tela agora, se for o mesmo contato
+      if(prospectAtual && ctx.prospect_id === prospectAtual.id) renderProspect(prospectAtual.id);
+      if(clienteAtual && clienteAtual.cliente && ctx.cliente_id === clienteAtual.cliente.id) desenharFichaCliente();
+    }
   } catch(e){
     toast(erroAgendaGoogle(e));
-    if(btn){ btn.disabled = false; btn.textContent = 'Marcar na Agenda'; }
+    if(btn){ btn.disabled = false; btn.textContent = textoBotaoOriginal; }
   }
   return false;
 }
@@ -4049,9 +4072,42 @@ function abrirDetalheEventoAgenda(googleEventId, origemSlot){
     <p class="dim" style="font-size:12px;margin:14px 0 0;">Apagar cancela o evento no Google Agenda e avisa quem foi convidado.</p>
     <div class="row" style="justify-content:space-between;margin-top:12px;">
       <button type="button" class="btn btn-danger" onclick="confirmarApagarReuniaoAgenda('${ev.id}','${origemSlot||''}')">Apagar reunião</button>
-      <button type="button" class="btn btn-outline" onclick="closeModal()">Fechar</button>
+      <div class="row" style="gap:8px;">
+        <button type="button" class="btn btn-outline" onclick="abrirEditarReuniaoAgenda('${ev.id}','${origemSlot||''}')">Editar</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Fechar</button>
+      </div>
     </div>
   `);
+}
+
+// ============================================================
+// editar reunião — MESMO modal de detalhe acima ("Editar"), reaproveita o
+// mini-form "Marcar reunião" inteiro em modo edição. Pedido dela em
+// 25/09/2026, na sequência do "Apagar reunião clicando nela". Troca só o
+// conteúdo do evento no Google (PATCH, ação "editar") — nunca mexe no
+// vínculo hub.eventos_agenda nem no rascunho hub.reunioes.
+// ============================================================
+function abrirEditarReuniaoAgenda(googleEventId, origemSlot){
+  const ev = localizarEventoAgenda(googleEventId, origemSlot);
+  if(!ev){ toast('Não achei esse evento na tela — recarrega e tenta de novo.'); return; }
+  if(ev.dia_inteiro){ toast('Edição de evento de dia inteiro ainda não suportada por aqui — edita direto no Google Agenda.'); return; }
+
+  const inicio = new Date(ev.inicio);
+  const fim = ev.fim ? new Date(ev.fim) : new Date(inicio.getTime() + 3600000);
+  const duracaoMin = Math.max(5, Math.round((fim - inicio) / 60000));
+  const emailAtual = (ev.attendees && ev.attendees[0]) ? ev.attendees[0].email : '';
+
+  closeModal();
+  abrirMarcarReuniao({
+    modo: 'editar',
+    google_event_id: ev.id,
+    origemSlot: origemSlot || null,
+    titulo: ev.titulo,
+    sugestao_iso: ev.inicio,
+    duracao_min: duracaoMin,
+    email: emailAtual,
+    com_meet: !!ev.meet_link,
+  });
 }
 
 async function confirmarApagarReuniaoAgenda(googleEventId, origemSlot){
@@ -4209,6 +4265,14 @@ function desenharAgendaSemana(eventos){
   return `<div class="agenda-semana">${cols}</div>`;
 }
 
+// pedido dela em 25/09/2026 (4º ajuste do Bloco F): quer o TÍTULO escrito em
+// cada dia do mês, não só um indicador — precisa ver de relance o que está
+// marcado sem clicar. MAX_TITULOS_VISIVEIS é quanto cabe sem estourar a
+// célula (pequena); o resto vira "+N mais", clicável, que abre a mesma lista
+// do dia de sempre (abrirDiaAgenda). Cada título já é clicável direto pro
+// modal de detalhe (abrirDetalheEventoAgenda, o mesmo do "Apagar"/"Editar").
+const MAX_TITULOS_MES = 3;
+
 function desenharAgendaMes(eventos){
   const { desde } = agendaPeriodoAtual(); // já é a grade completa (6 semanas)
   const mesRef = agendaRef.getMonth();
@@ -4221,11 +4285,21 @@ function desenharAgendaMes(eventos){
   for(let i=0;i<42;i++){
     const d = new Date(cursor);
     const foraDoMes = d.getMonth() !== mesRef;
-    const qtd = eventos.filter(e => e.inicio && new Date(e.inicio).toDateString() === d.toDateString()).length;
+    const doDia = eventos
+      .filter(e => e.inicio && new Date(e.inicio).toDateString() === d.toDateString())
+      .sort((a,b) => new Date(a.inicio) - new Date(b.inicio));
     const diaISO = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+    const titulos = doDia.slice(0, MAX_TITULOS_MES).map(e => `
+      <div class="agenda-mes-evento ${e.status==='cancelled'?'cancelado':''}" title="${esc(e.titulo)}"
+        onclick="event.stopPropagation();abrirDetalheEventoAgenda('${e.id}')">${esc(e.titulo)}</div>`).join('');
+    const maisTexto = doDia.length > MAX_TITULOS_MES
+      ? `<div class="agenda-mes-mais" onclick="event.stopPropagation();abrirDiaAgenda('${diaISO}')">+${doDia.length - MAX_TITULOS_MES} mais</div>`
+      : '';
+
     celulas.push(`<div class="agenda-mes-dia ${foraDoMes?'fora':''} ${d.toDateString()===hojeStr?'hoje':''}" onclick="abrirDiaAgenda('${diaISO}')">
-      <div>${d.getDate()}</div>
-      ${qtd ? `<div class="dim" style="font-size:10px;">${'●'.repeat(Math.min(qtd,4))}${qtd>4?'…':''}</div>` : ''}
+      <div class="agenda-mes-num">${d.getDate()}</div>
+      ${titulos}${maisTexto}
     </div>`);
     cursor.setDate(cursor.getDate()+1);
   }
