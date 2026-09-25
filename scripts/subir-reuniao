@@ -1,0 +1,445 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+HUB LUH PANDA — subir-reuniao (a ponte Meetily → Hub)
+
+O Hub roda na nuvem. O Meetily roda no Mac dela, e o banco dele é um SQLite
+local. Navegador não alcança arquivo local — daí esta ponte.
+
+    ./scripts/subir-reuniao
+
+Ela roda, vê a lista das reuniões mais recentes, digita o número da que quer,
+confirma, e só essa sobe.
+
+────────────────────────────────────────────────────────────────────────────
+🔒 PRIVACIDADE — leia antes de "melhorar" este script
+────────────────────────────────────────────────────────────────────────────
+Este script SÓ sobe o que ela escolher, uma por vez, com confirmação na tela.
+
+Ele NÃO faz varredura. NÃO tem modo --todas. NÃO agenda nada, não entra em
+cron nem em launchd, não guarda cache, não escreve arquivo nenhum em lugar
+nenhum. Reunião pessoal, médico, família, conversa com advogado — nada disso
+sai do Mac, porque nada sobe sem ela apontar o dedo.
+
+Isso não é excesso de zelo: no Bloco C a guarda protegia o banco, mas o n8n
+guardava no histórico o payload de mensagens pessoais que o Hub tinha
+recusado. Meia-promessa cumprida vale zero. Aqui a única maneira de um dado
+vazar é ela mandar ele vazar.
+
+E o SQLite é aberto SOMENTE LEITURA (file:...?mode=ro). O Meetily gerencia
+esse banco em memória pelo backend Rust; escrever nele por fora corrompe
+estado da UI. Este script nunca escreve lá — nem em uma tabela, nem uma vez.
+
+────────────────────────────────────────────────────────────────────────────
+🔑 SEGREDO — ~/.config/hub/credenciais
+────────────────────────────────────────────────────────────────────────────
+O segredo do bot NUNCA fica neste arquivo, nunca vai pro repo, e nunca é
+pedido interativamente (digitar no terminal deixa rastro em histórico de
+shell, em swap e no scrollback). Ele é lido de um arquivo só dela:
+
+    mkdir -p ~/.config/hub
+    printf 'HUB_BOT_SECRET=<o segredo que você recebeu no chat>\n' > ~/.config/hub/credenciais
+    chmod 600 ~/.config/hub/credenciais
+
+Formato: uma linha `CHAVE=valor` por linha, `#` começa comentário.
+
+    HUB_BOT_SECRET=...        (obrigatório)
+    HUB_SUPABASE_URL=...      (opcional — default: o projeto arroba-certa)
+    HUB_SUPABASE_ANON_KEY=... (opcional — a chave anon é pública por design,
+                               é a mesma do config.js do repo; a proteção
+                               real é RLS + o segredo do bot)
+
+Se o arquivo não existir, o script explica como criar e sai. Ele não usa
+service_role — a autenticação é a mesma via bot secret da Fase 2
+(hub.check_bot_secret), que é exatamente o que os workflows hub_bot_* usam.
+
+────────────────────────────────────────────────────────────────────────────
+📎 O SCHEMA REAL DO MEETILY v0.4.1 (conferido no banco dela, 24/09/2026)
+────────────────────────────────────────────────────────────────────────────
+Não é o que a skill `meetily` supõe. Do jeito que está de verdade:
+
+  meetings(id TEXT pk, title, created_at TEXT, updated_at TEXT, folder_path)
+      → id no formato 'meeting-<uuid>', NÃO é uuid puro.
+      → created_at é ISO-8601 com offset, ex '2026-09-24T17:06:50.249597+00:00'
+
+  transcripts(id, meeting_id, transcript, timestamp, summary, action_items,
+              key_points, audio_start_time REAL, audio_end_time REAL,
+              duration REAL, speaker)
+      → ⚠️ NÃO é uma linha por reunião: é um SEGMENTO de fala por linha.
+        11 reuniões = 4378 linhas.
+      → ⚠️ summary / key_points / action_items estão NULOS em 100% das
+        linhas. Essas colunas são vestígio de uma versão antiga. Quem lê
+        elas esperando resumo lê vazio e não percebe.
+
+  summary_processes(meeting_id pk, status, result TEXT, error, ...)
+      → AQUI mora o resumo de verdade, como JSON:
+          result.markdown              → resumo no idioma de saída (pt)
+          result.english_cache.markdown → o mesmo em inglês
+        Decisões e ações são SEÇÕES dentro desse markdown
+        ('**Decisões Chave**', '**Itens de Ação**' / '**Ações a Serem
+        Realizadas**' — o título varia porque quem escreve é o LLM).
+      → status 'completed' | 'failed'. Das 11 reuniões dela, 3 completed,
+        5 failed (o bug do groq/llama-3.3-70b-versatile já documentado na
+        skill meetily) e 3 nunca rodaram.
+
+  transcript_chunks(meeting_id pk, transcript_text, ...)
+      → transcrição montada com prefixo [mm:ss], mas só existe pras 8 que
+        tiveram resumo gerado. Por isso este script NÃO depende dela:
+        remonta a transcrição de `transcripts` (que existe pras 11),
+        no mesmo formato [mm:ss].
+"""
+
+import json
+import os
+import sqlite3
+import stat
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+
+SQLITE_PATH = os.path.expanduser(
+    "~/Library/Application Support/com.meetily.ai/meeting_minutes.sqlite"
+)
+CREDENCIAIS = os.path.expanduser("~/.config/hub/credenciais")
+
+# a chave anon é pública por design (está no config.js do repo, que é servido
+# pro navegador). Fica aqui só como default pra não obrigar a repetir.
+DEFAULT_URL = "https://tscnqvuzlfagotirgjbz.supabase.co"
+DEFAULT_ANON = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRzY25xdnV6bGZhZ290aXJnamJ6Iiwicm9sZSI6"
+    "ImFub24iLCJpYXQiOjE3ODI4Mzc2NjgsImV4cCI6MjA5ODQxMzY2OH0."
+    "9PmwjxNPVIVOy3eenYAqlLSKmhyYeQUSQXz_PvixSB0"
+)
+
+QUANTAS = 15  # quantas reuniões mostrar na lista
+
+
+# ─────────────────────────────── util ───────────────────────────────
+
+def morrer(msg):
+    print(f"\n✖ {msg}\n", file=sys.stderr)
+    sys.exit(1)
+
+
+def ler_credenciais():
+    if not os.path.exists(CREDENCIAIS):
+        morrer(
+            "não achei ~/.config/hub/credenciais.\n\n"
+            "  Crie assim (uma vez só, no Terminal):\n\n"
+            "    mkdir -p ~/.config/hub\n"
+            "    printf 'HUB_BOT_SECRET=<o segredo do bot>\\n' > ~/.config/hub/credenciais\n"
+            "    chmod 600 ~/.config/hub/credenciais\n\n"
+            "  O segredo do bot é o mesmo que já está nos workflows n8n do Hub\n"
+            "  (node 'Configuração'). Ele NUNCA entra neste script nem no repo."
+        )
+
+    modo = stat.S_IMODE(os.stat(CREDENCIAIS).st_mode)
+    if modo & 0o077:
+        morrer(
+            f"~/.config/hub/credenciais está com permissão {oct(modo)} — outras\n"
+            "  contas do Mac conseguem ler o segredo. Conserte com:\n\n"
+            "    chmod 600 ~/.config/hub/credenciais"
+        )
+
+    cfg = {}
+    with open(CREDENCIAIS, "r", encoding="utf-8") as f:
+        for linha in f:
+            linha = linha.strip()
+            if not linha or linha.startswith("#") or "=" not in linha:
+                continue
+            k, _, v = linha.partition("=")
+            cfg[k.strip()] = v.strip().strip('"').strip("'")
+
+    if not cfg.get("HUB_BOT_SECRET"):
+        morrer(
+            "~/.config/hub/credenciais existe mas não tem HUB_BOT_SECRET.\n"
+            "  Acrescente a linha:  HUB_BOT_SECRET=<o segredo do bot>"
+        )
+    return cfg
+
+
+def abrir_sqlite():
+    if not os.path.exists(SQLITE_PATH):
+        morrer(
+            f"não achei o banco do Meetily em:\n  {SQLITE_PATH}\n\n"
+            "  O Meetily já foi aberto pelo menos uma vez neste Mac?"
+        )
+    # SOMENTE LEITURA, sempre. WAL garante que dá pra ler com o app aberto.
+    return sqlite3.connect(f"file:{SQLITE_PATH}?mode=ro", uri=True)
+
+
+def quando(iso):
+    """'2026-09-24T17:06:50.249597+00:00' → datetime local (ou None)."""
+    if not iso:
+        return None
+    try:
+        dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone()
+
+
+def mmss(segundos):
+    """[mm:ss] do prefixo de cada trecho.
+
+    ⚠️ NÃO trocar por h:mm:ss: este é exatamente o formato que o próprio
+    Meetily usa em transcript_chunks. Mantendo igual, a transcrição que este
+    script remonta sai byte a byte idêntica à dele (conferido nas 8 reuniões
+    que têm chunk: 9592, 27301, 52386… batem na casa do caractere).
+    """
+    if not segundos:
+        return "—"
+    s = int(segundos)
+    return f"{s // 60:02d}:{s % 60:02d}"
+
+
+def dur_humana(segundos):
+    """Só pra exibir na lista — reunião de 2h fica ilegível em mm:ss."""
+    if not segundos:
+        return "—"
+    s = int(segundos)
+    h, m, seg = s // 3600, (s % 3600) // 60, s % 60
+    return f"{h}h{m:02d}min" if h else f"{m}min{seg:02d}s"
+
+
+# ───────────────────────── leitura do Meetily ─────────────────────────
+
+def listar(con, limite=QUANTAS):
+    linhas = con.execute(
+        "select id, title, created_at from meetings order by created_at desc limit ?",
+        (limite,),
+    ).fetchall()
+
+    out = []
+    for mid, titulo, criada in linhas:
+        n_seg, fim = con.execute(
+            "select count(*), max(audio_end_time) from transcripts where meeting_id = ?",
+            (mid,),
+        ).fetchone()
+        status = con.execute(
+            "select status from summary_processes where meeting_id = ?", (mid,)
+        ).fetchone()
+        out.append({
+            "id": mid,
+            "titulo": titulo,
+            "criada_em": criada,
+            "segmentos": n_seg or 0,
+            "duracao": fim,
+            "resumo_status": status[0] if status else None,
+        })
+    return out
+
+
+def montar_transcricao(con, meeting_id):
+    """Remonta a transcrição a partir dos SEGMENTOS, no formato [mm:ss] texto.
+
+    Não usa transcript_chunks de propósito: ela só existe pras reuniões que
+    tiveram resumo gerado (8 de 11). `transcripts` existe pras 11.
+    """
+    segs = con.execute(
+        "select audio_start_time, transcript from transcripts "
+        "where meeting_id = ? order by coalesce(audio_start_time, 0), timestamp",
+        (meeting_id,),
+    ).fetchall()
+
+    partes = []
+    for inicio, texto in segs:
+        if not texto or not texto.strip():
+            continue
+        partes.append(f"[{mmss(inicio)}] {texto.strip()}")
+    return "\n".join(partes) or None
+
+
+def _secoes(md):
+    """Quebra o markdown do Meetily em {titulo_da_secao: corpo}.
+
+    O resumo vem como '# Título' + blocos '**Nome da Seção**'. Quem escreve
+    esses nomes é o LLM, então eles VARIAM entre reuniões ('Itens de Ação'
+    numa, 'Ações a Serem Realizadas' noutra). Por isso a classificação é por
+    palavra-chave e, quando não bate, o campo vai NULO — nunca chutado.
+    """
+    import re
+
+    md = md.replace("<document>", "").replace("</document>", "").strip()
+    achados = list(re.finditer(r"^\s*\*\*(.+?)\*\*\s*$", md, re.M))
+    out = {}
+    for i, m in enumerate(achados):
+        fim = achados[i + 1].start() if i + 1 < len(achados) else len(md)
+        out[m.group(1).strip()] = md[m.end():fim].strip()
+    return out
+
+
+def ler_resumo(con, meeting_id):
+    """→ (resumo_markdown, key_points, action_items). Tudo pode vir None."""
+    linha = con.execute(
+        "select status, result from summary_processes where meeting_id = ?",
+        (meeting_id,),
+    ).fetchone()
+    if not linha or linha[0] != "completed" or not linha[1]:
+        return None, None, None
+
+    try:
+        dados = json.loads(linha[1])
+    except (ValueError, TypeError):
+        return None, None, None
+
+    md = dados.get("markdown") or (dados.get("english_cache") or {}).get("markdown")
+    if not md:
+        return None, None, None
+    md = md.replace("<document>", "").replace("</document>", "").strip()
+
+    import re
+    chaves = {"key_points": None, "action_items": None}
+    padroes = {
+        "key_points": r"(decis|pontos?\s*[- ]?\s*chave|key\s+(decisions|points)|destaques)",
+        "action_items": r"(a[çc][õo]es|itens?\s+de\s+a[çc][ãa]o|action\s+items|pr[óo]ximos\s+passos|tarefas)",
+    }
+    for titulo, corpo in _secoes(md).items():
+        for campo, padrao in padroes.items():
+            if chaves[campo] is None and re.search(padrao, titulo, re.I):
+                chaves[campo] = f"{titulo}\n\n{corpo}".strip()
+
+    return md, chaves["key_points"], chaves["action_items"]
+
+
+# ─────────────────────────────── envio ───────────────────────────────
+
+def subir(cfg, payload):
+    url = cfg.get("HUB_SUPABASE_URL", DEFAULT_URL).rstrip("/")
+    anon = cfg.get("HUB_SUPABASE_ANON_KEY", DEFAULT_ANON)
+    alvo = f"{url}/rest/v1/rpc/hub_rpc_registrar_reuniao"
+
+    corpo = json.dumps({"p": payload}).encode("utf-8")
+    req = urllib.request.Request(
+        alvo,
+        data=corpo,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "apikey": anon,
+            "Authorization": f"Bearer {anon}",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            texto = r.read().decode("utf-8")
+    except urllib.error.HTTPError as e:
+        detalhe = e.read().decode("utf-8", "replace")
+        if e.code in (401, 403) or "acesso negado" in detalhe:
+            morrer(
+                f"o Hub recusou ({e.code}). Quase sempre é o segredo do bot errado\n"
+                f"  ou desatualizado em ~/.config/hub/credenciais.\n\n  {detalhe}"
+            )
+        morrer(f"o Hub respondeu {e.code}:\n  {detalhe}")
+    except urllib.error.URLError as e:
+        morrer(f"não consegui falar com o Hub: {e.reason}")
+
+    try:
+        return json.loads(texto) if texto.strip() else None
+    except ValueError:
+        return texto
+
+
+# ─────────────────────────────── fluxo ───────────────────────────────
+
+def main():
+    cfg = ler_credenciais()
+    con = abrir_sqlite()
+    try:
+        reunioes = listar(con)
+        if not reunioes:
+            morrer("nenhuma reunião no Meetily ainda.")
+
+        print()
+        print("  REUNIÕES NO MEETILY (as mais recentes primeiro)")
+        print("  " + "─" * 74)
+        for i, r in enumerate(reunioes, 1):
+            dt = quando(r["criada_em"])
+            data = dt.strftime("%d/%m/%Y %H:%M") if dt else "sem data"
+            resumo = {
+                "completed": "resumo ok",
+                "failed": "resumo falhou",
+                None: "sem resumo",
+            }.get(r["resumo_status"], r["resumo_status"] or "sem resumo")
+            print(f"  {i:2d}. {(r['titulo'] or '(sem título)')[:44]:46s} {data}")
+            print(f"      {dur_humana(r['duracao'])} de áudio · {r['segmentos']} trechos · {resumo}")
+        print("  " + "─" * 74)
+        print("  Só a que você escolher sobe pro Hub. Enter vazio ou 'q' cancela.")
+        print()
+
+        try:
+            escolha = input("  Número da reunião: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n  cancelado.\n")
+            return
+
+        if not escolha or escolha.lower() in ("q", "n", "nao", "não"):
+            print("\n  cancelado — nada subiu.\n")
+            return
+        if not escolha.isdigit() or not (1 <= int(escolha) <= len(reunioes)):
+            morrer(f"'{escolha}' não é um número da lista.")
+
+        r = reunioes[int(escolha) - 1]
+        transcricao = montar_transcricao(con, r["id"])
+        resumo, key_points, action_items = ler_resumo(con, r["id"])
+    finally:
+        con.close()
+
+    dt = quando(r["criada_em"])
+    print()
+    print("  VAI SUBIR ISTO")
+    print("  " + "─" * 74)
+    print(f"  Título      : {r['titulo']}")
+    print(f"  Realizada em: {dt.strftime('%d/%m/%Y %H:%M') if dt else '—'}")
+    print(f"  Transcrição : {len(transcricao or ''):,} caracteres".replace(",", "."))
+    tam_resumo = f"{len(resumo):,}".replace(",", ".") if resumo else ""
+    print(f"  Resumo      : {'sim, ' + tam_resumo + ' caracteres' if resumo else 'não tem (o Meetily não gerou)'}")
+    print(f"  Decisões    : {'sim' if key_points else 'não identificadas'}")
+    print(f"  Ações       : {'sim' if action_items else 'não identificadas'}")
+    print("  " + "─" * 74)
+    if transcricao:
+        previa = transcricao[:280].replace("\n", " ⏎ ")
+        print(f"  Começo da transcrição: {previa}…")
+        print("  " + "─" * 74)
+
+    if not transcricao and not resumo:
+        morrer("essa reunião não tem nem transcrição nem resumo — não vale subir vazia.")
+
+    try:
+        ok = input("  Subir pro Hub? [s/N]: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print("\n  cancelado.\n")
+        return
+    if ok not in ("s", "sim", "y", "yes"):
+        print("\n  cancelado — nada subiu.\n")
+        return
+
+    payload = {
+        "secret": cfg["HUB_BOT_SECRET"],
+        "meetily_meeting_id": r["id"],
+        "titulo": r["titulo"],
+        "realizada_em": dt.isoformat() if dt else None,
+        "transcricao": transcricao,
+        "resumo": resumo,
+        "key_points": key_points,
+        "action_items": action_items,
+    }
+
+    reuniao_id = subir(cfg, payload)
+
+    print()
+    print("  ✓ subiu.")
+    print(f"    reunião no Hub : {reuniao_id}")
+    print(f"    meetily_id     : {r['id']}")
+    print("    (reenviar a mesma reunião atualiza esta linha, nunca cria outra)")
+    print()
+    print("    Abra o Hub em #/reunioes pra amarrar a um prospect ou cliente.")
+    print()
+
+
+if __name__ == "__main__":
+    main()
