@@ -1647,7 +1647,7 @@ function renderPilarFinanceiro(){
       ${/* D2: mesmos botões da tela #/contratos — gerar PDF pelo molde,
             enviar pelo WhatsApp, subir/ver o PDF assinado */''}
       <div class="row" style="gap:6px;flex-wrap:wrap;margin-top:10px;">
-        ${botoesContrato(co.id, data.cliente.slug, co.status, !!co.arquivo_path, co.arquivo_path || '')}
+        ${botoesContrato(co.id, data.cliente.slug, co.status, !!co.arquivo_path, co.arquivo_path || '', co.docuseal_submission_id)}
       </div>
       ${co.arquivo_path ? `<div class="dim" style="font-size:11.5px;margin-top:6px;">📎 ${esc(co.arquivo_nome || 'contrato.pdf')}${co.arquivo_em ? ' · guardado em ' + formatDateBR(co.arquivo_em.slice(0,10)) : ''}</div>` : ''}
       ${itens.length ? `<ul style="margin:12px 0 0;padding-left:18px;color:var(--muted);font-size:13px;">
@@ -2708,6 +2708,205 @@ function gerarContratoPDF(ctx){
   document.body.classList.add('apres-print-mode');
 }
 
+// ============================================================
+// CONTRATOS — assinar por e-mail via DocuSeal (Fase 3, Bloco D — item 7
+// revisto, 25/09/2026)
+// ============================================================
+// Os 3 contratos "assinados" no ar (F7, Império Ruby, Dobradinha) NÃO têm
+// assinatura real do cliente — só o carimbo gov.br dela (achado testando o
+// D2 com dado real). DocuSeal auto-hospedado fecha esse furo: ela assina
+// primeiro, o cliente recebe por e-mail e assina depois, e um webhook
+// (Edge Function docuseal-webhook, separada) marca o contrato como
+// assinado sozinho.
+//
+// ⚠️ NÃO TESTADO PONTA A PONTA — ela ainda não criou a conta em /setup do
+// DocuSeal nem gerou a API key. O gov.br continua sendo o fluxo real até
+// ela confirmar que isto funciona (o botão "Enviar"/WhatsApp não foi tocado).
+//
+// Mesmo molde de gerarContratoPDF()/MODELO_BASE_HTML, mas NUNCA o mesmo —
+// esta cópia leva os marcadores de campo do DocuSeal embutidos como texto
+// (`{{Nome;role=Papel;type=tipo}}`, guia oficial "embedded text field
+// tags"). Duplicar em vez de parametrizar o molde existente é de propósito:
+// o pipeline gov.br (já testado com cliente real) não pode NUNCA vazar
+// esses marcadores pro PDF que ela manda hoje — são dois caminhos
+// diferentes que só coincidem até a cláusula 9.
+const MODELO_BASE_HTML_DOCUSEAL = MODELO_BASE_HTML.replace(
+  `<div class="ct-assinaturas">
+  <div class="ct-assina"><span class="linha"></span><b>CONTRATADA</b> — Luciana Cristina Goveia Pandolfo</div>
+  <div class="ct-assina"><span class="linha"></span><b>CONTRATANTE</b> — {{cliente_nome}}</div>
+</div>`,
+  `<div class="ct-assinaturas">
+  <div class="ct-assina"><b>CONTRATADA</b> — Luciana Cristina Goveia Pandolfo<br>
+    {{Assinatura Contratada;role=Contratada;type=signature}}&nbsp;&nbsp;{{Data Contratada;role=Contratada;type=date}}</div>
+  <div class="ct-assina"><b>CONTRATANTE</b> — {{cliente_nome}}<br>
+    {{Assinatura Contratante;role=Contratante;type=signature}}&nbsp;&nbsp;{{Data Contratante;role=Contratante;type=date}}</div>
+</div>`
+);
+// ⚠️ guarda de sanidade: se algum dia MODELO_BASE_HTML mudar o texto exato
+// do bloco de assinaturas (espaços/quebras incluídos), o .replace() acima
+// vira no-op silencioso — o `.includes()` a seguir falha alto em vez de
+// mandar um contrato pro DocuSeal sem campo de assinatura nenhum.
+if (!MODELO_BASE_HTML_DOCUSEAL.includes('type=signature')) {
+  console.error('MODELO_BASE_HTML_DOCUSEAL sem marcador de assinatura — o bloco ct-assinaturas do MODELO_BASE_HTML mudou e o .replace() não bateu. Conferir os dois textos.');
+}
+
+// CSS mínimo e AUTOCONTIDO (sem depender de style.css — o DocuSeal renderiza
+// este HTML isolado, do lado dele, sem acesso ao resto do Hub). Portado das
+// mesmas regras .apres-page/.ct-page usadas no PDF gov.br, pra manter a
+// mesma cara nos dois pipelines.
+const ESTILO_CONTRATO_DOCUSEAL = `
+  body{margin:0;background:#fff;color:#241430;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;font-size:14px;line-height:1.55}
+  .apres-page{max-width:800px;margin:0 auto;padding:46px 52px}
+  .apres-head{display:flex;align-items:center;gap:12px;border-bottom:2px solid #FF6B35;padding-bottom:16px;margin-bottom:8px}
+  .apres-logo{font-size:26px;line-height:1}
+  .apres-marca{font-size:19px;font-weight:700;letter-spacing:-.02em;color:#241430}
+  .apres-tag{font-size:12px;color:#7A6A88;margin-top:1px}
+  .ct-page{font-size:12.5px;line-height:1.6}
+  .ct-titulo{font-weight:700;font-size:15px;text-align:center;margin:22px 0 20px;letter-spacing:-.01em}
+  .ct-cl{margin-bottom:13px}
+  .ct-cl>b{display:block;margin-bottom:3px;font-size:12.5px}
+  .ct-cl p{margin:0 0 5px;text-align:justify}
+  .ct-cl ul{margin:2px 0 6px;padding-left:20px}
+  .ct-cl li{margin-bottom:1px}
+  .ct-anexo{margin-top:20px;padding-top:14px;border-top:1px solid #E7DFEE}
+  .ct-anexo>b{display:block;margin-bottom:8px;font-size:12.5px}
+  .ct-anexo-corpo{white-space:pre-wrap}
+  .ct-fecho{margin-top:20px}
+  .ct-local{margin-top:16px}
+  .ct-assinaturas{margin-top:12mm}
+  .ct-assina{margin-top:18mm;font-size:12px}
+  .ct-falta{background:#FFE9C7;color:#8A5A00;font-weight:700;padding:0 4px;border-radius:3px}
+`;
+
+function montarContratoHtmlDocuseal(ctx){
+  const { contrato, cliente, servicoNome, anexoTexto } = ctx;
+  const hoje = new Date().toLocaleDateString('pt-BR', { day:'2-digit', month:'long', year:'numeric' });
+
+  const valores = {
+    numero:            ctCampo(contrato.numero),
+    cliente_nome:      ctCampo(cliente.razao_social || cliente.nome),
+    cliente_doc:       ctCampo(cliente.documento),
+    cliente_endereco:  ctCampo(cliente.endereco),
+    servico:           ctCampo(servicoNome),
+    data_inicio:       ctCampo(ctDataBR(contrato.inicio_em)),
+    data_fim_minimo:   ctCampo(ctDataBR(contrato.fim_minimo_em)),
+    valor:             contrato.valor_mensal_centavos != null
+                         ? esc((Number(contrato.valor_mensal_centavos)/100).toLocaleString('pt-BR',{minimumFractionDigits:2}))
+                         : `<span class="ct-falta">${CT_VAZIO}</span>`,
+    valor_extenso:     contrato.valor_mensal_centavos != null
+                         ? esc(valorPorExtenso(contrato.valor_mensal_centavos))
+                         : `<span class="ct-falta">${CT_VAZIO}</span>`,
+    dia_vencimento:    ctCampo(contrato.dia_vencimento),
+    anexo_servico:     (anexoTexto || '').trim()
+                         ? anexoParaHtml(anexoTexto)
+                         : `<span class="ct-falta">${CT_VAZIO} — escreva o Anexo I deste serviço</span>`,
+    cidade:            'Recife/PE',
+    data_assinatura:   esc(hoje),
+  };
+
+  const corpo = MODELO_BASE_HTML_DOCUSEAL.replace(/\{\{(\w+)\}\}/g, (todo, chave) =>
+    Object.prototype.hasOwnProperty.call(valores, chave)
+      ? valores[chave]
+      : `<span class="ct-falta">${CT_VAZIO}</span>`);
+  // ⚠️ o regex acima só casa `{{palavra}}` (sem espaço/ponto-e-vírgula) —
+  // os marcadores do DocuSeal (`{{Assinatura Contratada;role=...}}`) têm
+  // espaço e `;`, então NUNCA batem nesse padrão e sobrevivem intactos pro
+  // DocuSeal ler. Testado por leitura, não por execução (ver cabeçalho).
+
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${ESTILO_CONTRATO_DOCUSEAL}</style></head><body>
+    <div class="apres-page ct-page">
+      <div class="apres-head">
+        <span class="apres-logo">🐼</span>
+        <div><div class="apres-marca">Luh Panda</div><div class="apres-tag">Automação &amp; IA para negócios</div></div>
+      </div>
+      ${corpo}
+    </div>
+  </body></html>`;
+}
+
+// ---------- disparo: abre a confirmação, manda pra docuseal-integrar ----------
+async function abrirAssinarDocuseal(contratoId, clienteSlug){
+  const dados = (clienteAtual && clienteAtual.cliente && clienteAtual.cliente.slug === clienteSlug)
+    ? clienteAtual
+    : await rpc('hub_rpc_cliente', { p_slug: clienteSlug }).catch(()=>null);
+  if(!dados){ toast('Não achei a ficha desse cliente.'); return; }
+
+  const item = (dados.contratos || []).find(x => x.contrato.id === contratoId);
+  if(!item){ toast('Contrato não encontrado na ficha.'); return; }
+
+  const contato = (dados.contatos || [])
+    .filter(c => c.email)
+    .sort((a,b) => (b.is_principal?1:0) - (a.is_principal?1:0))[0];
+  if(!contato){ toast('Esse cliente não tem e-mail cadastrado — adiciona no contato principal antes de mandar assinar.'); return; }
+
+  const catalogo = window.__catalogo && window.__catalogo.length
+    ? window.__catalogo
+    : await rpc('hub_rpc_catalogo').catch(()=>[]);
+  window.__catalogo = catalogo;
+
+  const itens = item.itens || [];
+  const servicoNome = itens.length ? [...new Set(itens.map(i => i.descricao))].join(' + ') : null;
+  const servicoId = itens.map(i => i.servico_id).find(Boolean) || null;
+  const servico = servicoId ? catalogo.find(s => s.id === servicoId) : null;
+  const anexoTexto = servico ? (servico.anexo_escopo || '') : '';
+
+  if(!anexoTexto.trim()){
+    toast('Esse serviço ainda não tem o Anexo I escrito — clica em "Gerar PDF" primeiro pra preencher, depois manda assinar.');
+    return;
+  }
+
+  const html = montarContratoHtmlDocuseal({ contrato: item.contrato, cliente: dados.cliente, servicoNome, anexoTexto });
+  const numero = item.contrato.numero || '';
+  const clienteNome = dados.cliente.nome;
+
+  openModal(`Assinar por e-mail — ${esc(clienteNome)}`, `
+    <p class="muted" style="margin-top:0;">
+      Cria o envelope no DocuSeal (assinar.luhpanda.com.br). <b>Você assina primeiro</b>
+      — vai um e-mail pra <b>${esc(HUB_ADMIN_EMAIL)}</b> — e só depois o DocuSeal libera
+      pro cliente, em <b>${esc(contato.email)}</b>. O Hub marca "Enviado" agora e
+      "Assinado" sozinho quando os dois terminarem.
+    </p>
+    <textarea id="f-docuseal-html" style="display:none;">${esc(html)}</textarea>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-confirmar-docuseal"
+        onclick="confirmarAssinarDocuseal('${esc(contratoId)}','${esc(clienteSlug)}','${esc(contato.email)}','${esc(clienteNome)}','${esc(numero)}')">
+        Criar envelope e mandar por e-mail
+      </button>
+    </div>`);
+}
+
+async function confirmarAssinarDocuseal(contratoId, clienteSlug, clienteEmail, clienteNome, numero){
+  const campo = document.getElementById('f-docuseal-html');
+  const html = campo ? campo.value : '';
+  if(!html){ toast('Sessão perdida — abre de novo.'); return; }
+  if(!hubClient.functions){ toast('Assinatura por e-mail ainda não ativada — falta configurar o DocuSeal.'); return; }
+
+  const botao = document.getElementById('btn-confirmar-docuseal');
+  if(botao){ botao.disabled = true; botao.textContent = 'Criando envelope…'; }
+
+  try{
+    const { data, error } = await hubClient.functions.invoke('docuseal-integrar', {
+      body: { contrato_id: contratoId, numero: numero || null, cliente_nome: clienteNome, cliente_email: clienteEmail, html },
+    });
+    if(error) throw error;
+    if(data && data.erro) throw new Error(data.detalhe || data.erro);
+    closeModal();
+    toast('Envelope criado — você recebe o e-mail pra assinar primeiro.');
+    recarregarDepoisDoContrato(clienteSlug);
+  } catch(e){
+    toast(erroDocuseal(e));
+    if(botao){ botao.disabled = false; botao.textContent = 'Criar envelope e mandar por e-mail'; }
+  }
+}
+
+function erroDocuseal(err){
+  const m = (err && err.message) || String(err);
+  if(/DOCUSEAL_API_KEY|nao ativada|não ativada/i.test(m)) return 'Assinatura por e-mail ainda não ativada — falta configurar a chave do DocuSeal.';
+  if(/not found|404|failed to (send|fetch)|networkerror|non-2xx/i.test(m)) return 'Não consegui falar com o DocuSeal — confere se a Edge Function docuseal-integrar está publicada e a chave está configurada.';
+  return 'O envelope não foi criado: ' + m;
+}
+
 // Monta o contexto e decide se precisa pedir o Anexo I antes.
 // Usado na ficha do cliente (tem clienteAtual) e na tela #/contratos
 // (precisa buscar o cliente).
@@ -3039,7 +3238,7 @@ function desenharContratos(){
       </td>
       <td data-label="Ações" onclick="event.stopPropagation()">
         <div class="row" style="justify-content:flex-end;gap:6px;flex-wrap:wrap;">
-          ${botoesContrato(c.contrato_id, c.cliente_slug, c.status, c.tem_arquivo, c.arquivo_path)}
+          ${botoesContrato(c.contrato_id, c.cliente_slug, c.status, c.tem_arquivo, c.arquivo_path, c.docuseal_submission_id)}
         </div>
       </td>
     </tr>`).join('');
@@ -3095,10 +3294,16 @@ function desenharContratos(){
 // fixos do pipeline (nunca texto livre), o resto sem aspas por construção.
 // `status` vai junto pro upload saber se o checkbox "marcar assinado" pode
 // avançar ou se o contrato já passou desse ponto (statusPodeAvancarPraAssinado).
-function botoesContrato(id, slug, status, temArquivo, path){
+// `docusealId` (novo, item 7 revisto) decide se mostra "Assinar por e-mail"
+// ou só um selo "aguardando" — nunca deixa criar um segundo envelope clicando
+// duas vezes.
+function botoesContrato(id, slug, status, temArquivo, path, docusealId){
   return `
     <button class="btn btn-sm btn-outline" title="Gerar o PDF do contrato pelo modelo" onclick="emitirContrato('${esc(id)}','${esc(slug)}')">Gerar PDF</button>
     <button class="btn btn-sm btn-outline" title="Mandar pro cliente pelo WhatsApp" onclick="abrirEnviarContrato('${esc(id)}','${esc(slug)}')">Enviar</button>
+    ${docusealId
+      ? `<span class="badge badge-muted" title="Envelope ${esc(String(docusealId))} no DocuSeal">Assinatura em andamento (DocuSeal)</span>`
+      : `<button class="btn btn-sm btn-outline" title="Cria o envelope no DocuSeal — você assina, depois o cliente assina por e-mail" onclick="abrirAssinarDocuseal('${esc(id)}','${esc(slug)}')">Assinar por e-mail</button>`}
     ${temArquivo
       ? `<button class="btn btn-sm btn-outline" title="Abrir o PDF assinado" onclick="baixarContratoPDF('${esc(path)}')">Ver PDF</button>
          <button class="btn btn-ico btn-ico-danger" title="Tirar o PDF" onclick="abrirTirarArquivoContrato('${esc(id)}','${esc(slug)}','${esc(path)}')">${TRASH_ICON}</button>`
