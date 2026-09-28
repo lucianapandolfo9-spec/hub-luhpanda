@@ -148,6 +148,11 @@ function friendlyError(err){
   if(m.includes('exceeded the maximum allowed size') || m.includes('Payload too large')) return 'Arquivo grande demais — o limite é 20 MB.';
   if(m.includes('new row violates row-level security')) return 'O Storage recusou o arquivo — confira as policies do bucket de contratos (migration 026).';
   if(m.includes('hub_status_contrato_invalido')) return 'Esse status de contrato não existe.';
+  // 28/09 (migration 034) — apagar cliente direto do card só funciona sem histórico
+  if(m.includes('hub_cliente_com_historico')){
+    const detalhe = (m.split('hub_cliente_com_historico:')[1] || '').trim();
+    return `Esse cliente tem histórico (${detalhe || 'contrato/recebível/demanda'}) — apagar de vez não é seguro. Usa "Arquivar" em vez disso.`;
+  }
   if(m.includes('acesso negado')) return 'Sessão sem permissão pra essa ação.';
   if(m.includes('Could not find the function')) return 'Essa função ainda não está instalada no banco — migration pendente de aplicação.';
   return m;
@@ -336,8 +341,26 @@ function renderEmConstrucao(pageKey){
 // ============================================================
 // DASH
 // ============================================================
+// 28/09 — endurecido: ela reportou "+ Novo recebível" abrindo modal vazio /
+// não abrindo. Revisão de código não achou uma causa determinística (a
+// função já tratava erro de RPC com .catch), mas o cenário mais plausível é
+// a chamada de rede nunca resolver nem rejeitar (sessão expirada, aba
+// aberta há muito tempo) — o `await` fica pendurado pra sempre e o modal
+// nunca chega a abrir, SEM toast de erro nenhum (o que bate com o relato
+// dela: "não abriu", não "abriu vazio"/"deu erro"). Timeout de 8s garante
+// que isso nunca trava mais que isso, e loga no console pra a próxima
+// investigação já começar com dado em vez de hipótese.
 async function loadCarteiraCache(){
-  if(!carteira.length) carteira = await rpc('hub_rpc_carteira').catch(()=>[]);
+  if(carteira.length) return carteira;
+  try{
+    carteira = await Promise.race([
+      rpc('hub_rpc_carteira'),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout ao carregar a carteira (8s)')), 8000)),
+    ]);
+  } catch(e){
+    console.error('loadCarteiraCache falhou — seguindo com cache vazio:', e);
+    carteira = [];
+  }
   return carteira;
 }
 
@@ -405,16 +428,24 @@ function chartReceitaPeriodo(serie){
     const barY = padT + plotH - entradoH;
     const label = centavosCompact(m.entrado_centavos);
     const mostraLabel = n <= 20 && entradoH > 16;
+    // tooltip on hover (28/09): data-* em vez de string JS embutida no
+    // onclick — evita qualquer risco de escaping e deixa chartTooltipShow
+    // genérico (lê os 3 atributos, não importa o formato do rótulo/bucket).
+    // Área de hover é um <rect> invisível cobrindo o slot INTEIRO (não só a
+    // barra) — barra de valor baixo/zero também vira alvo fácil de passar
+    // o mouse, senão ela "não acha" onde parar.
     return `
-      <g>
+      <g class="barra-receita"
+        data-rotulo="${esc(m.rotulo)}"
+        data-entrou="${esc(centavosToBRL(m.entrado_centavos))}"
+        data-previsto="${esc(centavosToBRL(m.previsto_centavos))}"
+        onmousemove="chartTooltipShow(event)" onmouseleave="chartTooltipHide()">
+        <rect x="${(padL+slot*i).toFixed(1)}" y="${padT.toFixed(1)}" width="${slot.toFixed(1)}" height="${plotH.toFixed(1)}"
+          fill="transparent"/>
         <rect x="${(cx-barW/2).toFixed(1)}" y="${barY.toFixed(1)}" width="${barW}" height="${Math.max(entradoH,1).toFixed(1)}"
-          rx="4" fill="var(--laranja)">
-          <title>${esc(m.rotulo)}: entrou ${centavosToBRL(m.entrado_centavos)} de ${centavosToBRL(m.previsto_centavos)} previsto</title>
-        </rect>
+          rx="4" fill="var(--laranja)" class="barra-receita-rect"/>
         <line x1="${(cx-barW/2-3).toFixed(1)}" y1="${previstoY.toFixed(1)}" x2="${(cx+barW/2+3).toFixed(1)}" y2="${previstoY.toFixed(1)}"
-          stroke="var(--fraco)" stroke-width="2" stroke-dasharray="3,3">
-          <title>Previsto: ${centavosToBRL(m.previsto_centavos)}</title>
-        </line>
+          stroke="var(--fraco)" stroke-width="2" stroke-dasharray="3,3"/>
         ${mostraLabel ? `<text x="${cx.toFixed(1)}" y="${(barY-6).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--texto)" font-weight="600">${label}</text>` : ''}
         ${(i % rotuloStep === 0 || i === n-1) ? `<text x="${cx.toFixed(1)}" y="${H-12}" text-anchor="middle" font-size="10.5" fill="var(--fraco)">${esc(m.rotulo)}</text>` : ''}
       </g>`;
@@ -433,7 +464,8 @@ function chartReceitaPeriodo(serie){
     </tr>`).join('');
 
   return `
-    <div class="chart-wrap">
+    <div class="chart-wrap" style="position:relative;">
+      <div id="chart-tooltip" class="chart-tooltip" style="display:none;"></div>
       <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
         ${gridlines}
         ${bars}
@@ -447,6 +479,31 @@ function chartReceitaPeriodo(serie){
     <div class="chart-table tablewrap">
       <table><thead><tr><th>Período</th><th>Previsto</th><th>Entrou</th></tr></thead><tbody>${tableRows}</tbody></table>
     </div>`;
+}
+
+// Tooltip on hover do gráfico de receita (pedido 28/09) — segue o mouse,
+// lê os data-* do <g> sob o cursor (ver chartReceitaPeriodo). Um só div
+// reaproveitado pra todas as barras, em vez de um tooltip por barra.
+function chartTooltipShow(ev){
+  const g = ev.currentTarget;
+  const tip = document.getElementById('chart-tooltip');
+  const wrap = tip && tip.parentElement;
+  if(!tip || !wrap) return;
+  tip.innerHTML = `<b>${g.dataset.rotulo}</b><span>Entrou: <b>${g.dataset.entrou}</b></span><span>Previsto: ${g.dataset.previsto}</span>`;
+  tip.style.display = 'block';
+  const r = wrap.getBoundingClientRect();
+  let x = ev.clientX - r.left + 14;
+  let y = ev.clientY - r.top - 10;
+  // não deixa a caixa estourar pra fora do wrap à direita/em cima
+  const tw = tip.offsetWidth || 140, th = tip.offsetHeight || 50;
+  if(x + tw > r.width) x = ev.clientX - r.left - tw - 14;
+  if(y < 0) y = 4;
+  tip.style.left = x + 'px';
+  tip.style.top = y + 'px';
+}
+function chartTooltipHide(){
+  const tip = document.getElementById('chart-tooltip');
+  if(tip) tip.style.display = 'none';
 }
 
 // ---------- filtro de período do dash ----------
@@ -722,6 +779,12 @@ async function renderCarteira(){
         <span class="badge ${contratoBadgeClass(c.contrato_status)}">${statusLabel(c.contrato_status)}</span>
       </div>
       ${carteiraVista!=='arquivados' ? blocoDemandasCard(c) : ''}
+      <div class="cliente-card-acoes" onclick="event.stopPropagation()">
+        ${carteiraVista==='arquivados'
+          ? `<button class="btn btn-sm btn-outline" onclick="acaoCartaoCliente('${esc(c.slug)}','reativar')">Reativar</button>`
+          : `<button class="btn btn-sm btn-outline" onclick="acaoCartaoCliente('${esc(c.slug)}','arquivar')">Arquivar</button>`}
+        <button class="btn btn-sm btn-danger" onclick="acaoCartaoCliente('${esc(c.slug)}','apagar')">Apagar</button>
+      </div>
     </div>
   `).join('');
 
@@ -737,6 +800,19 @@ async function renderCarteira(){
     </div>
     <div class="gridcards">${cardsHtml || `<div class="empty">${carteiraVista==='arquivados' ? 'Nenhum cliente arquivado.' : 'Nenhum cliente cadastrado ainda.'}</div>`}</div>
   `);
+}
+
+// 28/09 — ação (arquivar/reativar/apagar) direto do card da Carteira, sem
+// abrir a ficha primeiro. Busca pelo slug no cache `carteira` (já carregado
+// pelo render acima) em vez de embutir id/nome cru no atributo onclick —
+// evita qualquer problema de escaping se o nome do cliente tiver aspas.
+function acaoCartaoCliente(slug, acao){
+  const c = carteira.find(x => x.slug === slug);
+  if(!c){ toast('Não achei esse cliente no cache — recarrega a página.'); return; }
+  const ctx = { id: c.cliente_id, slug: c.slug, nome: c.nome };
+  if(acao === 'arquivar') abrirArquivarCliente(ctx);
+  else if(acao === 'reativar') abrirReativarCliente(ctx);
+  else if(acao === 'apagar') abrirApagarClienteCarteira(ctx);
 }
 
 // Bloco G — seletor Valor fixo × Porcentagem sobre vendas. Mesmo padrão de
@@ -1023,9 +1099,26 @@ function mudarMesFinanceiro(delta){
   renderFinanceiro();
 }
 
+// 28/09 — recorrência automática (migration 034). Antes de ler os recebíveis
+// do mês, garante que os de CONTRATO já nasceram (idempotente — só insere o
+// que falta). Pré-aquece 2 meses à frente também, pra quando ela navegar
+// pra Nov/Dez já estar tudo lá, sem precisar "visitar" o mês antes.
+// Silencioso de propósito: se a migration 034 ainda não foi aplicada, a RPC
+// não existe e cai no .catch — a tela de Recebíveis continua funcionando
+// exatamente como hoje, só sem a geração automática ainda.
+async function garantirRecebiveisAutomaticos(competencia){
+  const meses = [competencia, addMeses(competencia,1), addMeses(competencia,2)];
+  for(const m of meses){
+    await rpc('hub_rpc_garantir_recebiveis_mes', { p_competencia: m }).catch(e => {
+      console.warn('hub_rpc_garantir_recebiveis_mes indisponível (migration 034 pendente?):', e && e.message);
+    });
+  }
+}
+
 async function renderFinanceiro(){
   if(!financeiroCompetencia) financeiroCompetencia = todayISO().slice(0,7) + '-01';
   root.innerHTML = shell('financeiro', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
+  await garantirRecebiveisAutomaticos(financeiroCompetencia);
   const rows = await rpc('hub_rpc_recebiveis', { p_competencia: financeiroCompetencia }).catch(()=>[]);
   financeiroCache = rows;
 
@@ -1214,7 +1307,13 @@ function formRecebivel(r){
       </div>
     </form>`;
 }
-async function abrirNovoRecebivel(){ await loadCarteiraCache(); openModal('Novo recebível', formRecebivel()); }
+async function abrirNovoRecebivel(){
+  // nunca deixa uma falha silenciosa impedir o modal de abrir — loadCarteiraCache
+  // já não lança (ver comentário lá), isso aqui é cinto de segurança extra.
+  try{ await loadCarteiraCache(); }
+  catch(e){ console.error('abrirNovoRecebivel: falha ao carregar cache, abrindo modal mesmo assim:', e); }
+  openModal('Novo recebível', formRecebivel());
+}
 function abrirEditarRecebivel(i){ openModal('Editar recebível', formRecebivel(financeiroCache[i])); }
 async function salvarRecebivel(ev){
   ev.preventDefault();
@@ -1856,8 +1955,16 @@ async function salvarClienteFicha(ev){
 // 'arquivado') — 'encerrado'/'entregue' nunca são tocados, já são estado
 // final real. Reativar é regra simples, sem guardar o status anterior
 // detalhado: contrato sempre volta pra 'ativo', demanda sempre pra 'aberta'.
-function abrirArquivarCliente(){
-  const c = clienteAtual.cliente;
+// 28/09 — arquivar/reativar/apagar direto do card da Carteira, sem abrir a
+// ficha primeiro. Generalizado com `arquivarCtx`: quando ela abre pelo card
+// (renderCarteira passa {id,slug,nome}), usa esse contexto e volta pra
+// renderCarteira() ao terminar; quando abre pela ficha (sem argumento, como
+// sempre foi), continua usando clienteAtual.cliente e volta pra
+// renderCliente() — nenhum dos dois call sites antigos precisou mudar.
+let arquivarCtx = null;
+function abrirArquivarCliente(cCtx){
+  arquivarCtx = cCtx || null;
+  const c = cCtx || clienteAtual.cliente;
   openModal(`Arquivar — ${esc(c.nome)}`, `
     <p class="muted" style="margin-top:0;">O cliente sai da lista de ativos e isso também <b>pausa</b> o contrato ativo (se tiver) e as demandas em aberto/em andamento — <b>nada é apagado</b>, contratos, recebíveis e histórico continuam guardados, e dá pra reativar quando quiser (contrato volta pra Ativo, demanda volta pra Aberta).</p>
     <div class="field"><label>Motivo (opcional)</label><input id="f-motivo" placeholder="ex: encerrou o contrato, pausa por tempo indeterminado..."></div>
@@ -1867,16 +1974,18 @@ function abrirArquivarCliente(){
     </div>`);
 }
 async function confirmarArquivarCliente(){
-  const c = clienteAtual.cliente;
+  const c = arquivarCtx || clienteAtual.cliente;
   const motivo = document.getElementById('f-motivo').value.trim();
   try{
     await rpc('hub_rpc_arquivar_cliente', { p: { cliente_id: c.id, motivo_saida: motivo || null } });
     closeModal(); toast('Cliente arquivado — contrato ativo e demandas abertas pausados junto. Reversível pelo botão Reativar.');
-    renderCliente(c.slug);
+    if(arquivarCtx){ arquivarCtx = null; renderCarteira(); }
+    else renderCliente(c.slug);
   } catch(e){}
 }
-function abrirReativarCliente(){
-  const c = clienteAtual.cliente;
+function abrirReativarCliente(cCtx){
+  arquivarCtx = cCtx || null;
+  const c = cCtx || clienteAtual.cliente;
   openModal(`Reativar — ${esc(c.nome)}`, `
     <p class="muted" style="margin-top:0;">O cliente volta pra lista de ativos, com todo o histórico intacto. Contrato pausado volta pra Ativo e demanda pausada volta pra Aberta.</p>
     <div class="row" style="justify-content:flex-end;margin-top:16px;">
@@ -1885,11 +1994,38 @@ function abrirReativarCliente(){
     </div>`);
 }
 async function confirmarReativarCliente(){
-  const c = clienteAtual.cliente;
+  const c = arquivarCtx || clienteAtual.cliente;
   try{
     await rpc('hub_rpc_reativar_cliente', { p: { cliente_id: c.id } });
     closeModal(); toast('Cliente reativado — contrato e demandas pausados voltaram junto.');
-    renderCliente(c.slug);
+    if(arquivarCtx){ arquivarCtx = null; renderCarteira(); }
+    else renderCliente(c.slug);
+  } catch(e){}
+}
+
+// 28/09 — apagar cliente de vez (migration 034), só direto do card da
+// Carteira. Delete REAL, guardado server-side pela RPC: só funciona quando
+// o cliente NÃO tem contrato/recebível/demanda nenhum — pensado pro caso
+// "cadastrei errado/de teste", nunca pra cliente real com histórico (esse
+// caso é o Arquivar, reversível, ali em cima). Sem esse botão na ficha de
+// propósito — na ficha ela já tem Arquivar, que é o caminho certo pra
+// cliente de verdade.
+function abrirApagarClienteCarteira(cCtx){
+  openModal(`Apagar — ${esc(cCtx.nome)}`, `
+    <p class="muted" style="margin-top:0;">
+      Isso apaga o cliente <b>de vez</b> (delete real, não dá pra desfazer). Só funciona se ele
+      não tiver nenhum contrato, recebível ou demanda registrado — se tiver, o Hub recusa e
+      avisa o que está pendurado; aí o caminho é <b>Arquivar</b> em vez de apagar.
+    </p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarApagarClienteCarteira('${esc(cCtx.id)}')">Apagar de vez</button>
+    </div>`);
+}
+async function confirmarApagarClienteCarteira(clienteId){
+  try{
+    await rpc('hub_rpc_apagar_cliente', { p_cliente_id: clienteId });
+    closeModal(); toast('Cliente apagado.'); carteira = []; renderCarteira();
   } catch(e){}
 }
 
@@ -2053,7 +2189,18 @@ function formContrato(co){
             ${CT_PIPELINE.concat('arquivado').map(s=>`<option value="${s}" ${co.status===s?'selected':''}>${statusLabel(s)}</option>`).join('')}
           </select>
         </div>
+        <div class="field"><label>Parcelas (opcional)</label><input id="f-parcelas" type="number" min="1" step="1" value="${co.parcelas_total||''}" placeholder="ex: 6"></div>
       </div>
+
+      <!-- 28/09 — recorrência automática (migration 034). Recebível do mês
+           seguinte nasce sozinho enquanto Ativo + isto ligado; com Parcelas
+           preenchido, para sozinho depois da última (nunca vira mensalidade
+           infinita num parcelamento fechado, tipo Daniel Magnus 6x). -->
+      <div class="checkrow" style="margin-bottom:12px;">
+        <input type="checkbox" id="f-recorrencia-ativa" ${co.recorrencia_ativa === false ? '' : 'checked'}>
+        <label for="f-recorrencia-ativa">Gerar o recebível do mês seguinte sozinho (enquanto Ativo)</label>
+      </div>
+      <p class="dim" style="font-size:12px;margin:-6px 0 14px;">Com parcelas preenchido, a geração automática para sozinha depois da última — ex.: 6 gera até a parcela 6/6 e não continua. Sem parcelas, gera todo mês enquanto o contrato estiver Ativo.</p>
 
       <div id="porta-saida-wrap" style="${ehAtivo?'':'display:none;'}">
         <div class="field" style="margin-bottom:6px;">
@@ -2090,10 +2237,13 @@ async function salvarContrato(ev){
     const base = (contratoEmEdicao && contratoEmEdicao.id && contratoEmEdicao.id === id)
       ? contratoEmEdicao : {};
     const portaEscrita = document.getElementById('f-porta-escrita').checked;
+    const status = document.getElementById('f-status').value;
+    const elParcelas = document.getElementById('f-parcelas');
+    const elRecorrencia = document.getElementById('f-recorrencia-ativa');
     await rpc('hub_rpc_salvar_contrato', { p: {
       id,
       cliente_id: document.getElementById('f-cliente-id').value,
-      status: document.getElementById('f-status').value,
+      status,
       valor_mensal_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
       dia_vencimento: document.getElementById('f-dia').value || null,
       porta_saida_tipo: document.getElementById('f-porta-tipo').value || null,
@@ -2107,8 +2257,18 @@ async function salvarContrato(ev){
       inicio_em: base.inicio_em ?? null,
       fim_minimo_em: base.fim_minimo_em ?? null,
       porta_saida_valor_centavos: base.porta_saida_valor_centavos ?? null,
+      // migration 034 — recorrência automática + parcelamento com fim
+      parcelas_total: (elParcelas && elParcelas.value) ? elParcelas.value : null,
+      recorrencia_ativa: elRecorrencia ? elRecorrencia.checked : true,
     }});
     closeModal(); toast('Contrato salvo.');
+    // contrato ativo com valor mensal: gera o recebível do mês corrente na
+    // hora (F, "recebíveis nascendo do contrato") — sem isso ela teria que
+    // visitar a tela Financeiro pra "ativar" a primeira geração. Silencioso
+    // se a 034 ainda não foi aplicada (mesmo .catch de sempre).
+    if(status === 'ativo'){
+      await rpc('hub_rpc_garantir_recebiveis_mes', { p_competencia: todayISO().slice(0,7)+'-01' }).catch(()=>{});
+    }
     const slug = clienteAtual.cliente.slug;
     renderCliente(slug);
   } catch(e){}

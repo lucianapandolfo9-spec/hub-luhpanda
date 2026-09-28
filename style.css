@@ -267,6 +267,19 @@ h2.section-title{
 .chart-table{display:none;margin-top:14px}
 .chart-table.open{display:block}
 
+/* tooltip on hover das barras (28/09) — segue o mouse via JS (chartTooltipShow) */
+.barra-receita{cursor:pointer}
+.barra-receita:hover .barra-receita-rect{filter:brightness(1.18)}
+.chart-tooltip{
+  position:absolute;pointer-events:none;z-index:5;
+  background:var(--superficie);border:1px solid var(--borda-forte);border-radius:9px;
+  padding:8px 11px;font-size:12px;line-height:1.5;white-space:nowrap;
+  box-shadow:0 8px 22px rgba(0,0,0,.35);
+}
+.chart-tooltip b{display:block;font-size:12.5px;margin-bottom:2px}
+.chart-tooltip span{display:block;color:var(--fraco)}
+.chart-tooltip span b{display:inline;color:var(--texto);font-size:12px}
+
 /* ---------- alerta ---------- */
 .alertlist{display:flex;flex-direction:column;gap:8px}
 .alertrow{
@@ -303,6 +316,10 @@ h2.section-title{
 .cliente-card{cursor:pointer}
 .cliente-card .meta{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--suave);
   border-top:1px solid var(--borda);padding-top:7px;margin-top:2px;flex-wrap:wrap;gap:6px}
+
+/* ---------- Carteira — arquivar/reativar/apagar direto do card (28/09) ---------- */
+.cliente-card-acoes{display:flex;gap:6px;justify-content:flex-end;border-top:1px solid var(--borda);padding-top:9px;margin-top:2px;cursor:default}
+.cliente-card-acoes .btn{flex:0 0 auto}
 
 /* ---------- Carteira — demandas no card (D1, item 1) ---------- */
 .card-demandas{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--borda);padding-top:7px;margin-top:2px}
