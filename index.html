@@ -2210,7 +2210,14 @@ function abrirEditarContrato(i){
 function togglePortaSaida(){
   const wrap = document.getElementById('porta-saida-wrap');
   if(!wrap) return;
-  wrap.style.display = (document.getElementById('f-status').value === 'ativo') ? '' : 'none';
+  const mostrar = document.getElementById('f-status').value === 'ativo';
+  wrap.style.display = mostrar ? '' : 'none';
+  // 29/09 — sem isto, escolher "Ativo" revelava os campos ABAIXO DA DOBRA do
+  // modal: ela não via que apareceu coisa nova, não escolhia a porta de saída,
+  // e o banco recusava o contrato (hub_contrato_ativo_exige_porta_saida). Foi
+  // exatamente o que travou o contrato do The Best em 28/09 e o de teste em
+  // 29/09. Revelar algo que exige ação e deixar fora da tela é não revelar.
+  if(mostrar) wrap.scrollIntoView({ block:'nearest', behavior:'smooth' });
 }
 
 function formContrato(co){
