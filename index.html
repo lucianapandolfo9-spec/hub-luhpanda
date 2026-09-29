@@ -2217,7 +2217,10 @@ function togglePortaSaida(){
   // e o banco recusava o contrato (hub_contrato_ativo_exige_porta_saida). Foi
   // exatamente o que travou o contrato do The Best em 28/09 e o de teste em
   // 29/09. Revelar algo que exige ação e deixar fora da tela é não revelar.
-  if(mostrar) wrap.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  // `start` e não `nearest`: com a tela ampliada (ou notebook baixo), o
+  // `nearest` encosta só o TÍTULO do bloco na borda de baixo e ela continua
+  // sem ver o select que precisa preencher. Conferido no Chrome em 29/09.
+  if(mostrar) wrap.scrollIntoView({ block:'start', behavior:'smooth' });
 }
 
 function formContrato(co){
