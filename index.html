@@ -180,9 +180,27 @@ function openModal(titleHtml, bodyHtml, extraClass){
     <div class="modal-backdrop" onclick="if(event.target===this) closeModal()">
       <div class="modal ${extraClass||''}">
         <h3>${titleHtml}</h3>
+        <div class="modal-erro" id="modal-erro" hidden></div>
         ${bodyHtml}
       </div>
     </div>`;
+}
+
+// 29/09 — erro de formulário aparece DENTRO do modal, não só no toast.
+// Por quê: o toast é `position:fixed; bottom:24px` (style.css:206) — quando o
+// modal está aberto, o aviso nasce longe de onde ela está olhando e passa
+// batido. Já custou duas vezes: o contrato do The Best (28/09, "não aconteceu
+// nada" era a trava de porta de saída) e o contrato de teste (29/09, era
+// `hub_contrato_vazio_nao_cria`). Nos dois casos o toast apareceu e ninguém viu.
+// Devolve false quando não há modal aberto, pra quem chama saber que o toast
+// continua sendo o único caminho.
+function modalErro(msg){
+  const el = document.getElementById('modal-erro');
+  if(!el) return false;
+  el.textContent = msg;
+  el.hidden = false;
+  el.scrollIntoView({ block:'nearest', behavior:'smooth' });
+  return true;
 }
 function closeModal(){ modalRoot.innerHTML = ''; document.body.classList.remove('apres-print-mode'); }
 
@@ -2321,7 +2339,10 @@ async function salvarContrato(ev){
     // O toast repetido não atrapalha: toast() agora deixa só o último na tela,
     // e friendlyError(e) devolve exatamente a mesma frase, com o prefixo.
     console.error('salvarContrato:', e);
-    toast('Não deu pra salvar o contrato: ' + friendlyError(e));
+    // o modal continua aberto aqui (o closeModal só roda depois do rpc dar
+    // certo), então o aviso vai pra dentro dele — é onde os olhos dela estão.
+    const dentro = modalErro(friendlyError(e));
+    if(!dentro) toast('Não deu pra salvar o contrato: ' + friendlyError(e));
   }
   return false;
 }

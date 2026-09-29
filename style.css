@@ -196,6 +196,13 @@ tbody tr td:last-child{border-right:1px solid var(--borda);border-radius:0 11px 
 }
 .modal.wide{max-width:680px}
 .modal h3{margin:0 0 14px;font-size:1.1rem;letter-spacing:-.02em}
+/* 29/09 — erro de formulário dentro do modal. O toast (bottom:24px) nasce longe
+   de onde ela está olhando com o modal aberto e já passou batido duas vezes. */
+.modal-erro{
+  margin:0 0 14px;padding:10px 12px;border-radius:10px;font-size:13px;line-height:1.45;
+  background:rgba(255,92,122,.10);border:1px solid rgba(255,92,122,.45);color:var(--bad);
+}
+.modal-erro[hidden]{display:none}
 .field{margin-bottom:12px}
 .field label{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;color:var(--fraco);margin-bottom:5px}
 .field input,.field select,.field textarea{width:100%}
