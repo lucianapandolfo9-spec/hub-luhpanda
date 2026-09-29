@@ -26,6 +26,11 @@ let carteira = [];   // cache pra popular <select> de cliente em formulários
 // ============================================================
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function toast(msg){
+  // 29/09 — só um toast por vez. Todos são `position:fixed; bottom:24px;
+  // left:50%` (style.css:206), então dois ao mesmo tempo se sobrepõem e nenhum
+  // dos dois fica legível. Quem chega por último é quem tem a informação mais
+  // nova (ex.: "Contrato salvo" seguido do resultado da geração de recebíveis).
+  document.querySelectorAll('.toast').forEach(t => t.remove());
   const t = document.createElement('div');
   t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t);
@@ -153,6 +158,10 @@ function friendlyError(err){
     const detalhe = (m.split('hub_cliente_com_historico:')[1] || '').trim();
     return `Esse cliente tem histórico (${detalhe || 'contrato/recebível/demanda'}) — apagar de vez não é seguro. Usa "Arquivar" em vez disso.`;
   }
+  // 29/09 (migration 035) — índice único (contrato_id, mês) na hub.recebiveis:
+  // é a rede de proteção contra cobrar a mesma competência duas vezes no mesmo
+  // contrato. Sem esta linha o erro chegaria cru na tela.
+  if(m.includes('uq_recebiveis_contrato_mes')) return 'Já existe um recebível desse contrato nessa competência — edite o que já está lá em vez de criar outro.';
   if(m.includes('acesso negado')) return 'Sessão sem permissão pra essa ação.';
   if(m.includes('Could not find the function')) return 'Essa função ainda não está instalada no banco — migration pendente de aplicação.';
   return m;
@@ -1103,22 +1112,41 @@ function mudarMesFinanceiro(delta){
 // do mês, garante que os de CONTRATO já nasceram (idempotente — só insere o
 // que falta). Pré-aquece 2 meses à frente também, pra quando ela navegar
 // pra Nov/Dez já estar tudo lá, sem precisar "visitar" o mês antes.
-// Silencioso de propósito: se a migration 034 ainda não foi aplicada, a RPC
-// não existe e cai no .catch — a tela de Recebíveis continua funcionando
-// exatamente como hoje, só sem a geração automática ainda.
-async function garantirRecebiveisAutomaticos(competencia){
+//
+// 29/09 (migration 035) — a RPC agora também REAJUSTA: mudar o valor do
+// contrato passa o valor novo pros meses futuros ainda não pagos (o bug de
+// 28/09: contrato virou R$1.200 e Out/Nov ficaram em R$1,00). O retorno
+// continua `int`, mas mudou de significado — agora é "linhas tocadas"
+// (criadas + reajustadas). Esta função devolve a soma dos 3 meses, pra quem
+// chama poder avisar na tela: mexer em dinheiro não pode ser silencioso.
+//
+// `opts.silencioso` (padrão true) diz o que fazer com ERRO, não com o aviso:
+//   true  → engole (a tela Recebíveis continua carregando mesmo se a geração
+//           falhar; o helper rpc() já mostrou o erro do banco num toast)
+//   false → relança, pra quem chamou explicar o que ficou por fazer
+//           (salvarContrato precisa dizer "o contrato salvou, os recebíveis não").
+async function garantirRecebiveisAutomaticos(competencia, opts){
+  const silencioso = !opts || opts.silencioso !== false;
   const meses = [competencia, addMeses(competencia,1), addMeses(competencia,2)];
+  let tocados = 0;
   for(const m of meses){
-    await rpc('hub_rpc_garantir_recebiveis_mes', { p_competencia: m }).catch(e => {
-      console.warn('hub_rpc_garantir_recebiveis_mes indisponível (migration 034 pendente?):', e && e.message);
-    });
+    try{
+      const n = await rpc('hub_rpc_garantir_recebiveis_mes', { p_competencia: m });
+      tocados += Number(n || 0);
+    } catch(e){
+      console.error('hub_rpc_garantir_recebiveis_mes falhou em ' + m + ':', e && e.message);
+      if(!silencioso) throw e;
+    }
   }
+  return tocados;
 }
 
 async function renderFinanceiro(){
   if(!financeiroCompetencia) financeiroCompetencia = todayISO().slice(0,7) + '-01';
   root.innerHTML = shell('financeiro', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
-  await garantirRecebiveisAutomaticos(financeiroCompetencia);
+  const tocados = await garantirRecebiveisAutomaticos(financeiroCompetencia);
+  // o sistema mexeu em dinheiro sozinho → ela VÊ. Nunca silencioso.
+  if(tocados > 0) toast(`Recebíveis automáticos atualizados (${tocados}).`);
   const rows = await rpc('hub_rpc_recebiveis', { p_competencia: financeiroCompetencia }).catch(()=>[]);
   financeiroCache = rows;
 
@@ -2261,17 +2289,40 @@ async function salvarContrato(ev){
       parcelas_total: (elParcelas && elParcelas.value) ? elParcelas.value : null,
       recorrencia_ativa: elRecorrencia ? elRecorrencia.checked : true,
     }});
-    closeModal(); toast('Contrato salvo.');
-    // contrato ativo com valor mensal: gera o recebível do mês corrente na
-    // hora (F, "recebíveis nascendo do contrato") — sem isso ela teria que
-    // visitar a tela Financeiro pra "ativar" a primeira geração. Silencioso
-    // se a 034 ainda não foi aplicada (mesmo .catch de sempre).
+    closeModal();
+    // contrato ativo com valor mensal: gera/reajusta os recebíveis na hora
+    // (F, "recebíveis nascendo do contrato") — sem isso ela teria que visitar
+    // a tela Financeiro pra "ativar" a primeira geração.
+    //
+    // 29/09 — duas correções aqui, as duas do mesmo bug de dinheiro:
+    //  1. era `rpc(...)` só do MÊS CORRENTE, enquanto
+    //     garantirRecebiveisAutomaticos() já tinha pré-criado mês+1 e mês+2 —
+    //     esses dois ficavam congelados no valor ANTIGO do contrato. Agora usa
+    //     a mesma função (mesma janela de 3 meses) que a tela Financeiro usa.
+    //  2. era `.catch(()=>{})`: o helper rpc() até mostrava o erro do banco,
+    //     mas sem contexto nenhum — ela não tinha como saber que o contrato
+    //     salvou e os recebíveis não. Agora o toast diz exatamente isso.
+    let msg = 'Contrato salvo.';
     if(status === 'ativo'){
-      await rpc('hub_rpc_garantir_recebiveis_mes', { p_competencia: todayISO().slice(0,7)+'-01' }).catch(()=>{});
+      try{
+        const tocados = await garantirRecebiveisAutomaticos(todayISO().slice(0,7)+'-01', { silencioso:false });
+        if(tocados > 0) msg += ` Recebíveis automáticos atualizados (${tocados}).`;
+      } catch(e){
+        msg = 'Contrato salvo, mas os recebíveis dos próximos meses NÃO foram atualizados — abra a tela Recebíveis pra tentar de novo.';
+      }
     }
+    toast(msg);
     const slug = clienteAtual.cliente.slug;
     renderCliente(slug);
-  } catch(e){}
+  } catch(e){
+    // era `catch(e){}` vazio. O helper rpc() até traduzia o erro do banco num
+    // toast antes de relançar (ex.: "contrato ativo exige porta de saída"),
+    // mas erro de JS aqui dentro não gerava toast NENHUM — falhava mudo.
+    // O toast repetido não atrapalha: toast() agora deixa só o último na tela,
+    // e friendlyError(e) devolve exatamente a mesma frase, com o prefixo.
+    console.error('salvarContrato:', e);
+    toast('Não deu pra salvar o contrato: ' + friendlyError(e));
+  }
   return false;
 }
 
@@ -3320,25 +3371,29 @@ function abrirSubirContrato(contratoId, clienteSlug, statusAtual, temArquivo){
     </div>`);
 }
 
-async function confirmarSubirContrato(contratoId, clienteSlug){
-  const input = document.getElementById('f-arquivo');
-  const msg = document.getElementById('up-msg');
-  const file = input && input.files && input.files[0];
-  if(!file){ toast('Escolhe o PDF primeiro.'); return; }
-  if(file.type !== 'application/pdf'){ toast('Só PDF — o bucket recusa outros formatos.'); return; }
-  if(file.size > 20 * 1024 * 1024){ toast('Arquivo acima de 20 MB.'); return; }
+// ---------- o miolo do upload, compartilhado ----------
+// Extraído de confirmarSubirContrato em 29/09 pra servir os DOIS caminhos: o
+// modal (ficha do cliente) e o clique único da tela #/contratos. Toda trava
+// mora aqui — quem chama não repete regra nenhuma:
+//   • só application/pdf · até 20 MB · bucket privado · mesmo path de sempre
+//   • `opts.marcarAssinado` é só a INTENÇÃO de quem chamou; quem decide é
+//     statusPodeAvancarPraAssinado(). É a trava do bug de 24/09 (o checkbox
+//     rebaixou F7, Império Ruby e Dobradinha de 'ativo' pra 'assinado') — ela
+//     não pode voltar por uma porta nova.
+//   • `opts.onProgresso` é opcional: o modal escreve "Subindo..." dentro dele,
+//     o caminho rápido usa toast (não tem onde escrever).
+// Devolve true/false — quem chama decide o que fazer depois (fechar modal,
+// recarregar a tela), pra ordem de tela não ficar presa aqui dentro.
+async function subirPDFContrato(file, contratoId, clienteSlug, statusAtual, opts){
+  opts = opts || {};
+  if(!file){ toast('Escolhe o PDF primeiro.'); return false; }
+  if(file.type !== 'application/pdf'){ toast('Só PDF — o bucket recusa outros formatos.'); return false; }
+  if(file.size > 20 * 1024 * 1024){ toast('Arquivo acima de 20 MB.'); return false; }
 
-  // O checkbox só existe no HTML quando dava pra avançar (ver
-  // abrirSubirContrato/statusPodeAvancarPraAssinado) — se o contrato já
-  // passou de 'assinado' no pipeline, o elemento nem é renderizado, então
-  // `marcarAssinado` cai em false sozinho e o rpc_status_contrato nem é
-  // chamado. Dupla checagem aqui (não só ausência de elemento) pra não
-  // depender só do HTML não ter sido montado.
-  const statusAtual = (document.getElementById('f-status-atual') || {}).value || '';
-  const checkboxEl = document.getElementById('f-marca-assinado');
-  const marcarAssinado = !!checkboxEl && checkboxEl.checked && statusPodeAvancarPraAssinado(statusAtual);
+  const marcarAssinado = !!opts.marcarAssinado && statusPodeAvancarPraAssinado(statusAtual);
   const path = `${clienteSlug}/${contratoId}.pdf`;
-  if(msg) msg.textContent = 'Subindo...';
+  if(opts.onProgresso) opts.onProgresso('Subindo...');
+  else toast('Subindo o PDF...');
 
   try{
     const { error } = await hubClient.storage.from(CONTRATO_BUCKET)
@@ -3352,13 +3407,75 @@ async function confirmarSubirContrato(contratoId, clienteSlug){
     if(marcarAssinado){
       await rpc('hub_rpc_status_contrato', { p: { contrato_id: contratoId, status: 'assinado' } });
     }
-    closeModal();
     toast('PDF guardado.' + (marcarAssinado ? ' Contrato marcado como assinado.' : ''));
-    recarregarDepoisDoContrato(clienteSlug);
+    return true;
   } catch(e){
-    if(msg) msg.textContent = '';
+    if(opts.onProgresso) opts.onProgresso('');
+    console.error('subirPDFContrato:', e);
     toast(friendlyError(e));
+    return false;
   }
+}
+
+async function confirmarSubirContrato(contratoId, clienteSlug){
+  const input = document.getElementById('f-arquivo');
+  const msg = document.getElementById('up-msg');
+  const file = input && input.files && input.files[0];
+
+  // O checkbox só existe no HTML quando dava pra avançar (ver
+  // abrirSubirContrato/statusPodeAvancarPraAssinado) — se o contrato já
+  // passou de 'assinado' no pipeline, o elemento nem é renderizado, então
+  // `marcarAssinado` cai em false sozinho e o rpc_status_contrato nem é
+  // chamado. Dupla checagem lá dentro (não só ausência de elemento) pra não
+  // depender só do HTML não ter sido montado.
+  const statusAtual = (document.getElementById('f-status-atual') || {}).value || '';
+  const checkboxEl = document.getElementById('f-marca-assinado');
+
+  const ok = await subirPDFContrato(file, contratoId, clienteSlug, statusAtual, {
+    marcarAssinado: !!checkboxEl && checkboxEl.checked,
+    onProgresso: t => { if(msg) msg.textContent = t; },
+  });
+  if(ok){ closeModal(); recarregarDepoisDoContrato(clienteSlug); }
+}
+
+// ---------- subir assinado em 1 clique (só na tela #/contratos) ----------
+// Pedido dela (29/09): eram 4 cliques — botão → modal → escolher arquivo →
+// Subir. Agora o botão abre direto o seletor de arquivo do sistema e o upload
+// começa assim que ela escolhe o PDF, já marcando o contrato como assinado
+// (respeitando statusPodeAvancarPraAssinado, como sempre).
+//
+// O modal abrirSubirContrato CONTINUA existindo e não mudou: é ele que a ficha
+// do cliente usa, e é lá que o checkbox "marcar assinado" aparece pra ela
+// decidir caso a caso. Só a tela #/contratos ganhou o atalho.
+//
+// Um único <input type="file"> reaproveitado, criado sob demanda e pendurado no
+// body — a tabela de contratos é redesenhada inteira a cada render, então um
+// input por linha viraria lixo de DOM e listener duplicado.
+let subirRapidoCtx = null;
+let subirRapidoInput = null;
+
+function inputSubirRapido(){
+  if(subirRapidoInput) return subirRapidoInput;
+  const el = document.createElement('input');
+  el.type = 'file';
+  el.accept = 'application/pdf';
+  el.hidden = true;
+  el.addEventListener('change', async () => {
+    const file = el.files && el.files[0];
+    const ctx = subirRapidoCtx;
+    el.value = '';                 // permite reescolher o MESMO arquivo depois
+    if(!file || !ctx) return;
+    const ok = await subirPDFContrato(file, ctx.contratoId, ctx.slug, ctx.status, { marcarAssinado: true });
+    if(ok) recarregarDepoisDoContrato(ctx.slug);
+  });
+  document.body.appendChild(el);
+  subirRapidoInput = el;
+  return el;
+}
+
+function subirContratoRapido(contratoId, slug, status){
+  subirRapidoCtx = { contratoId, slug, status };
+  inputSubirRapido().click();
 }
 
 async function baixarContratoPDF(path){
@@ -3506,7 +3623,7 @@ function desenharContratos(){
       </td>
       <td data-label="Ações" onclick="event.stopPropagation()">
         <div class="row" style="justify-content:flex-end;gap:6px;flex-wrap:wrap;">
-          ${botoesContrato(c.contrato_id, c.cliente_slug, c.status, c.tem_arquivo, c.arquivo_path, c.docuseal_submission_id)}
+          ${botoesContrato(c.contrato_id, c.cliente_slug, c.status, c.tem_arquivo, c.arquivo_path, c.docuseal_submission_id, true)}
         </div>
       </td>
     </tr>`).join('');
@@ -3565,7 +3682,11 @@ function desenharContratos(){
 // `docusealId` (novo, item 7 revisto) decide se mostra "Assinar por e-mail"
 // ou só um selo "aguardando" — nunca deixa criar um segundo envelope clicando
 // duas vezes.
-function botoesContrato(id, slug, status, temArquivo, path, docusealId){
+// `rapido` (29/09) só é true na tela #/contratos: lá o "Subir assinado" abre
+// direto o seletor de arquivo e sobe na hora (1 clique em vez de 4). Na ficha
+// do cliente continua abrindo o modal, que é onde ela decide caso a caso se
+// marca o contrato como assinado.
+function botoesContrato(id, slug, status, temArquivo, path, docusealId, rapido){
   return `
     <button class="btn btn-sm btn-outline" title="Gerar o PDF do contrato pelo modelo" onclick="emitirContrato('${esc(id)}','${esc(slug)}')">Gerar PDF</button>
     <button class="btn btn-sm btn-outline" title="Mandar pro cliente pelo WhatsApp" onclick="abrirEnviarContrato('${esc(id)}','${esc(slug)}')">Enviar</button>
@@ -3576,7 +3697,9 @@ function botoesContrato(id, slug, status, temArquivo, path, docusealId){
       ? `<button class="btn btn-sm btn-outline" title="Abrir o PDF assinado" onclick="baixarContratoPDF('${esc(path)}')">Ver PDF</button>
          <button class="btn btn-ico btn-ico-danger" title="Tirar o PDF" onclick="abrirTirarArquivoContrato('${esc(id)}','${esc(slug)}','${esc(path)}')">${TRASH_ICON}</button>`
       : ''}
-    <button class="btn btn-sm btn-outline" title="${temArquivo ? 'Trocar o PDF assinado' : 'Subir o PDF assinado'}" onclick="abrirSubirContrato('${esc(id)}','${esc(slug)}','${esc(status||'')}',${temArquivo?'true':'false'})">${temArquivo ? 'Trocar PDF' : 'Subir assinado'}</button>`;
+    ${rapido
+      ? `<button class="btn btn-sm btn-outline" title="${temArquivo ? 'Trocar o PDF assinado — escolhe o arquivo e sobe na hora' : 'Subir o PDF assinado — escolhe o arquivo e sobe na hora'}" onclick="subirContratoRapido('${esc(id)}','${esc(slug)}','${esc(status||'')}')">${temArquivo ? 'Trocar PDF' : 'Subir assinado'}</button>`
+      : `<button class="btn btn-sm btn-outline" title="${temArquivo ? 'Trocar o PDF assinado' : 'Subir o PDF assinado'}" onclick="abrirSubirContrato('${esc(id)}','${esc(slug)}','${esc(status||'')}',${temArquivo?'true':'false'})">${temArquivo ? 'Trocar PDF' : 'Subir assinado'}</button>`}`;
 }
 
 // ============================================================
