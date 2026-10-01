@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------
+# 🔴 Repo PÚBLICO, e é o ÚNICO repo com código server-side de verdade
+# (7 Edge Functions Deno que falam com DocuSeal, Gemini, Evolution e
+# Google OAuth). Até 01/10/2026 este arquivo não existia — ou seja, não
+# havia nenhuma rede de proteção contra um `.env` entrar por acidente.
+#
+# A defesa real do Hub é arquitetural e está no banco: RLS + RPC-only
+# (nenhuma tabela exposta ao PostgREST) · `hub.is_admin()` só libera o
+# e-mail dela · `anon` sem USAGE no schema `hub`. As migrations podem
+# ser públicas — obscuridade não é defesa.
+#
+# O que NUNCA pode ser commitado é SEGREDO. O padrão correto já está em
+# uso e é pra manter: `HUB_BOT_SECRET` vive em ~/.config/hub/credenciais
+# com chmod 600, FORA do repo, e as Edge Functions leem tudo de Deno.env.
+# ---------------------------------------------------------------------
+
+# macOS
+.DS_Store
+
+# Nunca versionar: valores crus de segredo
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Supabase CLI — estado local por clone
+supabase/.temp/
+supabase/.branches/
