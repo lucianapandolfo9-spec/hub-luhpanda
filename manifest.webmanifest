@@ -1,0 +1,26 @@
+{
+  "id": "hub-luhpanda",
+  "name": "Hub Luh Panda",
+  "short_name": "Hub Panda",
+  "description": "Painel único de operação da Luh Panda: carteira, funil, dinheiro, contratos, cobrança, agenda e conteúdo.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#12081A",
+  "background_color": "#12081A",
+  "categories": ["business", "productivity", "finance"],
+  "icons": [
+    { "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Financeiro", "url": "./#/financeiro", "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Carteira", "url": "./#/carteira", "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Agenda", "url": "./#/agenda", "icons": [{ "src": "assets/icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ]
+}
