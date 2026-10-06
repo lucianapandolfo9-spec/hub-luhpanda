@@ -6,7 +6,7 @@ const { randomUUID } = require("node:crypto");
 const file = "migrations/20261006052445_estoque_contator_estrategico.sql";
 const W = "10000000-0000-0000-0000-000000000001",
   OTHER = "10000000-0000-0000-0000-000000000002";
-async function database() {
+async function database({ install = true } = {}) {
   const db = new PGlite();
   await db.exec(`create role anon; create role authenticated; create schema auth; create schema hub;
  create function auth.uid() returns uuid language sql as $$ select nullif(current_setting('test.uid',true),'')::uuid $$;
@@ -24,7 +24,7 @@ async function database() {
   await db.exec(
     security.slice(security.indexOf("-- ---------- auditoria ----------")),
   );
-  await db.exec(fs.readFileSync(file, "utf8"));
+  if (install) await db.exec(fs.readFileSync(file, "utf8"));
   await db.exec(
     `select set_config('test.uid','${randomUUID()}',false),set_config('test.email','lucianapandolfo9@gmail.com',false);set role authenticated;`,
   );

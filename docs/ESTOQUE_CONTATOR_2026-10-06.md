@@ -68,6 +68,8 @@ Próximas melhorias sugeridas: ponto de reposição por demanda durante o prazo 
 
 ## Instalação e validação
 
+Pacote completo de instalação e SQLs de conferência: [SUPABASE_ESTOQUE_CONTATOR.md](SUPABASE_ESTOQUE_CONTATOR.md).
+
 1. Revisar a migration `migrations/20261006052445_estoque_contator_estrategico.sql` em homologação, depois da estrutura existente até 036. Nome gerado pelo Supabase CLI 2.119.0 (`migration new estoque_contator_estrategico`) e preservado no diretório de migrations do projeto.
 2. A base antiga não é reconstruída automaticamente por estes testes. Confirmar `hub.workspaces`, `hub.default_workspace_id`, `hub.is_admin`, `hub.registrar_auditoria` e os papéis Supabase antes de instalar.
 3. Executar a migration completa em transação. Não contém dados de clientes, seeds de produção, extensões novas ou mudanças em tabelas legadas. Não expor o schema `hub` no PostgREST.
@@ -87,3 +89,7 @@ As seis tabelas novas têm RLS, workspace obrigatório, FKs compostas, ausência
 - Para repetir a interface: `npx playwright install chromium` e `npm run test:browser`. Se usar um Chromium existente, informe `HUB_CHROMIUM_PATH=/caminho/do/chromium`. O servidor local e o navegador são iniciados pelo próprio teste; o teste não conecta ao Supabase de produção.
 - O CLI agent-browser não conseguiu iniciar o daemon neste ambiente e os downloads usuais falharam. Foi utilizado Chromium empacotado para verificar com Playwright; essa adaptação só pertence ao ambiente de testes.
 - Não foram executados advisors nem aplicada migration no projeto remoto. Concorrência entre duas conexões reais, integração Auth/PostgREST e grande volume continuam no roteiro de homologação acima.
+
+## Pacote Supabase complementado em 06/10/2026
+
+O mesmo PR inclui agora um [roteiro de instalação](SUPABASE_ESTOQUE_CONTATOR.md), preflight e verificação SQL de acesso/RLS/auditoria. O preflight foi executado em leitura no projeto remoto: 28 verificações passaram. A suite local ampliada passou com 11 testes. Nenhuma migration foi aplicada no projeto remoto.
