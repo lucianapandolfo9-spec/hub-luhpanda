@@ -211,3 +211,7 @@ real do node "Configuração" do workflow `HUB — Cobrança Automática` (preci
 - Toda alteração de schema é uma migration nova em `migrations/`, nunca editar uma antiga.
 - Nunca commitar `service_role` key — este projeto não usa nenhuma; tudo roda com a chave
   `anon` + RLS + RPC.
+
+## Estoque e assessoria Contator — 06/10/2026
+
+Implementação, pesquisa, decisões e validação: [docs/ESTOQUE_CONTATOR_2026-10-06.md](docs/ESTOQUE_CONTATOR_2026-10-06.md). Adiciona as rotas de estoque e Contator; a migration precisa de revisão e aplicação em homologação antes de publicar as telas.
