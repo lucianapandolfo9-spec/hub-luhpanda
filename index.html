@@ -247,11 +247,31 @@ window.addEventListener('hashchange', render);
 // ============================================================
 // AUTH
 // ============================================================
+let connectionUnavailable = false;
+function renderConnectionUnavailable(){
+  connectionUnavailable = true;
+  const offline = navigator.onLine === false;
+  root.innerHTML = `<div class="topbar"><div class="brandmark">🐼 Hub</div></div>
+    <div class="login-box card" role="alert">
+      <h2>${offline ? 'Sem conexão' : 'Conexão indisponível'}</h2>
+      <p>Conecte-se à internet para acessar seus dados. Se já estiver conectado, tente novamente.</p>
+      <button class="btn btn-primary" onclick="window.location.reload()">Tentar novamente</button>
+    </div>`;
+}
+window.addEventListener('online', () => {
+  if(connectionUnavailable) window.location.reload();
+});
 async function init(){
-  const { data } = await hubClient.auth.getSession();
-  session = data.session;
-  hubClient.auth.onAuthStateChange((_event, s) => { session = s; render(); });
-  render();
+  if(!hubClient || navigator.onLine === false){ renderConnectionUnavailable(); return; }
+  try {
+    const { data, error } = await hubClient.auth.getSession();
+    if(error) throw error;
+    session = data.session;
+    hubClient.auth.onAuthStateChange((_event, s) => { session = s; render(); });
+    await render();
+  } catch (_) {
+    renderConnectionUnavailable();
+  }
 }
 
 function renderLogin(){
@@ -4892,6 +4912,7 @@ async function salvarCobrancaMensagem(i){
 // ROUTER
 // ============================================================
 async function render(){
+  if(connectionUnavailable){ renderConnectionUnavailable(); return; }
   if(!session){ renderLogin(); return; }
   if((session.user.email||'').toLowerCase() !== HUB_ADMIN_EMAIL.toLowerCase()){ renderAcessoNegado(); return; }
 
@@ -4933,3 +4954,4 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 </script>
 </body>
 </html>
+

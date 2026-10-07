@@ -142,13 +142,14 @@ não de um módulo — o aprovi.ai vai entrar aqui dentro e o manifest não prec
 
 **Decisões que custaram e não devem ser desfeitas:**
 
-- 🔴 **O SW nunca cacheia o Supabase.** Três camadas: só `GET` entra no handler (as RPCs são
-  `POST`), qualquer outra origem sai sem ser interceptada, e ainda há um teste de caminho com
-  cara de API. Este painel é onde ela decide quem já pagou — abrir o Hub e ver número velho
-  sem saber que é velho seria o pior defeito possível.
+- 🔴 **O SW só cacheia uma lista explícita de arquivos estáticos da própria origem.**
+  APIs, outras origens, POST e URLs com query não entram no handler. O cache é separado
+  por escopo; `waitUntil` mantém a gravação ativa e falhas de cache não perdem a resposta.
+  O boot mostra conexão indisponível sem depender do CDN e oferece tentar novamente.
+
 - **Network-first, não cache-first.** É o que resolve a invalidação do `index.html` de 263 KB:
   com rede, a resposta usada é sempre a recém-publicada; o cache só entra quando a rede falha.
-  O `VERSION` do `sw.js` é a trava extra — subir a versão limpa todo cache antigo. **Só é
+  O `VERSION` do `sw.js` é a trava extra — subir a versão limpa os caches antigos do próprio escopo. **Só é
   preciso subir `VERSION` quando mudar a lista `SHELL` ou a lógica do SW**, não a cada deploy.
 - `id` do manifest é `hub-luhpanda`, diferente do `aprovi-painel`: os dois são servidos da
   **mesma origem** `github.io` e sem `id` distinto o navegador trata como o mesmo app.
@@ -168,9 +169,14 @@ não de um módulo — o aprovi.ai vai entrar aqui dentro e o manifest não prec
   `magick` **descarta `transform="rotate"` em `<ellipse>`** e apaga as manchas dos olhos sem
   avisar. Se precisar regerar, rasterize no Chrome.
 - O `supabase.js` do jsdelivr fica **fora** do shell (é outra origem). Consequência aceita:
-  100% offline o app abre a casca e para no "sem conexão" — melhor do que arriscar dado velho.
+  100% offline a casca mostra "Sem conexão" e oferece tentar novamente. Ao reconectar, recarrega; dados financeiros continuam exigindo conexão.
 - `style.css` — o toast agora é `bottom: calc(24px + env(safe-area-inset-bottom))`. Instalado
   no iPhone, o home indicator comia metade dele.
+
+
+## Revisão PWA — 07/10/2026
+
+Seis testes automatizados cobrem boot sem CDN, falha de Auth, recuperação online, exclusões de cache, escrita atrasada/falha, isolamento por escopo e instalação incompleta. O workflow PWA não depende do pacote de testes do Estoque/Contator. Instalação em aparelhos Android/iPhone reais permanece como validação antes do merge.
 
 ## O que NÃO está nesta fase
 
