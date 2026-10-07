@@ -8,7 +8,7 @@ num lugar só. Documento mestre técnico — ler antes de mexer em qualquer cois
 > divergirem sobre o que o produto é, quanto custa ou o que vem depois, **vale o README**.
 > "Hub" é nome provisório; o nome comercial será escolhido depois.
 >
-> **Atualizado em 06/10/2026.** Trechos marcados com ⚠️ *(histórico)* descrevem o estado de
+> **Atualizado em 07/10/2026.** Trechos marcados com ⚠️ *(histórico)* descrevem o estado de
 > uma fase anterior e foram mantidos por registro.
 
 ## O que é
@@ -27,7 +27,7 @@ constam aplicadas** no banco; cabeçalhos de arquivo dizendo "não aplicada" sã
 `google-oauth-callback`) estão **implantadas**.
 
 **Fora da `main`:** o PWA está em branch/PR (`feat/pwa-favicon-panda`) e o Estoque/Contator
-está em PR de referência (#3), parado. Multi-empresa de verdade (membros, papéis, isolamento
+está implementado em branch (#3), com instalação e homologação pendentes. Multi-empresa de verdade (membros, papéis, isolamento
 por workspace) é **a fazer**; hoje só existe a coluna `workspace_id`.
 
 O desenho do sistema vive no Artifact do fluxograma e no Obsidian Canvas dela. Pacotes,
@@ -50,7 +50,7 @@ sem framework, publica no GitHub Pages. n8n na VPS Hostinger faz o trabalho pesa
 Projeto Supabase atual (`tscnqvuzlfagotirgjbz`). **Já não se chama `arroba-certa`**: foi
 renomeado em 01/10/2026, e o banco do Certo Agro foi para projeto próprio em 30/09/2026.
 **Schema isolado `hub`**, ao lado de `posta_ai` (aprovi.ai) e de `_legado_certo_agro`
-(legado em quarentena, migration 036; o `public` ficou vazio). Nunca tocar nos outros
+(legado em quarentena, migration 036; os wrappers públicos da Hub e do aprovi.ai permanecem). Nunca tocar nos outros
 schemas a partir daqui.
 
 **Decisão vigente (desenho de 06/10/2026):**
