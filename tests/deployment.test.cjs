@@ -10,6 +10,7 @@ const verify = fs.readFileSync(
   "migrations/_verificacao_estoque_contator.sql",
   "utf8",
 );
+const unitMigration = fs.readFileSync("migrations/20261007204101_estoque_unidade_historico.sql", "utf8");
 const migration = fs.readFileSync(
   "migrations/20261006052445_estoque_contator_estrategico.sql",
   "utf8",
@@ -29,11 +30,14 @@ test("Pacote de implantação detecta dependência ausente e instalação comple
     );
     await db.exec("rollback;");
     rows = (await db.query(verify)).rows;
-    assert.equal(rows.length, 19);
+    assert.equal(rows.length, 20);
     assert.ok(rows.every((r) => !r.ok));
     await db.exec(migration);
     rows = (await db.query(verify)).rows;
-    assert.equal(rows.length, 19);
+    assert.equal(rows.find(r => r.objeto === "estoque_unidade_historico").ok, false);
+    await db.exec(unitMigration);
+    rows = (await db.query(verify)).rows;
+    assert.equal(rows.length, 20);
     assert.ok(rows.every((r) => r.ok));
     rows = (await db.query(preflight)).rows;
     assert.ok(

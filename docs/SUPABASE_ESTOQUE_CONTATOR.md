@@ -8,7 +8,8 @@ Pacote de banco incluído no PR #3. Projeto existente: **HUB Luh Panda**, ID `ts
 |---|---|---|
 | 1 | [`_preflight_estoque_contator.sql`](../migrations/_preflight_estoque_contator.sql) | Verificar dependências e ausência dos objetos novos; somente leitura |
 | 2 | [`20261006052445_estoque_contator_estrategico.sql`](../migrations/20261006052445_estoque_contator_estrategico.sql) | Instalar tabelas, RPCs, índices, RLS, permissões e auditoria em uma transação |
-| 3 | [`_verificacao_estoque_contator.sql`](../migrations/_verificacao_estoque_contator.sql) | Verificar instalação, acesso, RLS e auditoria; somente leitura |
+| 3 | [`20261007204101_estoque_unidade_historico.sql`](../migrations/20261007204101_estoque_unidade_historico.sql) | Impedir troca de unidade após qualquer movimentação, preservando histórico |
+| 4 | [`_verificacao_estoque_contator.sql`](../migrations/_verificacao_estoque_contator.sql) | Verificar instalação, acesso, RLS e auditoria; somente leitura |
 
 ## Antes de instalar
 
@@ -19,7 +20,7 @@ Pacote de banco incluído no PR #3. Projeto existente: **HUB Luh Panda**, ID `ts
 
 ## Aplicação
 
-Executar **o arquivo completo**, mantendo `begin;` e `commit;`, no SQL Editor do projeto correto. Ele também pode ser aplicado pelo mecanismo de migrations de quem administra a implantação; usar o mesmo SQL versionado no PR.
+Executar **os dois arquivos de migration completos, na ordem da tabela acima**, mantendo `begin;` e `commit;`, no SQL Editor do projeto correto. Eles também podem ser aplicados pelo mecanismo de migrations de quem administra a implantação; usar o mesmo SQL versionado no PR.
 
 Se um comando falhar, não executar os comandos restantes isoladamente: encerrar a transação abortada com `rollback;`, corrigir a causa e conferir o estado antes de repetir. A conclusão do arquivo já envia `notify pgrst, 'reload schema';` para atualizar o cache da API.
 
@@ -34,7 +35,7 @@ Não mover as tabelas para `public`, não expor `hub` nas configurações de sch
 
 ## Conferência depois da instalação
 
-1. Executar a verificação: deve retornar **19 linhas com `ok=true`**. Uma falha interrompe a liberação do frontend até corrigir a causa; não resolver abrindo permissões gerais.
+1. Executar a verificação: deve retornar **20 linhas com `ok=true`**. Uma falha interrompe a liberação do frontend até corrigir a causa; não resolver abrindo permissões gerais.
 2. Rodar os advisors de segurança/performance do Supabase. Distinguir os alertas dos objetos novos daqueles já existentes no projeto.
 3. Entrar na Hub com a conta autorizada e validar `#/estoque` e `#/contador`: cadastro, gravação e recarga dos dados. Conferir entrada/saída, transferência, contagem e compra parcial; no Contator, diagnóstico, cenário, ação e revisão.
 4. Conferir negação para sessão ausente ou outro usuário. A consulta no SQL Editor não substitui Auth/PostgREST: o editor não carrega a sessão da pessoa que usa a tela.
@@ -54,3 +55,7 @@ Conferência do projeto remoto em 06/10/2026: as 28 verificações de pré-insta
 Esta atualização do PR prepara a instalação; **não aplica a migration no projeto remoto, não integra o PR e não publica o frontend**.
 
 Referências: [funções e permissões](https://supabase.com/docs/guides/database/functions), [atualização do cache do PostgREST](https://supabase.com/docs/guides/troubleshooting/refresh-postgrest-schema).
+
+## Correção da revisão de 07/10/2026
+
+A migration inicial foi preservada. A segunda migration substitui somente `hub.stock_save`, mantendo autenticação, lock, auditoria e grants. A unidade continua editável antes de qualquer movimento; com histórico, é necessário criar outro item. O teste de instalação detecta quando essa segunda migration foi esquecida. A validação anterior de 11 testes é histórica; a revisão acrescenta uma regressão para a troca de unidade com saldo zerado.

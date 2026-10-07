@@ -3,7 +3,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const { PGlite } = require("@electric-sql/pglite");
 const { randomUUID } = require("node:crypto");
-const file = "migrations/20261006052445_estoque_contator_estrategico.sql";
+const files = [
+  "migrations/20261006052445_estoque_contator_estrategico.sql",
+  "migrations/20261007204101_estoque_unidade_historico.sql",
+];
 const W = "10000000-0000-0000-0000-000000000001",
   OTHER = "10000000-0000-0000-0000-000000000002";
 async function database({ install = true } = {}) {
@@ -24,7 +27,7 @@ async function database({ install = true } = {}) {
   await db.exec(
     security.slice(security.indexOf("-- ---------- auditoria ----------")),
   );
-  if (install) await db.exec(fs.readFileSync(file, "utf8"));
+  if (install) for (const file of files) await db.exec(fs.readFileSync(file, "utf8"));
   await db.exec(
     `select set_config('test.uid','${randomUUID()}',false),set_config('test.email','lucianapandolfo9@gmail.com',false);set role authenticated;`,
   );

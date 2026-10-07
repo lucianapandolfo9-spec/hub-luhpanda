@@ -93,3 +93,7 @@ As seis tabelas novas têm RLS, workspace obrigatório, FKs compostas, ausência
 ## Pacote Supabase complementado em 06/10/2026
 
 O mesmo PR inclui agora um [roteiro de instalação](SUPABASE_ESTOQUE_CONTATOR.md), preflight e verificação SQL de acesso/RLS/auditoria. O preflight foi executado em leitura no projeto remoto: 28 verificações passaram. A suite local ampliada passou com 11 testes. Nenhuma migration foi aplicada no projeto remoto.
+
+## Revisão de 07/10/2026
+
+A unidade do item fica imutável após qualquer movimento, inclusive com saldo zerado, para não misturar medidas na demanda e no histórico. A correção está em `20261007204101_estoque_unidade_historico.sql`, aplicada depois da migration inicial. O pacote de verificação passa a ter 20 checagens e detecta a ausência da correção. O registro da reunião de 05/10 foi incorporado ao branch, preservando as duas seções de `PROJETO.md`.

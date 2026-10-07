@@ -32,4 +32,9 @@ with expected_tables(name) as (
   and has_function_privilege('authenticated',p.oid,'EXECUTE')=e.authenticated_execute,false) as ok
  from expected_functions e left join pg_proc p on p.oid=to_regprocedure(e.signature)
 )
-select * from table_checks union all select * from function_checks order by tipo,objeto;
+select * from table_checks union all select * from function_checks
+union all select 'regra'::text, 'estoque_unidade_historico'::text,
+ coalesce((select position('hub.stock_movements' in pg_get_functiondef(p.oid))>0
+  and position('histórico' in pg_get_functiondef(p.oid))>0 from pg_proc p
+  where p.oid=to_regprocedure('hub.stock_save(text,jsonb)')),false)
+order by tipo,objeto;

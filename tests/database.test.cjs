@@ -4,6 +4,29 @@ const { randomUUID } = require("node:crypto");
 const { database, rpc, snapshot, setup, move } = require("./fixture.cjs");
 const W = "10000000-0000-0000-0000-000000000001",
   OTHER = "10000000-0000-0000-0000-000000000002";
+test("Unidade só muda antes de movimentos; saldo zero não apaga a medida histórica", async () => {
+  const db = await database();
+  try {
+    const { product, location } = await setup(db);
+    let s = await snapshot(db);
+    await rpc(db, "hub_rpc_stock_save", "product", { ...s.products[0], unit: "kg" });
+    s = await snapshot(db);
+    assert.equal(s.products[0].unit, "kg");
+    await move(db, { product_id: product, location_id: location, quantity: 10 });
+    s = await snapshot(db);
+    await assert.rejects(rpc(db, "hub_rpc_stock_save", "product", { ...s.products[0], unit: "un" }), /saldo ou histórico/);
+    await move(db, { type: "sale", product_id: product, position_id: s.positions[0].id, quantity: 10 });
+    s = await snapshot(db);
+    assert.equal(Number(s.positions[0].quantity), 0);
+    await assert.rejects(rpc(db, "hub_rpc_stock_save", "product", { ...s.products[0], unit: "un" }), /saldo ou histórico/);
+    // Outros campos continuam editáveis e a tentativa recusada não altera o item.
+    await rpc(db, "hub_rpc_stock_save", "product", { ...s.products[0], name: "Mercadoria revisada" });
+    s = await snapshot(db);
+    assert.equal(s.products[0].unit, "kg");
+    assert.equal(s.products[0].name, "Mercadoria revisada");
+    assert.equal(s.movements.length, 2);
+  } finally { await db.close(); }
+});
 test("Estoque: transações, custo, lotes, idempotência, compra parcial e inventário", async () => {
   const db = await database();
   try {
