@@ -53,6 +53,12 @@
 //   • Supabase (RPCs hub_rpc_eventos_agenda_vincular /
 //     hub_rpc_criar_rascunho_reuniao_agenda): repassa o JWT do navegador
 //     dela, então hub.is_admin() continua valendo — mesmo padrão de sempre.
+//     ⚠️ SEC-HUB-001 (08/10/2026): isso NÃO protegia a parte Google — as
+//     ações listar/obter/calendarios/editar nem chamam RPC, e criar/cancelar
+//     falam com o Google ANTES da RPC. Com verify_jwt aceitando a anon key,
+//     qualquer um lia e mexia na agenda dela. Agora o portão exigirAdmin
+//     (_shared/admin.ts) roda antes de tudo, e calendario_id só aceita os
+//     calendários de CALENDARIOS.
 //   • Google Calendar API: usa GOOGLE_CALENDAR_REFRESH_TOKEN (secret do
 //     servidor) pra pegar um access_token — a mesma lógica de
 //     EVOLUTION_API_KEY: um segredo do sistema, não por usuário, porque só
@@ -65,6 +71,7 @@
 // wa-send (EVOLUTION_API_KEY) e reuniao-analisar (GEMINI_API_KEY).
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { verificarAdmin } from "../_shared/admin.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")
@@ -148,6 +155,13 @@ async function chamarGoogleCalendar(caminho: string, init: RequestInit = {}) {
   return texto ? JSON.parse(texto) : null;
 }
 
+// SEC-HUB-001: só os calendários de CALENDARIOS (default 'primary'). Antes,
+// obter/editar/cancelar aceitavam qualquer calendar id da conta dela.
+function calendarioPermitido(valor: unknown): string | null {
+  const id = String(valor ?? "primary").trim() || "primary";
+  return CALENDARIOS.some((c) => c.id === id) ? id : null;
+}
+
 // molde enxuto que o front consome — nunca devolve o objeto cru do Google.
 // `calendarioId` marca de qual dos CALENDARIOS o evento veio (pro front
 // guardar e repassar de volta em "obter"/"cancelar"/"editar" — sem isso
@@ -182,9 +196,11 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return responder({ erro: "método não permitido" }, 405);
 
-  const auth = req.headers.get("Authorization") ?? "";
-  const jwt = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) return responder({ erro: "sem sessão" }, 401);
+  // SEC-HUB-001: portão de admin ANTES de qualquer secret/serviço externo
+  // (ver _shared/admin.ts — verify_jwt sozinho deixa passar a anon key).
+  const portao = await verificarAdmin(req, { supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
+  if (!portao.ok) return responder({ erro: portao.erro }, portao.status);
+  const jwt = portao.jwt;
 
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET || !GOOGLE_REFRESH_TOKEN) {
     return responder({
@@ -238,7 +254,8 @@ Deno.serve(async (req: Request) => {
     // ---------------- obter (detalhe ao vivo, pra ficha) ----------------
     if (acao === "obter") {
       const ids = Array.isArray(entrada.google_event_ids) ? entrada.google_event_ids as string[] : [];
-      const calendarioId = String(entrada.calendario_id ?? "primary").trim() || "primary";
+      const calendarioId = calendarioPermitido(entrada.calendario_id);
+      if (!calendarioId) return responder({ erro: "calendario_id fora dos calendarios do Hub" }, 400);
       const eventos = [];
       for (const id of ids) {
         try {
@@ -312,7 +329,8 @@ Deno.serve(async (req: Request) => {
     // ---------------- cancelar (apagar reunião, clicando nela) ----------------
     if (acao === "cancelar") {
       const googleEventId = String(entrada.google_event_id ?? "").trim();
-      const calendarioId = String(entrada.calendario_id ?? "primary").trim() || "primary";
+      const calendarioId = calendarioPermitido(entrada.calendario_id);
+      if (!calendarioId) return responder({ erro: "calendario_id fora dos calendarios do Hub" }, 400);
       if (!googleEventId) return responder({ erro: "google_event_id é obrigatório" }, 400);
 
       const qs = new URLSearchParams({ sendUpdates: "all" });
@@ -340,7 +358,8 @@ Deno.serve(async (req: Request) => {
     // ---------------- editar (trocar dados de uma reunião já marcada) ----------------
     if (acao === "editar") {
       const googleEventId = String(entrada.google_event_id ?? "").trim();
-      const calendarioId = String(entrada.calendario_id ?? "primary").trim() || "primary";
+      const calendarioId = calendarioPermitido(entrada.calendario_id);
+      if (!calendarioId) return responder({ erro: "calendario_id fora dos calendarios do Hub" }, 400);
       const titulo = String(entrada.titulo ?? "").trim();
       const inicioIso = String(entrada.inicio_iso ?? "");
       const duracaoMin = Number(entrada.duracao_min ?? 60);

@@ -14,7 +14,12 @@
 // fonte da verdade — não editar direto no painel.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { verificarAdmin } from "../_shared/admin.ts";
 
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")
+  ?? Deno.env.get("SUPABASE_PUBLISHABLE_KEY")
+  ?? "";
 const EVOLUTION_URL = Deno.env.get("EVOLUTION_URL") ?? "https://evo.luhpanda.com.br";
 const EVOLUTION_INSTANCIA = Deno.env.get("EVOLUTION_INSTANCIA") ?? "LuhPessoal";
 const EVOLUTION_API_KEY = Deno.env.get("EVOLUTION_API_KEY");
@@ -35,9 +40,13 @@ function responder(corpo: unknown, status = 200) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
-  // verify_jwt=true no deploy já barra quem não tem sessão Supabase válida
-  // antes de chegar aqui — não precisa de checagem extra de is_admin, só
-  // existe uma conta autenticada neste projeto (a dela).
+  // SEC-HUB-001 (08/10/2026): o comentário antigo aqui dizia que
+  // verify_jwt bastava porque "só existe uma conta neste projeto". Falso
+  // duas vezes: o projeto tem os usuários do aprovi.ai, e a própria anon key
+  // (pública) passa no verify_jwt. Esta function devolvia a lista de grupos
+  // de WhatsApp dela pra qualquer um com a anon key. Agora: portão de admin.
+  const portao = await verificarAdmin(req, { supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
+  if (!portao.ok) return responder({ erro: portao.erro }, portao.status);
 
   if (!EVOLUTION_API_KEY) {
     return responder({

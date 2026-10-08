@@ -32,6 +32,7 @@
 // da própria hub.conversas) pra esta função saber qual sufixo montar.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { verificarAdmin } from "../_shared/admin.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")
@@ -80,9 +81,11 @@ Deno.serve(async (req: Request) => {
 
   const tInicio = Date.now();
 
-  const auth = req.headers.get("Authorization") ?? "";
-  const jwt = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) return responder({ erro: "sem sessao" }, 401);
+  // SEC-HUB-001: portão de admin ANTES de qualquer secret/serviço externo
+  // (ver _shared/admin.ts — verify_jwt sozinho deixa passar a anon key).
+  const portao = await verificarAdmin(req, { supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
+  if (!portao.ok) return responder({ erro: portao.erro }, portao.status);
+  const jwt = portao.jwt;
 
   if (!EVOLUTION_API_KEY) {
     return responder({

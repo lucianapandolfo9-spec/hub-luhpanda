@@ -28,3 +28,9 @@ secrets/
 # Supabase CLI — estado local por clone
 supabase/.temp/
 supabase/.branches/
+
+# Dump CRU de produção (schema-only) NUNCA entra no repo público — SEC-HUB,
+# 08/10/2026. Os testes usam a versão sanitizada gerada por
+# scripts/sanitizar-fixture-schema.mjs (sem comentário, sem e-mail real).
+*_prod_*.sql
+**/fixtures/*prod*.sql

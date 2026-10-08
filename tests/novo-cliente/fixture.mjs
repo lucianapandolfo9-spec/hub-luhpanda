@@ -8,7 +8,7 @@ export const read = p => readFileSync(root + p, 'utf8');
 export async function database(extra = []) {
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.exec(read('tests/novo-cliente/fixtures/supabase_stub.sql'));
-  await db.exec(read('tests/novo-cliente/fixtures/hub_schema_prod_2026-10-08.sql'));
+  await db.exec(read('tests/novo-cliente/fixtures/hub_schema.sql'));
   await db.exec(`insert into hub.workspaces(nome,slug) values('Luh Panda','luhpanda');
     insert into hub.empresas(nome,tipo) values('Luh Panda','mei');
     insert into hub.servicos(slug,nome,modalidade) values('servico','Serviço','recorrente');`);
@@ -21,7 +21,7 @@ export async function database(extra = []) {
 export async function rpc(db, name, p, who = 'admin') {
   const claims = who === 'service' ? { role: 'service_role' } :
     { role: 'authenticated', sub: '00000000-0000-4000-8000-00000000000a',
-      email: who === 'admin' ? 'lucianapandolfo9@gmail.com' : 'intruso@exemplo.test' };
+      email: who === 'admin' ? 'admin@hub.test' : 'intruso@exemplo.test' };
   return db.transaction(async tx => {
     await tx.query(`select set_config('request.jwt.claims',$1,true)`, [JSON.stringify(claims)]);
     await tx.exec(`set local role ${who === 'service' ? 'service_role' : 'authenticated'}`);
