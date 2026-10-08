@@ -101,7 +101,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return responder({ erro: "metodo nao permitido" }, 405);
 
-  // SEC-HUB-001: portão de admin ANTES de qualquer secret/serviço externo
+  // SEC-HUB-012: portão de admin ANTES de qualquer secret/serviço externo
   // (ver _shared/admin.ts — verify_jwt sozinho deixa passar a anon key).
   const portao = await verificarAdmin(req, { supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
   if (!portao.ok) return responder({ erro: portao.erro }, portao.status);

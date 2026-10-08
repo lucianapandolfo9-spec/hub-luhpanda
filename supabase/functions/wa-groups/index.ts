@@ -40,7 +40,7 @@ function responder(corpo: unknown, status = 200) {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
-  // SEC-HUB-001 (08/10/2026): o comentário antigo aqui dizia que
+  // SEC-HUB-012 (08/10/2026): o comentário antigo aqui dizia que
   // verify_jwt bastava porque "só existe uma conta neste projeto". Falso
   // duas vezes: o projeto tem os usuários do aprovi.ai, e a própria anon key
   // (pública) passa no verify_jwt. Esta function devolvia a lista de grupos

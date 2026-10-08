@@ -4,7 +4,7 @@
 // Os testes de banco (PGlite) precisam da estrutura REAL do schema `hub`,
 // porque algumas tabelas nunca tiveram migration no repo (recebiveis,
 // custos_fixos, config, cobranca_envios). Mas o repo é PÚBLICO: o dump de
-// produção cru NÃO entra aqui (SEC-HUB, 08/10/2026). O que é versionado é a
+// produção cru NÃO entra aqui (SEC-HUB-014, 08/10/2026). O que é versionado é a
 // versão sanitizada que este script gera:
 //
 //   - sem comentário SQL (narrativa de negócio, nome de cliente, histórico);

@@ -42,7 +42,7 @@ const SCOPE = "https://www.googleapis.com/auth/calendar";
 // mais amplo; `calendar.events` sozinho dava 403 insufficientPermissions.
 // Continua sem acesso a Gmail/Drive/etc — é só o produto Calendar inteiro.
 
-// SEC-HUB-002 (08/10/2026): `?error=` vem da URL — qualquer um monta o link.
+// SEC-HUB-013 (08/10/2026): `?error=` vem da URL — qualquer um monta o link.
 // Sem escapar, era HTML refletido na página. Esta function é pública por
 // necessidade (o Google redireciona pra cá sem JWT), então nada que vem da
 // querystring entra cru no HTML.

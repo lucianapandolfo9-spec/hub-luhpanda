@@ -1,6 +1,6 @@
 // HUB LUH PANDA — _shared/admin.ts
 //
-// PORTÃO ÚNICO das Edge Functions do Hub (SEC-HUB-001, 08/10/2026).
+// PORTÃO ÚNICO das Edge Functions do Hub (SEC-HUB-012, 08/10/2026).
 //
 // O DEFEITO QUE ISTO FECHA: `verify_jwt=true` no deploy só prova que o
 // token é um JWT assinado pelo projeto — e a chave ANON (pública, está no
