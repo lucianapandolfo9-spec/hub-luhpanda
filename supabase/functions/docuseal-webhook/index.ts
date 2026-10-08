@@ -9,7 +9,8 @@
 // autenticação é OUTRA: a assinatura HMAC-SHA256 no header
 // X-Docuseal-Signature (formato "timestamp.hex"), verificada contra o
 // segredo DOCUSEAL_WEBHOOK_SECRET (aba HMAC de Configurações de Segurança
-// do DocuSeal — o valor começa com "whsec_").
+// do DocuSeal — o valor começa com "whsec_" e entra INTEIRO como chave).
+// Algoritmo conferido no código do DocuSeal 3.2.6 em 08/10: ./assinatura.ts.
 //
 // Por não ter JWT de usuário, esta função usa a SUPABASE_SERVICE_ROLE_KEY —
 // injetada AUTOMATICAMENTE pelo runtime de Edge Functions em todo projeto
@@ -34,13 +35,13 @@
 // https://<projeto>.supabase.co/functions/v1/docuseal-webhook
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { verificarAssinaturaDocuseal } from "./assinatura.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const DOCUSEAL_WEBHOOK_SECRET = Deno.env.get("DOCUSEAL_WEBHOOK_SECRET");
 const DOCUSEAL_API_KEY = Deno.env.get("DOCUSEAL_API_KEY"); // reaproveitado só pra baixar o PDF final, se precisar de auth
 const CONTRATO_BUCKET = "contratos";
-const JANELA_REPLAY_SEGUNDOS = 300; // 5 min, mesma tolerância do exemplo oficial
 
 function responder(corpo: unknown, status = 200) {
   return new Response(JSON.stringify(corpo), { status, headers: { "Content-Type": "application/json" } });
@@ -65,41 +66,7 @@ async function rpcServiceRole(nome: string, corpo: unknown) {
   }
 }
 
-// ---------- verificação HMAC (Web Crypto — Deno não tem node:crypto aqui) ----------
-async function hmacHex(segredo: string, mensagem: string): Promise<string> {
-  const chave = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(segredo),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const assinatura = await crypto.subtle.sign("HMAC", chave, new TextEncoder().encode(mensagem));
-  return [...new Uint8Array(assinatura)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-// comparação em tempo constante — não é `===` de propósito (timing attack
-// num endpoint de webhook de documento legal não é hipotético demais pra
-// ignorar, e custa três linhas a mais).
-function compararConstante(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
-}
-
-async function assinaturaValida(header: string | null, corpoBruto: string): Promise<boolean> {
-  // sem segredo configurado = recusa por padrão. Um webhook de assinatura de
-  // CONTRATO sem verificação é pior que não ter o webhook — qualquer um que
-  // descobrisse a URL poderia forjar "contrato assinado".
-  if (!DOCUSEAL_WEBHOOK_SECRET) return false;
-  if (!header) return false;
-  const [timestamp, assinatura] = header.split(".", 2);
-  if (!timestamp || !assinatura) return false;
-  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > JANELA_REPLAY_SEGUNDOS) return false;
-  const esperado = await hmacHex(DOCUSEAL_WEBHOOK_SECRET, `${timestamp}.${corpoBruto}`);
-  return compararConstante(esperado, assinatura);
-}
+// ---------- verificação HMAC: ver ./assinatura.ts (SEC-HUB-005) ----------
 
 // ---------- forma do payload — isolado de propósito, ver cabeçalho ----------
 function extrairEvento(bruto: Record<string, unknown>): { tipo: string; dados: Record<string, unknown> } {
@@ -142,12 +109,19 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok");
   if (req.method !== "POST") return responder({ erro: "metodo nao permitido" }, 405);
 
-  const corpoBruto = await req.text();
-  const assinaturaHeader = req.headers.get("X-Docuseal-Signature") ?? req.headers.get("x-docuseal-signature");
-
-  if (!(await assinaturaValida(assinaturaHeader, corpoBruto))) {
+  // bytes crus: o HMAC é calculado sobre exatamente o que o DocuSeal mandou.
+  const corpoBytes = new Uint8Array(await req.arrayBuffer());
+  const veredito = await verificarAssinaturaDocuseal(
+    DOCUSEAL_WEBHOOK_SECRET,
+    req.headers.get("X-Docuseal-Signature"), // Headers é case-insensitive
+    corpoBytes,
+  );
+  if (!veredito.ok) {
+    // loga só o motivo — nunca o header, o segredo ou o corpo.
+    console.error(JSON.stringify({ fn: "docuseal-webhook", etapa: "assinatura", motivo: veredito.motivo }));
     return responder({ erro: "assinatura invalida (ou DOCUSEAL_WEBHOOK_SECRET nao configurado)" }, 401);
   }
+  const corpoBruto = new TextDecoder().decode(corpoBytes);
   if (!SERVICE_ROLE_KEY) {
     return responder({ erro: "configuracao incompleta", detalhe: "SUPABASE_SERVICE_ROLE_KEY ausente." }, 500);
   }
