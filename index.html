@@ -171,7 +171,7 @@ function friendlyError(err){
     hub_novo_cliente_slug_invalido: 'O identificador (slug) só aceita letras minúsculas, números e hífen.',
     hub_novo_cliente_tipo_cobranca_invalido: 'Tipo de cobrança inválido.',
     hub_novo_cliente_sem_percentual: 'Cobrança com porcentagem precisa do percentual (entre 0 e 100).',
-    hub_novo_cliente_sem_valor: 'Falta o valor mensal (ou da parcela).',
+    hub_novo_cliente_sem_valor: 'Falta o valor mensal (ou da parcela), maior que zero.',
     hub_novo_cliente_parcelas_invalidas: 'Número de parcelas precisa ser 1 ou mais.',
     hub_novo_cliente_pontual_sem_parcelas: 'Trabalho pontual precisa do número de parcelas — senão vira mensalidade sem fim.',
     hub_novo_cliente_sem_vencimento: 'Falta o dia de vencimento (1 a 28).',
@@ -189,7 +189,7 @@ function friendlyError(err){
     hub_assinatura_sem_data: 'Falta a data da assinatura.',
     hub_assinatura_no_futuro: 'A data da assinatura está no futuro.',
     hub_contrato_nao_pode_assinar: 'Contrato encerrado ou arquivado não pode ser marcado como assinado.',
-    hub_contrato_sem_valor: 'O contrato está sem valor mensal — edite o contrato antes de marcar como assinado.',
+    hub_contrato_sem_valor: 'O contrato está sem valor mensal (ou com R$ 0) — edite o contrato antes de marcar como assinado.',
     hub_contrato_sem_vencimento: 'O contrato está sem dia de vencimento — edite o contrato antes de marcar como assinado (sem isso as parcelas nasceriam sem data).',
   };
   for(const k in ERROS_041){ if(m.includes(k)) return ERROS_041[k]; }
@@ -4086,14 +4086,16 @@ async function abrirContratoAssinado(contratoId, clienteSlug){
   const item = dados && (dados.contratos || []).find(x => x.contrato.id === contratoId);
   if(!item){ toast('Contrato não encontrado na ficha.'); return; }
   const co = item.contrato;
-  const percentualPuro = dados.cliente.tipo_cobranca === 'percentual' && co.valor_mensal_centavos == null;
+  // R$ 0 = "sem cobrança" (044): tratado igual a vazio, nunca vira parcela
+  const temValor = Number(co.valor_mensal_centavos) > 0;
+  const percentualPuro = dados.cliente.tipo_cobranca === 'percentual' && !temValor;
 
   const PORTA = { manutencao_mensal:'manutenção mensal', desligamento_build_30:'desligamento (build + 30%)', nenhuma:'nenhuma' };
   let resumo;
   if(percentualPuro){
     resumo = 'Cliente só por porcentagem: o contrato fica ativo e nenhuma parcela é gerada (a comissão continua lançada à mão).';
-  } else if(co.valor_mensal_centavos == null || !co.dia_vencimento){
-    resumo = '<b>Falta valor mensal ou dia de vencimento</b> — edite o contrato antes, senão o banco recusa.';
+  } else if(!temValor || !co.dia_vencimento){
+    resumo = '<b>Falta valor mensal (maior que zero) ou dia de vencimento</b> — edite o contrato antes, senão o banco recusa.';
   } else {
     const ini = (co.inicio_em || todayISO()).slice(0,7) + '-01';
     if(co.parcelas_total){

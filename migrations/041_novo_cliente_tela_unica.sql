@@ -3,7 +3,10 @@
 --       + CONTATO COM PAPEL (fonte única) + "FECHOU → VIRAR CLIENTE"
 -- =====================================================================
 -- Projeto: tscnqvuzlfagotirgjbz (HUB Luh Panda) · Data: 07/10/2026
--- Depende de: 038 (competência sempre dia 1 — o CHECK dela vale aqui).
+-- Depende de: 038 (competência sempre dia 1 — o CHECK dela vale aqui) e
+-- 044 (R$ 0 = sem cobrança). Número 041 mantido de propósito: a 042 é o
+-- DocuSeal (#11), que chama hub.ativar_contrato_assinado daqui. Em produção
+-- ela é aplicada DEPOIS da 043/044 — não redefine nada que elas tocam.
 -- Desenho: vault, "Hub — decisões do grill (07-10-2026)", seção A.
 --
 -- O QUE MUDA
@@ -401,10 +404,12 @@ begin
     raise exception 'hub_novo_cliente_sem_percentual';
   end if;
   if v_tipo = 'fixo' then v_pct := null; end if;
+  -- R$ 0 = "sem cobrança" (044): no percentual puro vira "sem valor mensal"
+  if v_tipo = 'percentual' and v_valor = 0 then v_valor := null; end if;
   if v_tipo in ('fixo','misto') and (v_valor is null or v_valor <= 0) then
     raise exception 'hub_novo_cliente_sem_valor';
   end if;
-  if v_valor is not null and v_valor < 0 then raise exception 'hub_novo_cliente_sem_valor'; end if;
+  if v_valor is not null and v_valor <= 0 then raise exception 'hub_novo_cliente_sem_valor'; end if;
   if v_parcelas is not null and v_parcelas < 1 then raise exception 'hub_novo_cliente_parcelas_invalidas'; end if;
   if not v_recorrente and v_valor is not null and v_parcelas is null then
     -- pontual com valor tem fim: sem nº de parcelas viraria mensalidade infinita
@@ -533,7 +538,10 @@ $$;
 --     é decisão humana, igual a 035 faz.
 --   • numeração e descrição = as mesmas da 035 (distância de meses a partir
 --     do início; 1º item do contrato, senão "Mensalidade").
---   • percentual puro (sem valor mensal) → ativa sem gerar nada.
+--   • valor mensal tem que ser > 0. R$ 0 é "sem cobrança" desde a 044 (a
+--     rpc_garantir_recebiveis_mes não gera recebível de contrato com valor
+--     0): aqui vale o mesmo — vazio ou 0 recusa, nunca nasce parcela de R$ 0.
+--   • percentual puro (sem valor mensal, ou 0) → ativa sem gerar nada.
 create or replace function hub.ativar_contrato_assinado(
   p_contrato_id uuid, p_assinado_em date, p_porta_escrita boolean default false)
 returns jsonb
@@ -578,10 +586,10 @@ begin
   if v_ct.porta_saida_escrita_em is null and not coalesce(p_porta_escrita, false) then
     raise exception 'hub_contrato_ativo_exige_porta_saida';
   end if;
-  if v_ct.valor_mensal_centavos is null and v_tipo is distinct from 'percentual' then
+  if coalesce(v_ct.valor_mensal_centavos, 0) <= 0 and v_tipo is distinct from 'percentual' then
     raise exception 'hub_contrato_sem_valor';
   end if;
-  if v_ct.valor_mensal_centavos is not null and v_ct.dia_vencimento is null then
+  if coalesce(v_ct.valor_mensal_centavos, 0) > 0 and v_ct.dia_vencimento is null then
     raise exception 'hub_contrato_sem_vencimento';
   end if;
 
@@ -593,7 +601,7 @@ begin
    where id = v_ct.id
   returning * into v_ct;
 
-  if v_ct.valor_mensal_centavos is null then
+  if coalesce(v_ct.valor_mensal_centavos, 0) <= 0 then   -- percentual puro: nada a gerar
     return jsonb_build_object('contrato_id', v_ct.id, 'ja_estava_ativo', false,
                               'parcelas_criadas', 0, 'pulados_legado', 0);
   end if;
