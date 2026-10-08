@@ -47,9 +47,19 @@
 // submitters, cada um com submission_id) — o parse abaixo cobre as duas.
 // Se vier um terceiro formato na primeira chamada real, é so aqui que
 // ajusta.
+//
+// 🔴 08/10/2026 — CAUSA DO 502: o self-host (DocuSeal 3.2.6, edição
+// gratuita) NÃO TEM a rota POST /api/submissions/html (só nuvem/Pro) e
+// devolve 404. Detalhe em ./falhas.ts. Desde então esta função:
+//   - LOGA status + corpo (cortado) de toda falha do DocuSeal, sem token;
+//   - devolve `docuseal_status`, `causa` e `acao` no erro;
+//   - aceita { "acao": "diagnostico" } (só ela, depois do portão), que NÃO
+//     cria envelope nem manda e-mail: lê a versão, testa a chave em
+//     GET /api/user e verifica se a rota de HTML existe nesta edição.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { verificarAdmin } from "../_shared/admin.ts";
+import { concluirDiagnostico, explicarFalhaDocuseal, resumirCorpo, ROTA_ENVIO_HTML } from "./falhas.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")
@@ -76,6 +86,41 @@ function responder(corpo: unknown, status = 200) {
     status,
     headers: { ...CORS, "Content-Type": "application/json" },
   });
+}
+
+function logar(etapa: string, dados: Record<string, unknown>) {
+  // nunca loga header nem a chave — só o que o DocuSeal respondeu.
+  console.error(JSON.stringify({ fn: "docuseal-integrar", etapa, ...dados }));
+}
+
+async function statusDe(url: string, init?: RequestInit): Promise<{ status: number | null; corpo: string }> {
+  try {
+    const r = await fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
+    return { status: r.status, corpo: resumirCorpo(await r.text()) };
+  } catch (e) {
+    return { status: null, corpo: resumirCorpo(String(e)) };
+  }
+}
+
+async function diagnosticar(): Promise<Response> {
+  const versao = await statusDe(`${DOCUSEAL_URL}/version`);
+  const chave = await statusDe(`${DOCUSEAL_URL}/api/user`, {
+    headers: { "X-Auth-Token": DOCUSEAL_API_KEY! },
+  });
+  // SEM a chave de propósito: sem token o DocuSeal nunca cria nada. Só
+  // distingue rota inexistente (404) de rota protegida (401).
+  const rotaHtml = await statusDe(`${DOCUSEAL_URL}${ROTA_ENVIO_HTML}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  const resultado = concluirDiagnostico({
+    versao: versao.status === 200 ? versao.corpo.slice(0, 20) : null,
+    statusChave: chave.status,
+    statusRotaHtml: rotaHtml.status,
+  });
+  logar("diagnostico", resultado);
+  return responder({ ok: true, diagnostico: resultado });
 }
 
 async function rpc(nome: string, corpo: unknown, jwt: string) {
@@ -118,6 +163,7 @@ Deno.serve(async (req: Request) => {
   }
 
   let entrada: {
+    acao?: string;
     contrato_id?: string;
     numero?: string | null;
     cliente_nome?: string;
@@ -129,6 +175,8 @@ Deno.serve(async (req: Request) => {
   } catch {
     return responder({ erro: "corpo invalido" }, 400);
   }
+
+  if (entrada.acao === "diagnostico") return await diagnosticar();
 
   const { contrato_id, cliente_nome, cliente_email, html } = entrada;
   if (!contrato_id || !cliente_nome || !cliente_email || !html) {
@@ -142,8 +190,9 @@ Deno.serve(async (req: Request) => {
 
   // 1) cria o envelope no DocuSeal
   let submissionId: number | null = null;
+  let r: Response;
   try {
-    const r = await fetch(`${DOCUSEAL_URL}/api/submissions/html`, {
+    r = await fetch(`${DOCUSEAL_URL}${ROTA_ENVIO_HTML}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Auth-Token": DOCUSEAL_API_KEY },
       body: JSON.stringify({
@@ -156,10 +205,30 @@ Deno.serve(async (req: Request) => {
           { role: "Contratante", name: cliente_nome, email: cliente_email },
         ],
       }),
+      signal: AbortSignal.timeout(60000),
     });
-    const texto = await r.text();
-    if (!r.ok) throw new Error(`DocuSeal ${r.status}: ${texto.slice(0, 500)}`);
+  } catch (e) {
+    const { causa, acao } = explicarFalhaDocuseal(null);
+    logar("criar_envelope", { contrato_id, rota: ROTA_ENVIO_HTML, docuseal_status: null, erro: resumirCorpo(String(e)) });
+    return responder({
+      erro: "nao consegui criar o envelope no DocuSeal",
+      docuseal_status: null, causa, acao,
+      detalhe: `DocuSeal sem resposta: ${causa}`,
+    }, 502);
+  }
 
+  const texto = await r.text();
+  if (!r.ok) {
+    const { causa, acao } = explicarFalhaDocuseal(r.status, ROTA_ENVIO_HTML);
+    logar("criar_envelope", { contrato_id, rota: ROTA_ENVIO_HTML, docuseal_status: r.status, corpo: resumirCorpo(texto) });
+    return responder({
+      erro: "nao consegui criar o envelope no DocuSeal",
+      docuseal_status: r.status, causa, acao,
+      detalhe: `DocuSeal ${r.status}: ${causa}`,
+    }, 502);
+  }
+
+  try {
     const corpo = JSON.parse(texto);
     // a resposta documentada do DocuSeal para criação a partir de HTML/PDF
     // varia por versão: às vezes um objeto {id,...}, às vezes uma lista de
@@ -169,11 +238,14 @@ Deno.serve(async (req: Request) => {
     } else {
       submissionId = corpo?.id ?? corpo?.submission_id ?? null;
     }
-    if (!submissionId) {
-      throw new Error("resposta do DocuSeal sem id de submission reconhecível: " + texto.slice(0, 500));
-    }
-  } catch (e) {
-    return responder({ erro: "nao consegui criar o envelope no DocuSeal", detalhe: String(e) }, 502);
+  } catch { /* cai no if abaixo */ }
+  if (!submissionId) {
+    logar("ler_resposta", { contrato_id, docuseal_status: r.status, corpo: resumirCorpo(texto) });
+    return responder({
+      erro: "nao consegui criar o envelope no DocuSeal",
+      docuseal_status: r.status,
+      detalhe: "resposta do DocuSeal sem id de submission reconhecível (o envelope PODE ter sido criado — conferir no painel do DocuSeal antes de reenviar): " + resumirCorpo(texto),
+    }, 502);
   }
 
   // 2) grava o vínculo no contrato — roda COMO ELA (JWT repassado)
@@ -182,6 +254,7 @@ Deno.serve(async (req: Request) => {
       p: { contrato_id, docuseal_submission_id: submissionId },
     }, jwt);
   } catch (e) {
+    logar("vincular_contrato", { contrato_id, docuseal_submission_id: submissionId, erro: resumirCorpo(String(e)) });
     // o envelope JÁ foi criado do lado do DocuSeal — não perder esse id por
     // causa de um erro de banco. Ela consegue religar manualmente com o id
     // devolvido aqui (via SQL, até existir tela pra isso).
