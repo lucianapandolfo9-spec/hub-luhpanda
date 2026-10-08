@@ -3549,8 +3549,11 @@ async function abrirAssinarDocuseal(contratoId, clienteSlug){
       "Assinado" sozinho quando os dois terminarem.
     </p>
     <textarea id="f-docuseal-html" style="display:none;">${esc(html)}</textarea>
+    <div id="docuseal-diagnostico" class="muted" style="font-size:13px;margin-top:8px;" hidden></div>
     <div class="row" style="justify-content:flex-end;margin-top:16px;">
       <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-outline" id="btn-testar-docuseal" title="Confere a chave e a versão do DocuSeal. Não cria envelope nem manda e-mail."
+        onclick="testarConexaoDocuseal()">Testar conexão</button>
       <button class="btn btn-primary" id="btn-confirmar-docuseal"
         onclick="confirmarAssinarDocuseal('${esc(contratoId)}','${esc(clienteSlug)}','${esc(contato.email)}','${esc(clienteNome)}','${esc(numero)}')">
         Criar envelope e mandar por e-mail
@@ -3571,19 +3574,67 @@ async function confirmarAssinarDocuseal(contratoId, clienteSlug, clienteEmail, c
     const { data, error } = await hubClient.functions.invoke('docuseal-integrar', {
       body: { contrato_id: contratoId, numero: numero || null, cliente_nome: clienteNome, cliente_email: clienteEmail, html },
     });
-    if(error) throw error;
+    if(error) throw await erroDaFuncao(error);
     if(data && data.erro) throw new Error(data.detalhe || data.erro);
     closeModal();
     toast('Envelope criado — você recebe o e-mail pra assinar primeiro.');
     recarregarDepoisDoContrato(clienteSlug);
   } catch(e){
-    toast(erroDocuseal(e));
+    const msg = erroDocuseal(e);
+    if(!modalErro(msg)) toast(msg);
     if(botao){ botao.disabled = false; botao.textContent = 'Criar envelope e mandar por e-mail'; }
+  }
+}
+
+// 08/10/2026 — supabase-js devolve só "Edge Function returned a non-2xx
+// status code" e esconde o corpo. O corpo (erro/causa/docuseal_status) vem
+// em error.context (Response). Sem isto o 502 do DocuSeal virava a mensagem
+// genérica "Não consegui falar com o DocuSeal".
+async function erroDaFuncao(error){
+  try{
+    const ctx = error && error.context;
+    if(ctx && typeof ctx.json === 'function'){
+      const corpo = await ctx.clone().json();
+      if(corpo && (corpo.erro || corpo.detalhe)){
+        const partes = [corpo.erro, corpo.causa || corpo.detalhe, corpo.acao].filter(Boolean);
+        const e = new Error(partes.join(' — '));
+        e.corpo = corpo;
+        return e;
+      }
+    }
+  } catch(_){ /* cai no erro original */ }
+  return error;
+}
+
+// Diagnóstico SEM efeito: não cria envelope, não manda e-mail.
+async function testarConexaoDocuseal(){
+  const alvo = document.getElementById('docuseal-diagnostico');
+  const botao = document.getElementById('btn-testar-docuseal');
+  if(!alvo || !hubClient.functions) return;
+  if(botao){ botao.disabled = true; botao.textContent = 'Testando…'; }
+  alvo.hidden = false; alvo.textContent = 'Testando a conexão com o DocuSeal…';
+  try{
+    const { data, error } = await hubClient.functions.invoke('docuseal-integrar', { body: { acao: 'diagnostico' } });
+    if(error) throw await erroDaFuncao(error);
+    const d = data && data.diagnostico;
+    if(!d) throw new Error('resposta sem diagnóstico');
+    const linhas = [
+      `Versão do DocuSeal: ${d.versao || 'não identificada'}`,
+      `Chave de API: ${d.chave.valida ? 'OK (é deste DocuSeal)' : 'recusada (status ' + d.chave.status + ')'}`,
+      `Envio do contrato por HTML: ${d.envio_por_html.disponivel ? 'disponível' : 'NÃO disponível nesta edição (status ' + d.envio_por_html.status + ')'}`,
+      d.pronto_pra_enviar ? 'Pronto pra enviar.' : 'Ainda não dá pra enviar: ' + d.problemas.join(' '),
+    ];
+    alvo.innerHTML = linhas.map(esc).join('<br>');
+  } catch(e){
+    alvo.textContent = 'Não consegui testar: ' + ((e && e.message) || String(e));
+  } finally {
+    if(botao){ botao.disabled = false; botao.textContent = 'Testar conexão'; }
   }
 }
 
 function erroDocuseal(err){
   const m = (err && err.message) || String(err);
+  if(err && err.corpo && err.corpo.docuseal_status !== undefined) return 'O envelope não foi criado: ' + m;
   if(/DOCUSEAL_API_KEY|nao ativada|não ativada/i.test(m)) return 'Assinatura por e-mail ainda não ativada — falta configurar a chave do DocuSeal.';
   if(/not found|404|failed to (send|fetch)|networkerror|non-2xx/i.test(m)) return 'Não consegui falar com o DocuSeal — confere se a Edge Function docuseal-integrar está publicada e a chave está configurada.';
   return 'O envelope não foi criado: ' + m;
