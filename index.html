@@ -121,6 +121,7 @@ function statusLabel(s){
     prospect:'Prospect', ativo:'Ativo', pausado:'Pausado', encerrado:'Encerrado',
     rascunho:'Rascunho', emitido:'Emitido', enviado:'Enviado', assinado:'Assinado',
     aberto:'Aberto', parcial:'Parcial', pago:'Pago', vencido:'Vencido',
+    sem_cobranca:'Sem cobrança', // 044 — recebível de R$ 0 (não é "pago")
     aberta:'Aberta', fazendo:'Fazendo', entregue:'Entregue',
     arquivado:'Arquivado', // Bloco H, item 3 — contrato/demanda pausados em cascata pelo arquivamento do cliente
   }[s] || s;
@@ -1260,6 +1261,8 @@ async function renderFinanceiro(){
   const totalEntrada = rows.reduce((s,r)=>s+Number(r.entrada_centavos),0);
   const totalVencido = rows.filter(r=>r.status==='vencido').reduce((s,r)=>s+Number(r.falta_centavos),0);
   const clientesPagos = rows.filter(r=>r.status==='pago').length;
+  // 044: R$ 0 não conta como "pago" nem entra no denominador
+  const cobraveis = rows.filter(r=>r.status!=='sem_cobranca').length;
 
   // Bloco 1.6, item 2: separar em "Mensalidade" (origem='contrato') e
   // "Extras do mês" (qualquer outra origem) — formato do mockup
@@ -1323,7 +1326,7 @@ async function renderFinanceiro(){
       </div>
       <div class="kpi">
         <div class="kpi-head">${KPI_ICONS.userCheck}<span class="label">Clientes pagos</span></div>
-        <div class="value">${clientesPagos}/${rows.length}</div>
+        <div class="value">${clientesPagos}/${cobraveis}</div>
       </div>
     </div>
     <p class="eyebrow" style="color:var(--fraco);">Mensalidade</p>
