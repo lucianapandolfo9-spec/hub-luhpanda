@@ -46,7 +46,7 @@ async function falha(quem, sql, params = [], headers = {}) {
 // ---------------------------------------------------------------- base
 console.log('\n# carga: stub Supabase + schema hub de produção');
 await db.exec(ler('tests/multi-empresa/fixtures/supabase_stub.sql'));
-await db.exec(ler('tests/multi-empresa/fixtures/hub_schema_prod_2026-10-07.sql'));
+await db.exec(ler('tests/multi-empresa/fixtures/hub_schema_prod_2026-10-08.sql'));
 
 // usuários fictícios (o e-mail dela é o único real, e já está no repo desde a 001)
 const LU  = { id: '00000000-0000-4000-8000-00000000000a', email: 'lucianapandolfo9@gmail.com' };
@@ -170,8 +170,11 @@ checar(cartB.length === 1 && cartB[0].nome === 'Acme da Padaria', 'carteira do w
 checar((await como(LU, 'select * from public.hub_rpc_carteira()')).length === 2, 'carteira do ws1 continua com 2');
 checar(!JSON.stringify(await como(BIA, `select public.hub_rpc_cliente('beta') c`)).includes('Cliente Beta'), 'ws2 não abre a ficha de cliente do ws1 por slug');
 checar((await como(BIA, `select * from public.hub_rpc_recebiveis('2026-10-01')`)).length === 0, 'ws2 não vê recebíveis do ws1');
-const dashB = JSON.stringify(await como(BIA, 'select public.hub_rpc_dash() d'));
-checar(!dashB.includes('Cliente Acme') && !dashB.includes('100000'), 'dash do ws2 não soma dinheiro do ws1');
+const dashB = (await como(BIA, 'select public.hub_rpc_dash() d'))[0].d;
+checar(dashB.por_mes.length === 0 && dashB.velocimetro_mei.entrado_ano_centavos === 0 && dashB.clientes_ativos === 1
+       && !JSON.stringify(dashB).includes('Cliente Acme'), 'dash do ws2 não soma dinheiro do ws1', JSON.stringify(dashB));
+const dashA = (await como(LU, 'select public.hub_rpc_dash() d'))[0].d;
+checar(dashA.clientes_ativos === 2, 'dash do ws1 continua contando os 2 clientes dela');
 checar((await como(BIA, 'select * from public.hub_rpc_custos()')).length === 0, 'custos do ws1 invisíveis pro ws2');
 checar((await como(BIA, 'select * from public.hub_rpc_prospects()')).length === 0, 'CRM do ws1 invisível pro ws2');
 checar((await como(BIA, 'select * from public.hub_rpc_conversas_resumo()')).length === 0, 'conversas do ws1 invisíveis pro ws2');

@@ -257,7 +257,7 @@ alter table hub.empresas
   add column if not exists cnae_principal text,
   add column if not exists cnaes_secundarios text[],
   add column if not exists natureza_juridica text,
-  add column if not exists abertura_em date,
+  -- data de abertura: reusa hub.empresas.aberta_em (migration 043, teto do MEI)
   add column if not exists situacao_cadastral text,
   add column if not exists endereco jsonb,
   -- só nome + qualificação; nunca CPF (pergunta P9)
@@ -634,7 +634,7 @@ begin
     cnaes_secundarios = case when p ? 'cnaes_secundarios'
       then array(select jsonb_array_elements_text(p->'cnaes_secundarios')) else cnaes_secundarios end,
     natureza_juridica = p->>'natureza_juridica',
-    abertura_em = (p->>'abertura_em')::date,
+    aberta_em = coalesce((p->>'aberta_em')::date, aberta_em),
     situacao_cadastral = p->>'situacao_cadastral',
     endereco = p->'endereco',
     socios = (select jsonb_agg(jsonb_build_object('nome', s->>'nome', 'qualificacao', s->>'qualificacao'))

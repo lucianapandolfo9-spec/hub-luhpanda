@@ -9,7 +9,7 @@ import fs from 'fs';
 import path from 'node:path'; import { fileURLToPath } from 'node:url';
 const R=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..')+'/'; const L=(p)=>fs.readFileSync(R+p,'utf8');
 const db=new PGlite({extensions:{pgcrypto}});
-await db.exec(L('tests/multi-empresa/fixtures/supabase_stub.sql')); await db.exec(L('tests/multi-empresa/fixtures/hub_schema_prod_2026-10-07.sql'));
+await db.exec(L('tests/multi-empresa/fixtures/supabase_stub.sql')); await db.exec(L('tests/multi-empresa/fixtures/hub_schema_prod_2026-10-08.sql'));
 await db.exec(`insert into auth.users(id,email) values ('00000000-0000-4000-8000-00000000000a','lucianapandolfo9@gmail.com');
 insert into hub.workspaces(nome,slug) values('Luh Panda','luhpanda'); insert into hub.empresas(nome,cnpj,tipo) values('Luh Panda','11222333000181','mei');
 insert into hub.clientes(empresa_id,slug,nome) select id,'acme','Acme' from hub.empresas;`);

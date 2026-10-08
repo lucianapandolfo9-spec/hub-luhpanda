@@ -117,9 +117,13 @@ begin
       ('eventos_agenda',  'cliente_id',  'clientes',   'set null'),
       ('eventos_agenda',  'prospect_id', 'prospects',  'set null'),
       ('reunioes',        'cliente_id',  'clientes',   'set null'),
-      ('reunioes',        'prospect_id', 'prospects',  'set null')
+      ('reunioes',        'prospect_id', 'prospects',  'set null'),
+      -- vem da 041 (tela "Novo cliente"); pulada se a 041 ainda não rodou
+      ('prospects',       'cliente_id',  'clientes',   'set null')
     ) as v(tabela, coluna, pai, acao)
   loop
+    continue when not exists (select 1 from pg_attribute
+      where attrelid = ('hub.' || r.tabela)::regclass and attname = r.coluna and not attisdropped);
     -- derruba a FK antiga de 1 coluna (nome vem do catálogo, não chutado)
     select c.conname into v_old
     from pg_constraint c

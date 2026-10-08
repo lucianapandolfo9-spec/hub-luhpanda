@@ -44,7 +44,7 @@ alter table hub.empresas
   drop constraint empresas_faixa_check,
   drop constraint empresas_receita_fonte_check,
   drop column razao_social, drop column nome_fantasia, drop column cnae_principal,
-  drop column cnaes_secundarios, drop column natureza_juridica, drop column abertura_em,
+  drop column cnaes_secundarios, drop column natureza_juridica,
   drop column situacao_cadastral, drop column endereco, drop column socios,
   drop column simples_optante, drop column simples_desde, drop column simei_optante, drop column simei_desde,
   drop column regime_sugerido, drop column regime_sugerido_fonte, drop column regime_sugerido_ano,

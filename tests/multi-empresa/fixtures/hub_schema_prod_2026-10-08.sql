@@ -1,4 +1,4 @@
--- Schema-only do schema hub em PRODUÇÃO (projeto HUB Luh Panda), lido por catálogo (só SELECT) em 07/10/2026.
+-- Schema-only do schema hub em PRODUÇÃO (projeto HUB Luh Panda), lido por catálogo (só SELECT) em 08/10/2026 ~03h UTC (037–040, 043, 044 aplicadas).
 -- SEM DADOS. Inclui as tabelas que nunca tiveram migration no repo (recebiveis, custos_fixos, config, cobranca_envios).
 -- Usado só pelos testes de isolamento (PGlite). Não aplicar em banco nenhum.
 set check_function_bodies = off;
@@ -10,9 +10,10 @@ CREATE OR REPLACE FUNCTION hub.default_workspace_id()
  SET search_path TO 'pg_catalog'
 AS $function$
   select id from hub.workspaces where slug = 'luhpanda' limit 1;
-$function$;
+$function$
+;
 create table hub.eventos_auditoria (id uuid default gen_random_uuid() not null, tabela text not null, registro_id uuid, acao text not null, dados_antes jsonb, dados_depois jsonb, ator_email text, criado_em timestamp with time zone default now() not null);
-create table hub.empresas (id uuid default gen_random_uuid() not null, nome text not null, cnpj text, tipo text not null, teto_anual_centavos bigint, ativo boolean default true not null, created_at timestamp with time zone default now() not null, updated_at timestamp with time zone default now() not null, workspace_id uuid default hub.default_workspace_id() not null);
+create table hub.empresas (id uuid default gen_random_uuid() not null, nome text not null, cnpj text, tipo text not null, teto_anual_centavos bigint, ativo boolean default true not null, created_at timestamp with time zone default now() not null, updated_at timestamp with time zone default now() not null, workspace_id uuid default hub.default_workspace_id() not null, aberta_em date);
 create table hub.clientes (id uuid default gen_random_uuid() not null, empresa_id uuid not null, slug text not null, nome text not null, razao_social text, documento text, segmento text, origem text, status text default 'ativo'::text not null, entrou_em date, saiu_em date, motivo_saida text, observacao text, created_at timestamp with time zone default now() not null, updated_at timestamp with time zone default now() not null, workspace_id uuid default hub.default_workspace_id() not null, recorrente boolean default true not null, endereco text, tipo_cobranca text default 'fixo'::text not null, percentual_comissao numeric(5,2));
 create table hub.contatos (id uuid default gen_random_uuid() not null, cliente_id uuid not null, nome text not null, papel text, email text, whatsapp_e164 text, is_principal boolean default false not null, created_at timestamp with time zone default now() not null, updated_at timestamp with time zone default now() not null, workspace_id uuid default hub.default_workspace_id() not null, eh_grupo boolean default false not null);
 create table hub.servicos (id uuid default gen_random_uuid() not null, slug text not null, nome text not null, modalidade text not null, preco_referencia_centavos bigint, unidade text, inclui text, observacao text, ativo boolean default true not null, created_at timestamp with time zone default now() not null, updated_at timestamp with time zone default now() not null, workspace_id uuid default hub.default_workspace_id() not null, anexo_escopo text);
@@ -237,6 +238,7 @@ begin
     r.valor_centavos, r.entrada_centavos, r.falta_centavos, r.entrou_em, r.vence_em,
     r.origem, r.observacao, r.contrato_id,
     case
+      when r.valor_centavos = 0 then 'sem_cobranca'   -- 044
       when r.falta_centavos = 0 then 'pago'
       when r.entrada_centavos > 0 then 'parcial'
       when r.vence_em is not null and r.vence_em < v_hoje then 'vencido'
@@ -246,6 +248,69 @@ begin
   join hub.clientes c on c.id = r.cliente_id
   where r.cliente_id = p_cliente_id
   order by r.competencia desc, r.vence_em nulls last, r.created_at;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION hub.mei_limites(p_ano integer)
+ RETURNS TABLE(ano integer, teto_anual_centavos bigint, meses integer, teto_centavos bigint, tolerancia_centavos bigint, ano_abertura boolean, aberta_em date, retroage_a date)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog'
+AS $function$
+declare
+  v_anual bigint;
+  v_aberta date;
+  v_meses int := 12;
+  v_teto bigint;
+begin
+  select e.teto_anual_centavos, e.aberta_em into v_anual, v_aberta
+    from hub.empresas e where e.tipo = 'mei' order by e.created_at limit 1;
+  v_anual := coalesce(v_anual, 8100000);
+
+  if v_aberta is not null and extract(year from v_aberta)::int = p_ano then
+    v_meses := 13 - extract(month from v_aberta)::int;      -- mês de abertura conta
+    v_teto := round(v_anual::numeric / 12 * v_meses)::bigint;
+  elsif v_aberta is not null and extract(year from v_aberta)::int > p_ano then
+    v_meses := 0; v_teto := 0;                              -- ainda não existia
+  else
+    v_teto := v_anual;
+  end if;
+
+  return query select p_ano, v_anual, v_meses, v_teto,
+    round(v_teto::numeric * 1.2)::bigint,
+    (v_aberta is not null and extract(year from v_aberta)::int = p_ano),
+    v_aberta,
+    case when v_aberta is not null and extract(year from v_aberta)::int = p_ano
+         then v_aberta else make_date(p_ano, 1, 1) end;
+end;
+$function$
+;
+CREATE OR REPLACE FUNCTION hub.rpc_recebiveis(p_competencia date)
+ RETURNS TABLE(id uuid, cliente_id uuid, cliente_nome text, cliente_slug text, competencia date, descricao text, valor_centavos bigint, entrada_centavos bigint, falta_centavos bigint, entrou_em date, vence_em date, origem text, observacao text, status text)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'pg_catalog'
+AS $function$
+declare v_hoje date := (now() at time zone 'America/Recife')::date;
+begin
+  if not hub.is_admin() then raise exception 'acesso negado'; end if;
+
+  return query
+  select r.id, r.cliente_id, c.nome, c.slug, r.competencia, r.descricao,
+    r.valor_centavos, r.entrada_centavos, r.falta_centavos, r.entrou_em, r.vence_em,
+    r.origem, r.observacao,
+    case
+      when r.valor_centavos = 0 then 'sem_cobranca'   -- 044
+      when r.falta_centavos = 0 then 'pago'
+      when r.entrada_centavos > 0 then 'parcial'
+      when r.vence_em is not null and r.vence_em < v_hoje then 'vencido'
+      else 'aberto'
+    end as status
+  from hub.recebiveis r
+  join hub.clientes c on c.id = r.cliente_id
+  -- 038: por MÊS, não igualdade de data
+  where date_trunc('month', r.competencia) = date_trunc('month', p_competencia)
+  order by c.nome;
 end;
 $function$
 ;
@@ -427,12 +492,9 @@ declare
   v_hoje date := (now() at time zone 'America/Recife')::date;
   v_mes date := date_trunc('month', (now() at time zone 'America/Recife'))::date;
   v_ano_inicio date := date_trunc('year', v_hoje)::date;
-  v_teto bigint;
   v_result jsonb;
 begin
   if not hub.is_admin() then raise exception 'acesso negado'; end if;
-
-  select teto_anual_centavos into v_teto from hub.empresas where tipo = 'mei' limit 1;
 
   select jsonb_build_object(
     'hoje', v_hoje,
@@ -449,12 +511,23 @@ begin
       ) x
     ), '[]'::jsonb),
     'clientes_ativos', (select count(*) from hub.clientes where status = 'ativo'),
-    'velocimetro_mei', jsonb_build_object(
-      'entrado_ano_centavos', coalesce((
-        select sum(entrada_centavos) from hub.recebiveis
-        where entrou_em >= v_ano_inicio and entrou_em < v_ano_inicio + interval '1 year'
-      ), 0),
-      'teto_centavos', v_teto
+    -- 043: teto do ANO, proporcional no ano de abertura (hub.mei_limites)
+    'velocimetro_mei', (
+      select jsonb_build_object(
+        'entrado_ano_centavos', coalesce((
+          select sum(entrada_centavos) from hub.recebiveis
+          where entrou_em >= v_ano_inicio and entrou_em < v_ano_inicio + interval '1 year'
+        ), 0),
+        'ano', l.ano,
+        'teto_centavos', l.teto_centavos,
+        'tolerancia_centavos', l.tolerancia_centavos,
+        'teto_anual_centavos', l.teto_anual_centavos,
+        'meses', l.meses,
+        'ano_abertura', l.ano_abertura,
+        'aberta_em', l.aberta_em,
+        'retroage_a', l.retroage_a
+      )
+      from hub.mei_limites(extract(year from v_hoje)::int) l
     ),
     'custos_fixos', jsonb_build_object(
       'negocio_centavos', coalesce((select sum(valor_centavos) from hub.custos_fixos where categoria='negocio' and ativo), 0),
@@ -498,34 +571,6 @@ begin
   ) into v_result;
 
   return v_result;
-end;
-$function$
-;
-CREATE OR REPLACE FUNCTION hub.rpc_recebiveis(p_competencia date)
- RETURNS TABLE(id uuid, cliente_id uuid, cliente_nome text, cliente_slug text, competencia date, descricao text, valor_centavos bigint, entrada_centavos bigint, falta_centavos bigint, entrou_em date, vence_em date, origem text, observacao text, status text)
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
- SET search_path TO 'pg_catalog'
-AS $function$
-declare v_hoje date := (now() at time zone 'America/Recife')::date;
-begin
-  if not hub.is_admin() then raise exception 'acesso negado'; end if;
-
-  return query
-  select r.id, r.cliente_id, c.nome, c.slug, r.competencia, r.descricao,
-    r.valor_centavos, r.entrada_centavos, r.falta_centavos, r.entrou_em, r.vence_em,
-    r.origem, r.observacao,
-    case
-      when r.falta_centavos = 0 then 'pago'
-      when r.entrada_centavos > 0 then 'parcial'
-      when r.vence_em is not null and r.vence_em < v_hoje then 'vencido'
-      else 'aberto'
-    end as status
-  from hub.recebiveis r
-  join hub.clientes c on c.id = r.cliente_id
-  -- 038: por MÊS, não igualdade de data
-  where date_trunc('month', r.competencia) = date_trunc('month', p_competencia)
-  order by c.nome;
 end;
 $function$
 ;
@@ -2037,6 +2082,7 @@ begin
     where ct.status = 'ativo'
       and ct.recorrencia_ativa
       and ct.valor_mensal_centavos is not null
+      and ct.valor_mensal_centavos > 0          -- 044: contrato de R$ 0 não gera recebível
       and coalesce(cl.recorrente, true) is not false
     order by ct.id  -- ordem estável: idempotência não pode depender do plano
   loop
@@ -2824,8 +2870,8 @@ alter table hub.cobranca_config enable row level security;
 alter table hub.cobranca_mensagens enable row level security;
 alter table hub.eventos_auditoria enable row level security;
 alter table hub.demandas enable row level security;
-alter table hub.workspaces enable row level security;
 alter table hub.empresas enable row level security;
+alter table hub.workspaces enable row level security;
 alter table hub.servicos enable row level security;
 alter table hub.contatos enable row level security;
 alter table hub.reunioes enable row level security;
@@ -2899,11 +2945,13 @@ revoke all on function hub.rpc_apagar_prospect(uuid) from public;grant execute o
 revoke all on function hub.rpc_converter_prospect_em_cliente(jsonb) from public;grant execute on function hub.rpc_converter_prospect_em_cliente(jsonb) to authenticated;
 revoke all on function hub.rpc_recebiveis_cliente(uuid) from public;grant execute on function hub.rpc_recebiveis_cliente(uuid) to authenticated;
 revoke all on function hub_rpc_recebiveis_cliente(uuid) from public;grant execute on function hub_rpc_recebiveis_cliente(uuid) to authenticated; grant execute on function hub_rpc_recebiveis_cliente(uuid) to service_role;
+revoke all on function hub.mei_limites(integer) from public;
 revoke all on function hub_rpc_salvar_demanda(jsonb) from public;grant execute on function hub_rpc_salvar_demanda(jsonb) to authenticated; grant execute on function hub_rpc_salvar_demanda(jsonb) to service_role;
 revoke all on function hub_rpc_apagar_demanda(uuid) from public;grant execute on function hub_rpc_apagar_demanda(uuid) to authenticated; grant execute on function hub_rpc_apagar_demanda(uuid) to service_role;
 revoke all on function hub_rpc_demandas_cliente(uuid) from public;grant execute on function hub_rpc_demandas_cliente(uuid) to authenticated; grant execute on function hub_rpc_demandas_cliente(uuid) to service_role;
 revoke all on function hub_rpc_prospect(uuid) from public;grant execute on function hub_rpc_prospect(uuid) to authenticated; grant execute on function hub_rpc_prospect(uuid) to service_role;
 revoke all on function hub_rpc_prospects() from public;grant execute on function hub_rpc_prospects() to authenticated; grant execute on function hub_rpc_prospects() to service_role;
+revoke all on function hub.rpc_recebiveis(date) from public;grant execute on function hub.rpc_recebiveis(date) to authenticated;
 revoke all on function hub_rpc_salvar_prospect(jsonb) from public;grant execute on function hub_rpc_salvar_prospect(jsonb) to authenticated; grant execute on function hub_rpc_salvar_prospect(jsonb) to service_role;
 revoke all on function hub_rpc_apagar_prospect(uuid) from public;grant execute on function hub_rpc_apagar_prospect(uuid) to authenticated; grant execute on function hub_rpc_apagar_prospect(uuid) to service_role;
 revoke all on function hub_rpc_converter_prospect_em_cliente(jsonb) from public;grant execute on function hub_rpc_converter_prospect_em_cliente(jsonb) to authenticated; grant execute on function hub_rpc_converter_prospect_em_cliente(jsonb) to service_role;
@@ -2942,7 +2990,6 @@ revoke all on function hub.rpc_catalogo() from public;grant execute on function 
 revoke all on function hub_rpc_catalogo() from public;grant execute on function hub_rpc_catalogo() to authenticated; grant execute on function hub_rpc_catalogo() to service_role;
 revoke all on function hub_rpc_cliente(text) from public;grant execute on function hub_rpc_cliente(text) to authenticated; grant execute on function hub_rpc_cliente(text) to service_role;
 revoke all on function hub.rpc_dash() from public;grant execute on function hub.rpc_dash() to authenticated;
-revoke all on function hub.rpc_recebiveis(date) from public;grant execute on function hub.rpc_recebiveis(date) to authenticated;
 revoke all on function hub.rpc_marcar_pago(uuid,bigint,date) from public;grant execute on function hub.rpc_marcar_pago(uuid,bigint,date) to authenticated;
 revoke all on function hub.rpc_custos() from public;grant execute on function hub.rpc_custos() to authenticated;
 revoke all on function hub.rpc_salvar_custo(jsonb) from public;grant execute on function hub.rpc_salvar_custo(jsonb) to authenticated;

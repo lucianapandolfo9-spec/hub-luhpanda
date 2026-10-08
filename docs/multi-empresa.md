@@ -22,7 +22,7 @@ banco só deixa ler e escrever o que é do workspace da requisição. Os dados d
 | Tabelas no schema `hub` | 20 |
 | Com `workspace_id` (migration 010, de 22/09) | 14. A coluna existe, mas **nenhuma policy usa**: o default é o workspace fixo `luhpanda` |
 | Sem `workspace_id` | `recebiveis`, `custos_fixos`, `cobranca_envios`, `mensagens`, `eventos_auditoria`, `config` |
-| 🔴 Tabelas **sem migration no repo** | `recebiveis`, `custos_fixos`, `config`, `cobranca_envios`. Só existem em produção. O schema real agora está versionado em `tests/multi-empresa/fixtures/hub_schema_prod_2026-10-07.sql` (só estrutura, sem dados) |
+| 🔴 Tabelas **sem migration no repo** | `recebiveis`, `custos_fixos`, `config`, `cobranca_envios`. Só existem em produção. O schema real agora está versionado em `tests/multi-empresa/fixtures/hub_schema_prod_2026-10-08.sql` (só estrutura, sem dados) |
 | RPCs de negócio (`rpc_*`, `bot_*`) | 68 em `hub`, quase todas com wrapper `public.hub_rpc_*`. 59 checam `hub.is_admin()` |
 | Posse das RPCs | todas `SECURITY DEFINER` do `postgres`, que tem **BYPASSRLS**. A RLS não vale dentro delas: a única trava é o `if not hub.is_admin()` |
 | Policies | 19, todas `hub.is_admin()` |
@@ -67,7 +67,7 @@ aponta pra ela. Um workspace pode ter mais de um CNPJ (pergunta P5); o onboardin
 2. O dono abre o link, faz login com o e-mail convidado e chama `hub_rpc_aceitar_convite(token)`.
 3. Tela de CNPJ → **Edge Function `cnpj-consultar`** (a construir, etapa 4) consulta a fonte
    pública, normaliza e devolve os campos. O front mostra e o dono revisa.
-4. `hub_rpc_onboarding_salvar_empresa(...)` grava razão, fantasia, CNAEs, natureza, abertura,
+4. `hub_rpc_onboarding_salvar_empresa(...)` grava razão, fantasia, CNAEs, natureza, abertura (`aberta_em`, a mesma coluna da 043 que calcula o teto do MEI),
    situação, endereço, sócios (**só nome + qualificação**, o CPF mascarado é descartado),
    Simples/MEI com datas e a **sugestão** de regime, com fonte e ano.
 5. `hub_rpc_onboarding_confirmar_regime({empresa_id, regime, faixa_faturamento})`: **só o Dono**,
@@ -149,7 +149,9 @@ amigável.
 
 FK não passa por RLS. Sem cuidado, alguém do workspace B poderia criar um recebível **dele**
 apontando pro `cliente_id` de A. A 051 dá a todo pai um `UNIQUE (workspace_id, id)` e troca as
-17 FKs de uma coluna por **FKs compostas** `(workspace_id, pai_id)`. Nas que eram
+17 FKs de uma coluna por **FKs compostas** `(workspace_id, pai_id)`. Também troca a 18ª,
+`prospects.cliente_id`, que vem da 041 (tela "Novo cliente"); se a 041 ainda não tiver rodado, ela é pulada. A 052 **aborta**
+se sobrar FK entre tabelas de dado sem `workspace_id`, para pegar coluna nova de migration futura. Nas que eram
 `ON DELETE SET NULL`, usa `SET NULL (coluna)` (PG15+), pra nunca zerar o `workspace_id`.
 
 ### 5.4 Unicidade por workspace (052)
@@ -199,7 +201,7 @@ coluna `id`: a 037 lia `new.id` e quebraria em `workspace_modulos`.
 | **novas (050)** | `workspace_membros`, `convites`, `workspace_modulos`, `workspace_canais`, `workspace_aceites`, `acessos_sensiveis`, `plataforma_admins`, `modulos` | — | — | — | só via RPC de conta |
 
 A 052 termina com uma **trava**: aborta se sobrar tabela sem `workspace_id NOT NULL`, policy que
-dependa de `is_admin` ou tabela sem RLS.
+dependa de `is_admin`, tabela sem RLS ou FK entre tabelas de dado sem `workspace_id`.
 
 ## 7. Impacto em Edge Functions, n8n e scripts
 
@@ -220,11 +222,11 @@ dependa de `is_admin` ou tabela sem RLS.
 | **1 · 050** | tabelas de conta, perfil fiscal, helpers, RPCs de convite/onboarding, seed (ela = dono do ws1 + admin da plataforma + instância `LuhPessoal`) | **não** | `rollback/050_down.sql` |
 | **2 · 051** | `workspace_id` nas 6 tabelas + backfill + FKs compostas + índices + auditoria com workspace | **não** (default continua ws1) | `rollback/051_down.sql` |
 | **3 · 052** | a virada: `hub_rpc`, policies, defaults, unicidade, 5 RPCs, storage, `check_bot_secret` por workspace | **sim**, pra todo mundo menos ela | `rollback/052_down.sql` (recusa rodar se já houver dado de outro workspace) |
-| 4 · (PR futuro) | Edge Functions e n8n mandam workspace · `cnpj-consultar` · telas de convite/onboarding/membros · mover os 4 PDFs · RPCs de escrita com `pode_escrever()` explícito · seed das 4 mensagens de cobrança por workspace | sim | por PR |
+| 4 · (PR futuro) | Edge Functions e n8n mandam workspace · velocímetro do MEI no Dash só quando a empresa do workspace for MEI (hoje mostra o teto do MEI até pra workspace de Simples/Presumido) · `cnpj-consultar` · telas de convite/onboarding/membros · mover os 4 PDFs · RPCs de escrita com `pode_escrever()` explícito · seed das 4 mensagens de cobrança por workspace | sim | por PR |
 | 5 · (PR futuro) | remover o **fallback ws1** das automações (sem canal = erro) | sim | 1 função |
 | 6 · (PR futuro) | trava de módulo no banco (`modulo_ativo`) · Asaas · cadastro aberto | sim | — |
 
-**Ordem obrigatória:** 037–040 e a 041+ da tela "Novo cliente" antes; 050 → 051 → 052 juntas
+**Ordem obrigatória:** 037–044 (já no ar em 08/10) e a 041/042 da tela "Novo cliente" antes; 050 → 051 → 052 juntas
 ou separadas. Pontos de aplicação:
 - **Antes da 050:** dump completo do schema `hub` + dados. O projeto **não tem backup** (Free).
 - **Depois da 052:** abrir o Hub logada e passar pelas telas, `get_advisors` (security) e
@@ -238,8 +240,8 @@ cd tests/multi-empresa && npm install && node isolamento.test.mjs && node compat
 
 - `fixtures/supabase_stub.sql`: o mínimo do Supabase (roles `anon`/`authenticated`/`service_role`,
   `auth.uid()/email()/role()` lendo `request.jwt.claims`, storage).
-- `fixtures/hub_schema_prod_2026-10-07.sql`: **estrutura** do `hub` de produção (sem dados).
-- **`isolamento.test.mjs` (89 verificações, todas passando):** backfill sem perda · CNPJ
+- `fixtures/hub_schema_prod_2026-10-08.sql`: **estrutura** do `hub` de produção (sem dados).
+- **`isolamento.test.mjs` (90 verificações, todas passando):** backfill sem perda · CNPJ
   numérico e alfanumérico · a Luciana igual · convite (e-mail errado, reuso, token fora do banco)
   · vagas e contador · onboarding fiscal com rastro LGPD · **isolamento** (carteira, ficha por slug,
   recebíveis, dash, custos, CRM, conversas; sobrescrever, apagar, pendurar e marcar pago no outro
@@ -247,6 +249,8 @@ cd tests/multi-empresa && npm install && node isolamento.test.mjs && node compat
   e por segredo · storage por pasta · tabelas fechadas pra acesso direto · **rollback** completo.
 - **`compat.test.mjs`:** chama **todas** as 76 RPCs `public.hub_rpc_*` como ela, antes e depois.
   As 64 que já existiam devolvem exatamente o mesmo resultado (ok ou a mesma mensagem).
+  Rodado também com a **041 (PR #12) aplicada antes**: 78 RPCs, as 66 existentes iguais, e a FK
+  nova da 041 convertida pela 051.
 
 Quando houver Supabase local ou branch, os mesmos cenários viram pgTAP (`supabase test db`).
 

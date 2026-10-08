@@ -522,4 +522,15 @@ begin
   select string_agg(c.relname, ', ') into v
   from pg_class c where c.relnamespace = 'hub'::regnamespace and c.relkind = 'r' and not c.relrowsecurity;
   if v is not null then raise exception '052: tabela sem RLS: %', v; end if;
+
+  -- FK entre duas tabelas de dado que NÃO inclui workspace_id = buraco entre tenants
+  -- (pega coluna nova de migration que veio depois da 051, ex. 041+)
+  select string_agg(k.conrelid::regclass::text || '.' || k.conname, ', ') into v
+  from pg_constraint k
+  where k.connamespace = 'hub'::regnamespace and k.contype = 'f'
+    and k.confrelid <> 'hub.workspaces'::regclass
+    and exists (select 1 from pg_attribute a where a.attrelid = k.conrelid and a.attname = 'workspace_id')
+    and exists (select 1 from pg_attribute a where a.attrelid = k.confrelid and a.attname = 'workspace_id')
+    and not (select attnum from pg_attribute where attrelid = k.conrelid and attname = 'workspace_id') = any (k.conkey);
+  if v is not null then raise exception '052: FK sem workspace_id (converter pra composta na 051): %', v; end if;
 end $$;
