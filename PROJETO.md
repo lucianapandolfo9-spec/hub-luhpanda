@@ -8,7 +8,7 @@ num lugar só. Documento mestre técnico — ler antes de mexer em qualquer cois
 > divergirem sobre o que o produto é, quanto custa ou o que vem depois, **vale o README**.
 > "Hub" é nome provisório; o nome comercial será escolhido depois.
 >
-> **Atualizado em 07/10/2026.** Trechos marcados com ⚠️ *(histórico)* descrevem o estado de
+> **Atualizado em 08/10/2026.** Trechos marcados com ⚠️ *(histórico)* descrevem o estado de
 > uma fase anterior e foram mantidos por registro.
 
 ## O que é
@@ -16,7 +16,7 @@ num lugar só. Documento mestre técnico — ler antes de mexer em qualquer cois
 Painel de operação, hoje de **usuário único** (a dona do projeto), a caminho de produto
 multi-empresa vendável (ver README).
 
-**Estado real da `main` (06/10/2026):** Fases 1 e 2 (fundação, carteira, financeiro,
+**Registro da `main` em 06/10/2026 (histórico):** Fases 1 e 2 (fundação, carteira, financeiro,
 recebíveis, custos fixos) e os Blocos B a G estão na `main`: CRM kanban, configuração de
 cobrança, conversas de WhatsApp, contratos com DocuSeal, reuniões com análise por IA, agenda
 Google, cliente por comissão (migration 032), arquivar cliente em cascata (033), recebíveis
@@ -27,8 +27,9 @@ constam aplicadas** no banco; cabeçalhos de arquivo dizendo "não aplicada" sã
 `google-oauth-callback`) estão **implantadas**.
 
 **Fora da `main`:** o PWA está em branch/PR (`feat/pwa-favicon-panda`) e o Estoque/Contator
-está implementado em branch (#3), com instalação e homologação pendentes. Multi-empresa de verdade (membros, papéis, isolamento
-por workspace) é **a fazer**; hoje só existe a coluna `workspace_id`.
+está implementado em branch (#3), com instalação e homologação pendentes. Multi-empresa de verdade tem desenho, migrations e testes no PR #15, **DRAFT**, sem instalação; o frontend e as integrações completas ainda são **a fazer**.
+
+**Revisão de 08/10/2026:** a main `002b430` também contém 038 (competência sempre no primeiro dia), 039 (atenção no dashboard), 040 (recebíveis na ficha), 043 (teto MEI proporcional no ano de abertura) e 044 (R$ 0 = sem cobrança). A 037 de auditoria está no PR #7; sua aplicação é relatada no PR, sem alteração de produção nesta revisão. Novo cliente/ativação estão no PR #12; DocuSeal no #11 DRAFT. As correções desta revisão usam migrations novas, preservando as históricas. O README e as descrições dos PRs distinguem código, instalação e homologação.
 
 O desenho do sistema vive no Artifact do fluxograma e no Obsidian Canvas dela. Pacotes,
 preços e decisões comerciais vivem no README.
