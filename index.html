@@ -61,6 +61,7 @@ function toast(msg){
   // dos dois fica legível. Quem chega por último é quem tem a informação mais
   // nova (ex.: "Contrato salvo" seguido do resultado da geração de recebíveis).
   document.querySelectorAll('.toast').forEach(t => t.remove());
+  liberarEnvioModal();
   const t = document.createElement('div');
   t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t);
@@ -150,6 +151,7 @@ function statusLabel(s){
     prospect:'Prospect', ativo:'Ativo', pausado:'Pausado', encerrado:'Encerrado',
     rascunho:'Rascunho', emitido:'Emitido', enviado:'Enviado', assinado:'Assinado',
     aberto:'Aberto', parcial:'Parcial', pago:'Pago', vencido:'Vencido',
+    sem_cobranca:'Sem cobrança', // 044 — recebível de R$ 0 (não é "pago")
     aberta:'Aberta', fazendo:'Fazendo', entregue:'Entregue',
     arquivado:'Arquivado', // Bloco H, item 3 — contrato/demanda pausados em cascata pelo arquivamento do cliente
   }[s] || s;
@@ -229,10 +231,50 @@ function modalErro(msg){
   if(!el) return false;
   el.textContent = msg;
   el.hidden = false;
+  liberarEnvioModal();
   el.scrollIntoView({ block:'nearest', behavior:'smooth' });
   return true;
 }
 function closeModal(){ modalRoot.innerHTML = ''; document.body.classList.remove('apres-print-mode'); }
+
+// 07/10/2026 — trava de DUPLO ENVIO pra todo formulário de modal.
+// Bug real: o Palácio Dos Esportes ganhou 2 recebíveis idênticos com 205 ms
+// de diferença (duplo clique em "Salvar"). Nenhum salvarX() travava o botão.
+// Listener em CAPTURA no modal-root: roda antes do onsubmit inline do form.
+// 1º submit marca o form e desabilita os botões; 2º submit morre aqui.
+// Libera em: toast() (sucesso, erro do rpc() e validação local já chamam
+// toast), modalErro(), ou 10 s como rede de segurança. Sucesso normalmente
+// fecha o modal, e aí o form some junto com a trava.
+function liberarEnvioModal(){
+  modalRoot.querySelectorAll('form[data-enviando]').forEach(f => {
+    delete f.dataset.enviando;
+    f.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = false; });
+  });
+}
+modalRoot.addEventListener('submit', ev => {
+  const f = ev.target;
+  if(!(f instanceof HTMLFormElement)) return;
+  if(f.dataset.enviando){ ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+  f.dataset.enviando = '1';
+  f.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = true; });
+  setTimeout(() => { if(f.isConnected && f.dataset.enviando){ delete f.dataset.enviando; f.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = false; }); } }, 10000);
+}, true);
+
+// Competência é sempre o MÊS (dia 1). Bug de 07/10/2026: o campo era
+// type="date", ela escolheu 07/10, o banco gravou 2026-10-07 e a tela
+// Recebíveis (que busca 2026-10-01) nunca mais mostrou o recebível.
+// A 038 normaliza no banco também — aqui é pra tela já mandar certo.
+function competenciaParaMes(iso){ return iso ? String(iso).slice(0,7) : ''; }
+// Safari desktop sem suporte a type="month" cai em texto: aceita "2026-10",
+// "2026-10-07" e "10/2026". Formato desconhecido → null (o banco recusa).
+function mesParaCompetencia(v){
+  const t = String(v || '').trim();
+  let m = t.match(/^(\d{4})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-01`;
+  m = t.match(/^(\d{1,2})\/(\d{4})$/);
+  if(m) return `${m[2]}-${m[1].padStart(2,'0')}-01`;
+  return null;
+}
 
 // ============================================================
 // ROTA (hash)
@@ -443,23 +485,37 @@ async function loadCarteiraCache(){
 
 // Medidor do teto MEI — SEMPRE visível, independe do filtro de período do
 // dash (é um acumulado do ano corrente). Faixas: verde até ~70%, amarelo a
-// partir de ~85%, vermelho perto/em 100%. Acima de R$ 97.200 (120% do teto)
-// o desenquadramento do MEI é RETROATIVO, com multa e juros — guarda
-// financeira real, registrada no CLAUDE.md dela.
-const MEI_LIMITE_RETROATIVO_CENTAVOS = 9720000; // R$ 97.200 = 120% de R$ 81.000
+// partir de ~85%, vermelho perto/em 100%.
+//
+// 08/10/2026 (migration 043) — o teto é DO ANO e vem do banco
+// (hub.mei_limites): no ano de abertura é PROPORCIONAL (LC 123/2006, art.
+// 18-A, §2º: R$ 6.750 × meses, contando o mês de abertura). MEI dela abriu
+// em 29/04/2026 → 2026 = R$ 60.750, faixa de 20% = R$ 72.900, e acima dela o
+// desenquadramento retroage à DATA DE ABERTURA. De 2027 em diante: R$ 81.000
+// / R$ 97.200, retroagindo a 1º/jan. Antes daqui a tela tinha R$ 81.000 e
+// R$ 97.200 chumbados, o que estava errado pro ano inteiro de 2026.
+// Os números de fallback só valem pra aba aberta antes da 043.
 function velocimetroMEI(v){
   const entrado = Number(v.entrado_ano_centavos||0);
-  const teto = Number(v.teto_centavos||8100000); // R$ 81.000
-  const pctReal = (entrado/teto)*100;
+  const teto = Number(v.teto_centavos||8100000);
+  const tolerancia = Number(v.tolerancia_centavos||Math.round(teto*1.2));
+  const ano = v.ano || new Date().getFullYear();
+  const anoAbertura = !!v.ano_abertura;
+  const retroageA = v.retroage_a ? formatDateBR(v.retroage_a) : `01/01/${ano}`;
+  const pctReal = teto > 0 ? (entrado/teto)*100 : 0;
   const pct = Math.min(pctReal, 100);
-  const acimaRetroativo = entrado >= MEI_LIMITE_RETROATIVO_CENTAVOS;
+  const acimaTolerancia = entrado > tolerancia;
 
   let cls = 'ok', msg = '';
-  if(acimaRetroativo || entrado >= teto){
+  if(acimaTolerancia){
     cls = 'bad';
-    msg = acimaRetroativo
-      ? '🔴 Passou de R$ 97.200 — o desenquadramento do MEI já é retroativo (multa e juros).'
-      : '🔴 Teto de R$ 81.000 atingido — qualquer centavo a mais aproxima do limite retroativo.';
+    msg = `🔴 Passou de ${centavosToBRL(tolerancia)} (teto + 20%): o desenquadramento do MEI retroage a ${retroageA}, com multa e juros.`;
+  } else if(entrado > teto){
+    cls = 'bad';
+    msg = `🔴 Passou do teto de ${centavosToBRL(teto)}, ainda dentro dos 20%: imposto complementar sobre o excesso e saída do MEI em 1º/jan/${Number(ano)+1}. Acima de ${centavosToBRL(tolerancia)} vira retroativo.`;
+  } else if(entrado >= teto){
+    cls = 'bad';
+    msg = `🔴 Teto de ${centavosToBRL(teto)} atingido — qualquer centavo a mais já é excesso.`;
   } else if(pctReal >= 85){
     cls = 'warn';
     msg = '🟡 Perto do teto — hora de planejar mudança de enquadramento.';
@@ -468,18 +524,22 @@ function velocimetroMEI(v){
     msg = '🟡 Passou de 70% do teto — de olho no ritmo dos próximos meses.';
   }
 
+  const nota = anoAbertura
+    ? `Ano de abertura (CNPJ aberto em ${retroageA}): teto <b>proporcional</b> de ${v.meses} meses × ${centavosToBRL(Math.round(Number(v.teto_anual_centavos||8100000)/12))} = <b>${centavosToBRL(teto)}</b>. Acima de <b>${centavosToBRL(tolerancia)}</b> (teto + 20%) o desenquadramento retroage à <b>data de abertura</b>, com multa e juros sobre o período todo.`
+    : `Acima de <b>${centavosToBRL(tolerancia)}</b> (teto + 20%) o desenquadramento do MEI retroage a ${retroageA}, com multa e juros sobre o período todo, não só sobre o excedente.`;
+
   return `
   <div class="card">
     <div class="row-between">
-      <div class="label" style="font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--fraco);">Teto MEI — ${new Date().getFullYear()}</div>
+      <div class="label" style="font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--fraco);">Teto MEI — ${esc(ano)}${anoAbertura ? ' (proporcional)' : ''}</div>
       <div class="muted" style="font-size:12.5px;">${centavosToBRL(entrado)} de ${centavosToBRL(teto)}</div>
     </div>
     <div class="veloc">
       <div class="veloc-track"><div class="veloc-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
-      <div class="veloc-labels"><span>0</span><span>${pctReal.toFixed(0)}%</span><span>R$ 81.000</span></div>
+      <div class="veloc-labels"><span>0</span><span>${pctReal.toFixed(0)}%</span><span>${centavosToBRL(teto)}</span></div>
     </div>
     ${msg ? `<div class="veloc-msg ${cls}">${msg}</div>` : ''}
-    <div class="veloc-nota">Acima de <b>R$ 97.200</b> (120% do teto) o desenquadramento do MEI é retroativo — multa e juros sobre o período todo, não só sobre o excedente.</div>
+    <div class="veloc-nota">${nota}</div>
   </div>`;
 }
 
@@ -681,6 +741,38 @@ function abrirPeriodoPersonalizado(){
     </div>`;
 }
 
+function alertasPorCliente(vencidos, semVenc, futuros){
+  const grupos = new Map();
+  const grupo = v => {
+    const k = v.cliente_slug;
+    if(!grupos.has(k)) grupos.set(k, { slug: k, nome: v.cliente_nome, cliente_id: v.cliente_id, venc: [], sem: [] });
+    return grupos.get(k);
+  };
+  vencidos.forEach(v => grupo(v).venc.push(v));
+  semVenc.forEach(v => grupo(v).sem.push(v));
+  const soma = arr => arr.reduce((s,v) => s + Number(v.falta_centavos||0), 0);
+  const plural = (n, um, varios) => n + ' ' + (n === 1 ? um : varios);
+  return [...grupos.values()]
+    .sort((a,b) => (b.venc.length - a.venc.length) || a.nome.localeCompare(b.nome))
+    .map(g => {
+      const fut = futuros.find(f => f.cliente_id && f.cliente_id === g.cliente_id);
+      const resumo = [
+        g.venc.length ? `🔴 ${plural(g.venc.length,'vencida','vencidas')}` : '',
+        g.sem.length ? `🟡 ${g.sem.length} sem data de vencimento` : '',
+        fut ? `<span class="muted">próximas ${fut.quantidade}${fut.proximo_vence_em ? ' a partir de ' + formatDateBR(fut.proximo_vence_em) : ''}</span>` : '',
+      ].filter(Boolean).join(' · ');
+      const itens = [
+        ...g.venc.map(v => `<div class="alert-item"><span>${esc(v.descricao || 'Recebível')} — venceu ${v.vence_em ? formatDateBR(v.vence_em) : ''}</span><span class="money">${centavosToBRL(v.falta_centavos)}</span></div>`),
+        ...g.sem.map(v => `<div class="alert-item"><span>${esc(v.descricao || 'Recebível')}${v.competencia ? ' — ' + monthLabel(v.competencia) + '/' + String(v.competencia).slice(0,4) : ''} — sem data</span><span class="money">${centavosToBRL(v.falta_centavos)}</span></div>`),
+      ].join('');
+      return `
+        <div class="alertrow alertrow-grupo ${g.venc.length ? '' : 'muted-alert'}" onclick="location.hash='#/cliente/${esc(g.slug)}'">
+          <div class="alert-head"><span><b>${esc(g.nome)}</b> ${resumo}</span><span class="money">${centavosToBRL(soma(g.venc) + soma(g.sem))}</span></div>
+          ${itens}
+        </div>`;
+    }).join('');
+}
+
 async function renderDash(){
   root.innerHTML = shell('dash', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
   try { dashCacheGlobal = await rpc('hub_rpc_dash'); }
@@ -720,20 +812,17 @@ async function renderDashBody(){
   }
   const falta = Number(periodo.previsto_centavos||0) - Number(periodo.entrado_centavos||0);
 
+  // 07/10/2026 (migration 039) — agrupado por CLIENTE. Antes era uma linha
+  // por recebível, sem descrição: "The Best" 6× com o mesmo valor e ninguém
+  // sabia qual parcela era qual. Agora: 1 linha por cliente com o que venceu,
+  // o que está sem data no mês e quantas parcelas ainda vêm pela frente; o
+  // detalhe (descrição + vencimento) vem logo abaixo, uma linha por item.
+  // Cliente arquivado e parcela futura sem data já não chegam aqui (filtro
+  // no banco). Numa aba aberta antes da 039, descricao chega undefined e a
+  // linha só mostra o valor — degrada sem quebrar.
   const alertHtml = (vencidos.length + semVenc.length) ? `
     <h2 class="section-title" style="margin-top:28px;">Precisa de atenção</h2>
-    <div class="alertlist">
-      ${vencidos.map(v => `
-        <div class="alertrow" onclick="location.hash='#/cliente/${esc(v.cliente_slug)}'">
-          <span>🔴 <b>${esc(v.cliente_nome)}</b> venceu ${v.vence_em ? 'em '+formatDateBR(v.vence_em) : ''}</span>
-          <span class="money">${centavosToBRL(v.falta_centavos)}</span>
-        </div>`).join('')}
-      ${semVenc.map(v => `
-        <div class="alertrow muted-alert" onclick="location.hash='#/cliente/${esc(v.cliente_slug)}'">
-          <span>🟡 <b>${esc(v.cliente_nome)}</b> sem dia de vencimento definido</span>
-          <span class="money">${centavosToBRL(v.falta_centavos)}</span>
-        </div>`).join('')}
-    </div>` : '';
+    <div class="alertlist">${alertasPorCliente(vencidos, semVenc, dash.futuros_por_cliente || [])}</div>` : '';
 
   root.innerHTML = shell('dash', `
     ${chipsPeriodo()}
@@ -1222,6 +1311,8 @@ async function renderFinanceiro(){
   const totalEntrada = rows.reduce((s,r)=>s+Number(r.entrada_centavos),0);
   const totalVencido = rows.filter(r=>r.status==='vencido').reduce((s,r)=>s+Number(r.falta_centavos),0);
   const clientesPagos = rows.filter(r=>r.status==='pago').length;
+  // 044: R$ 0 não conta como "pago" nem entra no denominador
+  const cobraveis = rows.filter(r=>r.status!=='sem_cobranca').length;
 
   // Bloco 1.6, item 2: separar em "Mensalidade" (origem='contrato') e
   // "Extras do mês" (qualquer outra origem) — formato do mockup
@@ -1285,7 +1376,7 @@ async function renderFinanceiro(){
       </div>
       <div class="kpi">
         <div class="kpi-head">${KPI_ICONS.userCheck}<span class="label">Clientes pagos</span></div>
-        <div class="value">${clientesPagos}/${rows.length}</div>
+        <div class="value">${clientesPagos}/${cobraveis}</div>
       </div>
     </div>
     <p class="eyebrow" style="color:var(--fraco);">Mensalidade</p>
@@ -1387,7 +1478,7 @@ function formRecebivel(r){
     <form onsubmit="return salvarRecebivel(event)">
       <input type="hidden" id="f-id" value="${esc(r.id||'')}">
       <div class="field"><label>Cliente</label><select id="f-cliente" required>${opts}</select></div>
-      <div class="field"><label>Competência</label><input id="f-competencia" type="date" required value="${r.competencia||financeiroCompetencia}"></div>
+      <div class="field"><label>Competência (mês)</label><input id="f-competencia" type="month" required placeholder="AAAA-MM" value="${competenciaParaMes(r.competencia||financeiroCompetencia)}"></div>
       <div class="field"><label>Descrição</label><input id="f-descricao" required value="${esc(r.descricao||'')}"></div>
       <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" required value="${centavosToInputValue(r.valor_centavos)}"></div>
       <div class="field"><label>Vence em</label><input id="f-vence" type="date" value="${r.vence_em||''}"></div>
@@ -1417,14 +1508,18 @@ async function salvarRecebivel(ev){
     await rpc('hub_rpc_salvar_recebivel', { p: {
       id: document.getElementById('f-id').value || undefined,
       cliente_id: document.getElementById('f-cliente').value,
-      competencia: document.getElementById('f-competencia').value,
+      competencia: mesParaCompetencia(document.getElementById('f-competencia').value),
       descricao: document.getElementById('f-descricao').value,
       valor_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
       vence_em: document.getElementById('f-vence').value || null,
       origem: document.getElementById('f-origem').value,
       observacao: document.getElementById('f-observacao').value || null,
     }});
-    closeModal(); toast('Recebível salvo.'); renderFinanceiro();
+    closeModal(); toast('Recebível salvo.');
+    // 07/10 — salvo de dentro da ficha, a ficha recarrega (antes pulava pra
+    // tela Recebíveis com o hash ainda em #/cliente/...).
+    const rota = currentRoute();
+    if(rota.page === 'cliente' && rota.param) renderCliente(rota.param); else renderFinanceiro();
   } catch(e){}
   return false;
 }
@@ -1775,6 +1870,13 @@ async function renderCliente(slug){
     const { data: dem, error } = await hubClient.rpc('hub_rpc_demandas_cliente', { p_cliente_id: data.cliente.id });
     data.demandas = error ? null : (dem || []);
   } catch(e){ data.demandas = null; }
+  // 07/10/2026 (migration 040) — recebíveis do cliente na aba Financeiro.
+  // Chamada direta, igual demandas: `null` = RPC ainda não existe no banco,
+  // a seção avisa em vez de estourar toast.
+  try {
+    const { data: rec, error } = await hubClient.rpc('hub_rpc_recebiveis_cliente', { p_cliente_id: data.cliente.id });
+    data.recebiveis = error ? null : (rec || []);
+  } catch(e){ data.recebiveis = null; }
   clienteAtual = data;
   pilarAtivo = 'financeiro';
   contatoConversaId = null;
@@ -1947,6 +2049,43 @@ function renderPilarContratos(){
     ${contratosHtml}`;
 }
 
+// 07/10/2026 — "abri o cliente novo e não vi o recebível dele". A ficha não
+// mostrava dinheiro nenhum. Lista tudo do cliente (todos os meses); editar,
+// marcar pago e apagar continuam na tela Recebíveis (fonte única das ações).
+function secaoRecebiveisCliente(data){
+  const recs = data.recebiveis;
+  const temContratoAtivo = (data.contratos || []).some(x => x.contrato && x.contrato.status === 'ativo');
+  const cab = `
+    <div class="row-between" style="margin-bottom:12px;">
+      <h2 class="section-title" style="margin:0;">Recebíveis</h2>
+      <button class="btn btn-sm btn-outline" onclick="abrirNovoRecebivelCliente()">+ Novo recebível</button>
+    </div>`;
+  if(recs === null) return cab + `<div class="pilar-empty">A lista de recebíveis do cliente ainda não está no banco (migration 040).</div>`;
+  const aviso = temContratoAtivo ? '' : `<p class="dim" style="font-size:12px;margin:0 0 10px;">Sem contrato ativo: nenhum recebível nasce sozinho para este cliente. Crie o contrato na aba Contratos ou lance o recebível à mão.</p>`;
+  if(!recs.length) return cab + aviso + `<div class="card"><span class="muted">Nenhum recebível lançado.</span></div>`;
+  const aberto = recs.reduce((s,r) => s + Number(r.falta_centavos||0), 0);
+  const linhas = recs.map(r => `
+    <tr>
+      <td data-label="Mês">${monthLabel(r.competencia)}/${String(r.competencia).slice(0,4)}</td>
+      <td data-label="Descrição" class="muted">${esc(r.descricao)}${r.origem && r.origem!=='contrato' ? ' <span class="badge badge-roxo">extra</span>' : ''}</td>
+      <td data-label="Valor" class="money">${centavosToBRL(r.valor_centavos)}</td>
+      <td data-label="Falta" class="money">${centavosToBRL(r.falta_centavos)}</td>
+      <td data-label="Vencimento">${r.vence_em ? formatDateBR(r.vence_em) : '<span class="flag">sem venc.</span>'}</td>
+      <td data-label="Status"><span class="badge ${contratoBadgeClass(r.status)}">${statusLabel(r.status)}</span></td>
+    </tr>`).join('');
+  return cab + aviso + `
+    <p class="muted" style="margin:0 0 8px;">Em aberto: <b>${centavosToBRL(aberto)}</b> · ${recs.length} lançamento${recs.length>1?'s':''}</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Mês</th><th>Descrição</th><th style="text-align:right">Valor</th><th style="text-align:right">Falta</th><th>Vencimento</th><th>Status</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table></div>`;
+}
+async function abrirNovoRecebivelCliente(){
+  try{ await loadCarteiraCache(); } catch(e){}
+  const c = clienteAtual.cliente;
+  openModal('Novo recebível — ' + esc(c.nome), formRecebivel({ cliente_id: c.id, cliente_nome: c.nome, competencia: todayISO().slice(0,7) + '-01' }));
+}
+
 function renderPilarFinanceiro(){
   const data = clienteAtual;
   const contatos = data.contatos || [];
@@ -1963,7 +2102,8 @@ function renderPilarFinanceiro(){
     </div>`).join('') : `<div class="muted">Nenhum contato cadastrado.</div>`;
 
   return `
-    <div class="row-between" style="margin-bottom:12px;">
+    ${secaoRecebiveisCliente(data)}
+    <div class="row-between" style="margin-bottom:12px;margin-top:24px;">
       <h2 class="section-title" style="margin:0;">Contatos</h2>
       <button class="btn btn-sm btn-outline" onclick="abrirNovoContato()">+ Novo contato</button>
     </div>

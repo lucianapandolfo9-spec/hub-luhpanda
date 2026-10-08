@@ -299,6 +299,9 @@ h2.section-title{
 }
 .alertrow:hover{filter:brightness(1.12)}
 .alertrow.muted-alert{background:rgba(242,193,78,.06);border-color:rgba(242,193,78,.25)}
+.alertrow-grupo{flex-direction:column;align-items:stretch;gap:4px}
+.alertrow-grupo .alert-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.alertrow-grupo .alert-item{display:flex;justify-content:space-between;gap:10px;padding-left:14px;font-size:12px;color:var(--fraco)}
 
 /* ---------- grids utilitários ---------- */
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}

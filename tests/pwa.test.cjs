@@ -6,7 +6,7 @@ const vm = require('node:vm');
 function boot({ online = false, authError = false, library = false } = {}) {
   const root = { innerHTML: 'Carregando...' }, listeners = {}, calls = { reload: 0, auth: 0 };
   const context = vm.createContext({
-    document: { getElementById: id => id === 'root' ? root : {} },
+    document: { getElementById: id => id === 'root' ? root : { addEventListener() {} } },
     window: { addEventListener: (name, fn) => listeners[name] = fn,
       location: { reload: () => calls.reload++ } },
     location: { hash: '' }, navigator: { onLine: online }, console, setTimeout, clearTimeout, URL,
