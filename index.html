@@ -672,6 +672,38 @@ function abrirPeriodoPersonalizado(){
     </div>`;
 }
 
+function alertasPorCliente(vencidos, semVenc, futuros){
+  const grupos = new Map();
+  const grupo = v => {
+    const k = v.cliente_slug;
+    if(!grupos.has(k)) grupos.set(k, { slug: k, nome: v.cliente_nome, cliente_id: v.cliente_id, venc: [], sem: [] });
+    return grupos.get(k);
+  };
+  vencidos.forEach(v => grupo(v).venc.push(v));
+  semVenc.forEach(v => grupo(v).sem.push(v));
+  const soma = arr => arr.reduce((s,v) => s + Number(v.falta_centavos||0), 0);
+  const plural = (n, um, varios) => n + ' ' + (n === 1 ? um : varios);
+  return [...grupos.values()]
+    .sort((a,b) => (b.venc.length - a.venc.length) || a.nome.localeCompare(b.nome))
+    .map(g => {
+      const fut = futuros.find(f => f.cliente_id && f.cliente_id === g.cliente_id);
+      const resumo = [
+        g.venc.length ? `🔴 ${plural(g.venc.length,'vencida','vencidas')}` : '',
+        g.sem.length ? `🟡 ${g.sem.length} sem data de vencimento` : '',
+        fut ? `<span class="muted">próximas ${fut.quantidade}${fut.proximo_vence_em ? ' a partir de ' + formatDateBR(fut.proximo_vence_em) : ''}</span>` : '',
+      ].filter(Boolean).join(' · ');
+      const itens = [
+        ...g.venc.map(v => `<div class="alert-item"><span>${esc(v.descricao || 'Recebível')} — venceu ${v.vence_em ? formatDateBR(v.vence_em) : ''}</span><span class="money">${centavosToBRL(v.falta_centavos)}</span></div>`),
+        ...g.sem.map(v => `<div class="alert-item"><span>${esc(v.descricao || 'Recebível')}${v.competencia ? ' — ' + monthLabel(v.competencia) + '/' + String(v.competencia).slice(0,4) : ''} — sem data</span><span class="money">${centavosToBRL(v.falta_centavos)}</span></div>`),
+      ].join('');
+      return `
+        <div class="alertrow alertrow-grupo ${g.venc.length ? '' : 'muted-alert'}" onclick="location.hash='#/cliente/${esc(g.slug)}'">
+          <div class="alert-head"><span><b>${esc(g.nome)}</b> ${resumo}</span><span class="money">${centavosToBRL(soma(g.venc) + soma(g.sem))}</span></div>
+          ${itens}
+        </div>`;
+    }).join('');
+}
+
 async function renderDash(){
   root.innerHTML = shell('dash', `<div class="empty"><div class="spinner" style="margin:0 auto;"></div></div>`);
   try { dashCacheGlobal = await rpc('hub_rpc_dash'); }
@@ -711,20 +743,17 @@ async function renderDashBody(){
   }
   const falta = Number(periodo.previsto_centavos||0) - Number(periodo.entrado_centavos||0);
 
+  // 07/10/2026 (migration 039) — agrupado por CLIENTE. Antes era uma linha
+  // por recebível, sem descrição: "The Best" 6× com o mesmo valor e ninguém
+  // sabia qual parcela era qual. Agora: 1 linha por cliente com o que venceu,
+  // o que está sem data no mês e quantas parcelas ainda vêm pela frente; o
+  // detalhe (descrição + vencimento) vem logo abaixo, uma linha por item.
+  // Cliente arquivado e parcela futura sem data já não chegam aqui (filtro
+  // no banco). Numa aba aberta antes da 039, descricao chega undefined e a
+  // linha só mostra o valor — degrada sem quebrar.
   const alertHtml = (vencidos.length + semVenc.length) ? `
     <h2 class="section-title" style="margin-top:28px;">Precisa de atenção</h2>
-    <div class="alertlist">
-      ${vencidos.map(v => `
-        <div class="alertrow" onclick="location.hash='#/cliente/${esc(v.cliente_slug)}'">
-          <span>🔴 <b>${esc(v.cliente_nome)}</b> venceu ${v.vence_em ? 'em '+formatDateBR(v.vence_em) : ''}</span>
-          <span class="money">${centavosToBRL(v.falta_centavos)}</span>
-        </div>`).join('')}
-      ${semVenc.map(v => `
-        <div class="alertrow muted-alert" onclick="location.hash='#/cliente/${esc(v.cliente_slug)}'">
-          <span>🟡 <b>${esc(v.cliente_nome)}</b> sem dia de vencimento definido</span>
-          <span class="money">${centavosToBRL(v.falta_centavos)}</span>
-        </div>`).join('')}
-    </div>` : '';
+    <div class="alertlist">${alertasPorCliente(vencidos, semVenc, dash.futuros_por_cliente || [])}</div>` : '';
 
   root.innerHTML = shell('dash', `
     ${chipsPeriodo()}
