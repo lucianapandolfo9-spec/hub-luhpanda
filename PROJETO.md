@@ -211,3 +211,7 @@ real do node "Configuração" do workflow `HUB — Cobrança Automática` (preci
 - Toda alteração de schema é uma migration nova em `migrations/`, nunca editar uma antiga.
 - Nunca commitar `service_role` key — este projeto não usa nenhuma; tudo roda com a chave
   `anon` + RLS + RPC.
+
+## Hub modular — reunião de 05/10/2026
+
+[Planejamento, pacotes e revisão inicial](docs/hub/2026-10-05-planejamento-e-revisao.md) — requisitos e decisões da Isabella, preços dos módulos, decisões anteriores da Luh, verificação somente leitura do Supabase, integração do Contator informativo e da Logo Ali e propostas operacionais. Registro documental; funcionalidades futuras não são consideradas entregues.
