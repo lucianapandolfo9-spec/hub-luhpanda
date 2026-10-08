@@ -48,7 +48,7 @@ hub.plataforma_admins (ela, Isa)              ├──< hub.convites (token só
 |---|---|---|
 | `hub.workspaces` (já existia) | a empresa assinante | + `status` (`onboarding`/`ativo`/`suspenso`/`encerrado`), `vagas` (padrão 3) |
 | `hub.plataforma_admins` | quem pode criar workspace e convite (ela, Isa) | **não** dá acesso a dado de cliente (P3) |
-| `hub.workspace_membros` | usuário × workspace × papel | `papel` ∈ dono/operador/consulta · contador = `consulta` + `eh_contador`, **não ocupa vaga** · trigger barra o 4º usuário e impede ficar sem dono |
+| `hub.workspace_membros` | usuário × workspace × papel | `papel` ∈ dono/operador/consulta · contador = `consulta` + `eh_contador`, **ocupa vaga** (exceção permanece proposta) · trigger barra o 4º usuário e impede ficar sem dono |
 | `hub.convites` | entrada por convite | token aleatório, só o **sha256** fica no banco · 7 dias · aceita só logado com o **mesmo e-mail** · uso único |
 | `hub.modulos` / `hub.workspace_modulos` | módulos contratados | **sem preço** (repo público; preço fica no vault/planilha) · histórico `desde`/`ate` |
 | `hub.workspace_canais` | como uma automação descobre o workspace | `(tipo, identificador)` único: `evolution_instancia`, `meta_phone_number_id`, `google_calendar`, `docuseal`, `meetily` |
@@ -264,7 +264,7 @@ b) Workspace "atual" salvo no perfil do usuário (duas abas brigam)
 c) Parâmetro em cada RPC (reescreve as 68)
 
 **P2. As 3 vagas são:**
-a) ⭐ 3 usuários de qualquer papel, com pelo menos 1 Dono; contador fora da conta (implementado)
+a) ⭐ 3 usuários de qualquer papel, com pelo menos 1 Dono; contador conta entre os três (regra vigente, reforçada na correção de limite)
 b) Exatamente 1 Dono + 1 Operador + 1 Consulta
 c) Vagas por plano (mensalidade maior = mais vagas); o campo `vagas` já permite
 
@@ -383,6 +383,10 @@ A nova `20261008112355_multiempresa_integracao_modulos.sql` vem **depois** de 05
 
 Rollback: primeiro `rollback/053_integracao_down.sql`, depois 052_down, 051_down e 050_down, ainda em manutenção. A recusa da 052_down quando há dados de outro workspace permanece.
 
-Validação reprodutível: `cd tests/multi-empresa && npm ci --ignore-scripts && npm test`. São 92 verificações de isolamento/rollback, compatibilidade das 64 RPCs existentes e um teste combinado com SQL dos PRs #3, #12 e #11 (snapshots sem dados, em fixtures/prs). Esse teste cobre leitura/escrita de estoque, isolamento Contator, Consulta sem escrita, criação de cliente no workspace correto, recusa de assinar contrato alheio e retry DocuSeal no segundo workspace. Um workflow executa a suíte no CI. As fixtures devem acompanhar novas alterações nesses PRs antes da implantação.
+Validação reprodutível: `cd tests/multi-empresa && npm ci --ignore-scripts && npm test`. São 93 verificações de isolamento/rollback, compatibilidade das 64 RPCs existentes e um teste combinado com SQL dos PRs #3, #12 e #11 (snapshots sem dados, em fixtures/prs). Esse teste cobre leitura/escrita de estoque, isolamento Contator, Consulta sem escrita, criação de cliente no workspace correto, recusa de assinar contrato alheio e retry DocuSeal no segundo workspace. Um workflow executa a suíte no CI. As fixtures devem acompanhar novas alterações nesses PRs antes da implantação.
 
 P5 (vários CNPJs) deixa de ser pendência: a decisão vigente é um único CNPJ por assinatura. As demais perguntas continuam pendentes, inclusive a proposta de acesso extra para contador fora das três vagas. A revisão técnica não aprova essa proposta comercial. Frontend multiempresa, roteamento de todas as integrações/arquivos e implantação/homologação completos continuam fora do escopo desta correção e impedem liberar o recurso em produção.
+
+A correção complementar de limite de usuários aplica a regra vigente de **três usuários incluindo o contador**, sem liberar a exceção ainda proposta. O onboarding/convite rejeita o quarto usuário; a coluna ocupa_vaga fica verdadeira para todo usuário. Instalar essa migration nova também, ainda na manutenção, depois da correção de integração. Os testes de vagas cobrem a recusa de contador como quarto usuário. 050/051/052 ficam preservadas como histórico do desenho inicial, e não devem ser usadas isoladamente.
+
+A lista workspace_modulos ainda é cadastro de módulos, não bloqueio de cada RPC por pacote contratado. O enforcement no servidor e o fluxo de contratação precisam ser implementados antes de venda/ativação multiempresa. Credenciais Google/Evolution, jobs, PDFs e UI devem ser homologados por workspace; não basta o teste SQL de isolamento.

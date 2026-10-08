@@ -91,7 +91,7 @@ checar(!!botAntes && botAntes.includes('schema hub'), 'ACHADO: hoje o bot com ch
 
 // ---------------------------------------------------------------- migrations
 console.log('\n# aplicando 050 → 051 → 052');
-for (const m of ['050_multiempresa_base', '051_multiempresa_workspace_id', '052_multiempresa_virada', '20261008112355_multiempresa_integracao_modulos']) {
+for (const m of ['050_multiempresa_base', '051_multiempresa_workspace_id', '052_multiempresa_virada', '20261008112355_multiempresa_integracao_modulos', '20261008113918_multiempresa_limite_usuarios']) {
   try { await db.exec(ler(`migrations/${m}.sql`)); checar(true, `${m} aplicou`); }
   catch (e) { checar(false, `${m} aplicou`, e.message); process.exit(1); }
 }
@@ -132,7 +132,7 @@ checar((await como(BIA, `select public.hub_rpc_aceitar_convite($1) w`, [criado.t
 checar(!!(await falha(BIA, `select public.hub_rpc_aceitar_convite($1)`, [criado.token])), 'convite não reaproveita');
 checar((await db.query(`select count(*)::int n from hub.convites where token_hash = $1`, [criado.token])).rows[0].n === 0, 'token em claro não fica no banco');
 
-console.log('\n# vagas: 3 usuários + contador não ocupa vaga');
+console.log('\n# vagas: 3 usuários, incluindo contador; exceção não aprovada');
 const convidar = async (email, papel, eh_contador = false) =>
   (await como(BIA, `select public.hub_rpc_criar_convite($1::jsonb) r`, [JSON.stringify({ email, papel, eh_contador })]))[0].r.token;
 const tOpe = await convidar(OPE.email, 'operador');
@@ -141,7 +141,7 @@ const tCtb = await convidar(CTB.email, 'consulta', true);
 const tExt = await convidar(EXT.email, 'operador');
 await como(OPE, 'select public.hub_rpc_aceitar_convite($1)', [tOpe]);
 await como(CON, 'select public.hub_rpc_aceitar_convite($1)', [tCon]);
-checar(!(await falha(CTB, 'select public.hub_rpc_aceitar_convite($1)', [tCtb])), 'contador entra com 3 vagas já ocupadas');
+checar(!!(await falha(CTB, 'select public.hub_rpc_aceitar_convite($1)', [tCtb])), 'contador também é recusado quando as três vagas estão ocupadas');
 const semVaga = await falha(EXT, 'select public.hub_rpc_aceitar_convite($1)', [tExt]);
 checar(!!semVaga && semVaga.includes('sem vaga'), '4º usuário (não contador) é recusado', semVaga);
 checar(!!(await falha(OPE, `select public.hub_rpc_criar_convite('{"email":"x@y.z","papel":"dono"}'::jsonb)`)), 'operador não convida');
@@ -203,10 +203,10 @@ checar(!!(await falha(CON, `select public.hub_rpc_salvar_cliente($1::jsonb)`, [J
 const idAcmeWs2 = (await db.query(`select id from hub.clientes where slug='acme' and workspace_id=$1`, [WS2])).rows[0].id;
 await falha(CON, `select public.hub_rpc_salvar_cliente($1::jsonb)`, [JSON.stringify({ id: idAcmeWs2, empresa_id: empId, slug: 'acme', nome: 'Alterado pela consulta' })]);
 checar((await db.query('select nome from hub.clientes where id=$1', [idAcmeWs2])).rows[0].nome === 'Acme da Padaria', 'Consulta não altera');
-checar((await como(CTB, 'select * from public.hub_rpc_carteira()')).length === 1, 'contador (Consulta) lê');
+checar(!!(await falha(CTB, 'select * from public.hub_rpc_carteira()')), 'contador sem vaga e sem vínculo não lê o workspace');
 checar(!(await falha(OPE, `select public.hub_rpc_salvar_cliente($1::jsonb)`, [JSON.stringify({ empresa_id: empId, slug: 'op', nome: 'Do operador' })])), 'Operador cria');
 const membros = await como(BIA, 'select * from public.hub_rpc_membros()');
-checar(membros.length === 4, 'dona vê os 4 membros', JSON.stringify(membros));
+checar(membros.length === 3, 'dona vê os 3 membros', JSON.stringify(membros));
 checar((await como(CON, 'select * from public.hub_rpc_membros()')).length === 0, 'Consulta não lista membros');
 checar(!!(await falha(CON, 'select count(*) from hub.eventos_auditoria')), 'auditoria não é exposta direto (RPC-only)');
 

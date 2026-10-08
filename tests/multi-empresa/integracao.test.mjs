@@ -42,7 +42,10 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
     const clientA = await call(LU,'hub_rpc_novo_cliente',newPayload(sidA));
     await db.query(`insert into hub.advisory_records(workspace_id,kind,data) select id,'action','{"private":"Contator da Luh"}'::jsonb from hub.workspaces`);
     for (const f of ['050_multiempresa_base','051_multiempresa_workspace_id','052_multiempresa_virada']) await db.exec(read(`migrations/${f}.sql`));
-    if (!process.env.SKIP_INTEGRATION_FIX) await db.exec(read('migrations/20261008112355_multiempresa_integracao_modulos.sql'));
+    if (!process.env.SKIP_INTEGRATION_FIX) {
+      await db.exec(read('migrations/20261008112355_multiempresa_integracao_modulos.sql'));
+      await db.exec(read('migrations/20261008113918_multiempresa_limite_usuarios.sql'));
+    }
     const WS1 = (await db.query(`select id from hub.workspaces where slug='luhpanda'`)).rows[0].id;
     const WS2 = randomUUID();
     await db.query(`insert into hub.workspaces(id,nome,slug,status) values($1,'Outra empresa','outra','ativo')`,[WS2]);
