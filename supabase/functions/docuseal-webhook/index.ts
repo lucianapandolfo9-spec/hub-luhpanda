@@ -116,6 +116,18 @@ function extrairSubmissionId(dados: Record<string, unknown>): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// 07/10/2026 (042) — data da assinatura pra função única "contrato
+// assinado" (hub.ativar_contrato_assinado, migration 041). DocuSeal manda
+// `completed_at` em ISO UTC; o dia que vale é o de Recife. Sem o campo,
+// devolve null e o banco usa "hoje" (Recife).
+function extrairDataAssinatura(dados: Record<string, unknown>): string | null {
+  const bruto = dados.completed_at ?? (dados.submission as Record<string, unknown> | undefined)?.completed_at;
+  if (typeof bruto !== "string") return null;
+  const d = new Date(bruto);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Recife" }).format(d); // AAAA-MM-DD
+}
+
 function extrairUrlDocumentoAssinado(dados: Record<string, unknown>): string | null {
   const docs = dados.documents;
   if (Array.isArray(docs) && docs.length) {
@@ -165,15 +177,25 @@ Deno.serve(async (req: Request) => {
   }
   const auditLogUrl = typeof dados.audit_log_url === "string" ? dados.audit_log_url : null;
 
-  // 1) o que IMPORTA: marcar o contrato como assinado.
+  // 1) o que IMPORTA: contrato assinado. Desde a 042 o banco tenta ATIVAR
+  // pela função única (a mesma do botão "Contrato assinado" da tela única,
+  // migration 041) e gera as parcelas; se a guarda recusar (ex.: porta de
+  // saída sem confirmação escrita), grava só `assinado` e devolve o motivo.
   let contratoId: string | null = null;
   let clienteSlug: string | null = null;
+  let ativacao: unknown = null;
   try {
     const resultado = await rpcServiceRole("hub_rpc_docuseal_registrar_evento", {
-      p: { docuseal_submission_id: submissionId, status: "assinado", audit_log_url: auditLogUrl },
+      p: {
+        docuseal_submission_id: submissionId,
+        status: "assinado",
+        audit_log_url: auditLogUrl,
+        assinado_em: extrairDataAssinatura(dados),
+      },
     });
     contratoId = resultado?.contrato_id ?? null;
     clienteSlug = resultado?.cliente_slug ?? null;
+    ativacao = resultado?.ativacao ?? null;
   } catch (e) {
     return responder({ erro: "evento recebido mas NAO gravado", detalhe: String(e) }, 502);
   }
@@ -216,5 +238,5 @@ Deno.serve(async (req: Request) => {
     // ainda pode subir o PDF manualmente pela tela, como já fazia antes.
   }
 
-  return responder({ ok: true, contrato_id: contratoId });
+  return responder({ ok: true, contrato_id: contratoId, ativacao });
 });
