@@ -28,3 +28,7 @@ secrets/
 # Supabase CLI — estado local por clone
 supabase/.temp/
 supabase/.branches/
+
+# testes locais (PGlite)
+tests/**/node_modules/
+tests/**/package-lock.json
