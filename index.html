@@ -4,6 +4,36 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Hub Luh Panda</title>
+
+<!-- ---------- favicon ----------
+     Panda da marca, o MESMO do aprovi.ai (mesma dona, mesma marca, e os dois
+     vão se fundir num produto só). Duas versões de propósito: `favicon.svg` é
+     o desenho simplificado — a 16px pupila, boca e orelha interna viram ruído
+     e a cara do panda some. `panda.svg` é o desenho completo, pra 32px+.
+     `favicon.ico` existe só pro Safari antigo e pro atalho de desktop. -->
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="favicon.ico" sizes="any">
+
+<!-- ---------- PWA ----------
+     `manifest.webmanifest` tem `id: hub-luhpanda`, diferente do `aprovi-painel`:
+     os dois são servidos da MESMA origem (github.io) e precisam instalar como
+     apps separados. -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#12081A">
+
+<!-- iOS ignora o manifest pra ícone e pra nome: só obedece estas metas.
+     O `apple-touch-icon` é OPACO de propósito (180x180 sem canal alfa) —
+     PNG transparente no iOS vira fundo preto chapado.
+     status bar `black`, não `black-translucent`: translucent empurra o
+     conteúdo pra debaixo do relógio e a topbar deste app não tem
+     `viewport-fit=cover`/safe-area no topo. -->
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Hub Panda">
+
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 </head>
@@ -259,11 +289,31 @@ window.addEventListener('hashchange', render);
 // ============================================================
 // AUTH
 // ============================================================
+let connectionUnavailable = false;
+function renderConnectionUnavailable(){
+  connectionUnavailable = true;
+  const offline = navigator.onLine === false;
+  root.innerHTML = `<div class="topbar"><div class="brandmark">🐼 Hub</div></div>
+    <div class="login-box card" role="alert">
+      <h2>${offline ? 'Sem conexão' : 'Conexão indisponível'}</h2>
+      <p>Conecte-se à internet para acessar seus dados. Se já estiver conectado, tente novamente.</p>
+      <button class="btn btn-primary" onclick="window.location.reload()">Tentar novamente</button>
+    </div>`;
+}
+window.addEventListener('online', () => {
+  if(connectionUnavailable) window.location.reload();
+});
 async function init(){
-  const { data } = await hubClient.auth.getSession();
-  session = data.session;
-  hubClient.auth.onAuthStateChange((_event, s) => { session = s; render(); });
-  render();
+  if(!hubClient || navigator.onLine === false){ renderConnectionUnavailable(); return; }
+  try {
+    const { data, error } = await hubClient.auth.getSession();
+    if(error) throw error;
+    session = data.session;
+    hubClient.auth.onAuthStateChange((_event, s) => { session = s; render(); });
+    await render();
+  } catch (_) {
+    renderConnectionUnavailable();
+  }
 }
 
 function renderLogin(){
@@ -5002,6 +5052,7 @@ async function salvarCobrancaMensagem(i){
 // ROUTER
 // ============================================================
 async function render(){
+  if(connectionUnavailable){ renderConnectionUnavailable(); return; }
   if(!session){ renderLogin(); return; }
   if((session.user.email||'').toLowerCase() !== HUB_ADMIN_EMAIL.toLowerCase()){ renderAcessoNegado(); return; }
 
@@ -5022,6 +5073,25 @@ async function render(){
 }
 
 init();
+
+// ============================================================
+// SERVICE WORKER (PWA)
+// ============================================================
+// Registro depois do init() de propósito: se o SW falhar, o app já está de pé.
+// O que ele cacheia e o que ele NUNCA cacheia está documentado no sw.js — a
+// regra curta é: só app shell da própria origem, nada de Supabase.
+// Caminho relativo: funciona em /hub-luhpanda/ e num domínio próprio na raiz.
+// `isSecureContext` em vez de checar `https:` na mão: cobre produção (Pages,
+// e um domínio próprio depois) e também `localhost`/`127.0.0.1`, que é onde o
+// SW é testado antes de subir. `file://` não é contexto seguro e cai fora.
+if ('serviceWorker' in navigator && window.isSecureContext) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {
+      /* silêncio: PWA é extra, nunca pode atrapalhar o uso do painel */
+    });
+  });
+}
 </script>
 </body>
 </html>
+

@@ -211,7 +211,10 @@ tbody tr td:last-child{border-right:1px solid var(--borda);border-radius:0 11px 
 
 /* ---------- toast ---------- */
 .toast{
-  position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+  /* 04/10 — PWA instalado no iPhone: em `standalone` o home indicator come os
+     ~34px de baixo, e um toast a 24px do fundo ficava metade escondido. No
+     navegador e no desktop `env()` vale 0, então nada muda. */
+  position:fixed;bottom:calc(24px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);
   background:var(--superficie);border:1px solid var(--laranja);color:var(--texto);
   padding:10px 18px;border-radius:11px;font-size:13px;z-index:100;
   box-shadow:0 10px 30px -10px rgba(0,0,0,.6);

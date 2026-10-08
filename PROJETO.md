@@ -118,8 +118,65 @@ em claro só existe no n8n (nos dois workflows) e foi entregue a ela fora do có
 
 ## Deploy
 
-GitHub Pages, repo `lucianapandolfo9-spec/hub-luhpanda` (público — exigência do plano
-grátis; sem segredo real no código, a chave anon é pública por design e a proteção é RLS).
+**No ar em https://lucianapandolfo9-spec.github.io/hub-luhpanda/** — GitHub Pages, repo
+`lucianapandolfo9-spec/hub-luhpanda` (público — exigência do plano grátis; sem segredo real
+no código, a chave anon é pública por design e a proteção é RLS). Fonte do Pages: branch
+**`main`, pasta raiz** (`build_type: legacy`, sem Action de build) — mesmo arranjo do
+`luhpanda-site` e do `arroba-certa`, e o único que faz sentido num projeto sem build step:
+`git push` na `main` **é** o deploy.
+
+`cname: null` — domínio próprio (`hub.luhpanda.com.br`, Bloco E) continua pendente, e
+depende dela criar o CNAME na HostGator **antes**: a tentativa anterior derrubou o site por
+apontar o Pages pra um domínio que ainda não tinha propagado.
+
+## PWA — instalável no celular (04/10/2026)
+
+Pedido dela: "quero ele em pwa pra instalar no celular". Nome e escopo são do **Hub inteiro**,
+não de um módulo — o aprovi.ai vai entrar aqui dentro e o manifest não precisa mudar por isso.
+
+| Arquivo | O que é |
+|---|---|
+| `manifest.webmanifest` | `id: hub-luhpanda` · name "Hub Luh Panda" · short_name **"Hub Panda"** · `display: standalone` · tema e fundo `#12081A` · 4 ícones (192/512 em `any` + `maskable`) · 3 atalhos (Financeiro, Carteira, Agenda) |
+| `sw.js` | service worker de **app shell**, network-first |
+| `assets/` + `favicon.ico` | o panda da marca — **os mesmos arquivos do aprovi.ai**, copiados, não redesenhados |
+
+**Decisões que custaram e não devem ser desfeitas:**
+
+- 🔴 **O SW só cacheia uma lista explícita de arquivos estáticos da própria origem.**
+  APIs, outras origens, POST e URLs com query não entram no handler. O cache é separado
+  por escopo; `waitUntil` mantém a gravação ativa e falhas de cache não perdem a resposta.
+  O boot mostra conexão indisponível sem depender do CDN e oferece tentar novamente.
+
+- **Network-first, não cache-first.** É o que resolve a invalidação do `index.html` de 263 KB:
+  com rede, a resposta usada é sempre a recém-publicada; o cache só entra quando a rede falha.
+  O `VERSION` do `sw.js` é a trava extra — subir a versão limpa os caches antigos do próprio escopo. **Só é
+  preciso subir `VERSION` quando mudar a lista `SHELL` ou a lógica do SW**, não a cada deploy.
+- `id` do manifest é `hub-luhpanda`, diferente do `aprovi-painel`: os dois são servidos da
+  **mesma origem** `github.io` e sem `id` distinto o navegador trata como o mesmo app.
+- **short_name "Hub Panda"**, 9 caracteres — o iPhone trunca o rótulo embaixo do ícone por
+  volta de 12. "Hub Luh Panda" viraria "Hub Luh Pa…".
+- `theme_color` e `background_color` são o `#12081A` (o `--fundo` do design system), **não** o
+  laranja: `theme_color` pinta a barra de status, e laranja ali brigaria com o app dark. O
+  `--laranja` `#FF6B35` continua sendo o acento, dentro da tela.
+- **Metas da Apple são obrigatórias**: o iOS ignora o manifest pra ícone e pra nome.
+  `apple-touch-icon.png` é **opaco** (180×180 sem canal alfa) — PNG transparente no iOS vira
+  fundo preto chapado. Status bar `black`, não `black-translucent`: translucent joga o
+  conteúdo pra debaixo do relógio e a topbar não tem `viewport-fit=cover`/safe-area no topo.
+- **Dois favicons de propósito**: `assets/favicon.svg` é a versão simplificada (sem pupila,
+  boca ou orelha interna — a 16px esses detalhes viram ruído e a cara do panda some) e
+  `assets/panda.svg` é o desenho completo, de 32px pra cima.
+- ⚠️ **Os PNGs saíram do Chrome headless, não do ImageMagick**: o renderizador SVG interno do
+  `magick` **descarta `transform="rotate"` em `<ellipse>`** e apaga as manchas dos olhos sem
+  avisar. Se precisar regerar, rasterize no Chrome.
+- O `supabase.js` do jsdelivr fica **fora** do shell (é outra origem). Consequência aceita:
+  100% offline a casca mostra "Sem conexão" e oferece tentar novamente. Ao reconectar, recarrega; dados financeiros continuam exigindo conexão.
+- `style.css` — o toast agora é `bottom: calc(24px + env(safe-area-inset-bottom))`. Instalado
+  no iPhone, o home indicator comia metade dele.
+
+
+## Revisão PWA — 07/10/2026
+
+Seis testes automatizados cobrem boot sem CDN, falha de Auth, recuperação online, exclusões de cache, escrita atrasada/falha, isolamento por escopo e instalação incompleta. O workflow PWA não depende do pacote de testes do Estoque/Contator. Instalação em aparelhos Android/iPhone reais permanece como validação antes do merge.
 
 ## O que NÃO está nesta fase
 
