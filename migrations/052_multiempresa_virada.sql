@@ -1,8 +1,9 @@
 -- ============================================================
 -- HUB — 052: A VIRADA — isolamento por workspace (ETAPA 3 de 3)
 --
--- ⚠️ DRAFT — NÃO APLICAR. Só depois do /grill-me de banco e com janela
--- combinada com ela (é a única etapa que muda comportamento). Testada só
+-- 🔴 NÃO APLICAR. Decisão do grill de 08/10 (P12): entra só na entrada do 1º
+-- cliente pagante, com backup novo e ela testando junto. É a única etapa que
+-- muda comportamento. As correções da Isa (20261008112355) vêm logo depois. Testada só
 -- em PGlite, com 2 workspaces — ver tests/multi-empresa/.
 --
 -- A ideia em 1 parágrafo: as ~65 RPCs existentes continuam iguais. O que
@@ -401,7 +402,7 @@ begin
     select c.relname from pg_class c
     join pg_attribute a on a.attrelid = c.oid and a.attname = 'workspace_id' and not a.attisdropped
     where c.relnamespace = 'hub'::regnamespace and c.relkind = 'r'
-      and c.relname not in ('eventos_auditoria','acessos_sensiveis')
+      and c.relname not in ('eventos_auditoria','acessos_sensiveis','sessoes_suporte')
   loop
     execute format('alter table hub.%I alter column workspace_id set default hub.current_workspace_id()', t);
   end loop;
@@ -428,7 +429,7 @@ begin
     join pg_attribute a on a.attrelid = c.oid and a.attname = 'workspace_id' and not a.attisdropped
     where c.relnamespace = 'hub'::regnamespace and c.relkind = 'r'
       and c.relname not in ('workspace_membros','convites','workspace_modulos','workspace_canais',
-                            'workspace_aceites','acessos_sensiveis','eventos_auditoria','config')
+                            'workspace_aceites','acessos_sensiveis','eventos_auditoria','config','sessoes_suporte')
   loop
     execute format('alter table hub.%I enable row level security', t);
     execute format('create policy %I on hub.%I for select using (%s)', 'ws_ler', t, v_mesmo);
@@ -464,7 +465,8 @@ begin
       and p.proname not in (
         'rpc_meus_workspaces','rpc_plataforma_criar_workspace','rpc_plataforma_definir_modulos',
         'rpc_criar_convite','rpc_revogar_convite','rpc_aceitar_convite','rpc_membros','rpc_alterar_membro',
-        'rpc_onboarding_salvar_empresa','rpc_onboarding_confirmar_regime','rpc_aceitar_termos','rpc_perfil_fiscal')
+        'rpc_onboarding_salvar_empresa','rpc_onboarding_confirmar_regime','rpc_aceitar_termos','rpc_perfil_fiscal',
+        'rpc_plataforma_abrir_suporte','rpc_plataforma_encerrar_suporte','rpc_suporte_acessos','rpc_definir_workspace_padrao','rpc_convite_emitir_token')
   loop
     execute format('alter function %s owner to hub_rpc', f.sig);
   end loop;

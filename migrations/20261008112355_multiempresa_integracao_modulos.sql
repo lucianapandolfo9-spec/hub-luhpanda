@@ -3,9 +3,10 @@
 -- na mesma janela de manutenção, antes de liberar qualquer workspace novo.
 -- Nenhuma migration histórica é alterada. Rollback: 053_integracao_down.sql.
 begin;
--- A assinatura contratada permite um único CNPJ por workspace.
--- Dados existentes incompatíveis fazem esta etapa recusar, sem apagar nada.
-alter table hub.empresas add constraint empresas_um_cnpj_por_workspace unique (workspace_id);
+-- (removido em 08/10: o grill de banco com a Luciana decidiu VÁRIOS CNPJs por
+--  workspace — P5. A trava empresas_um_cnpj_por_workspace saiu daqui.)
+-- CNPJ repetido dentro do MESMO workspace continua proibido:
+create unique index if not exists uq_empresas_ws_cnpj on hub.empresas (workspace_id, hub.cnpj_normalizar(cnpj)) where cnpj is not null;
 
 -- Funções internas também precisam obedecer RLS. Só trocar rpc_* não basta.
 do $$

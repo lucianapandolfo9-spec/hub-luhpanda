@@ -44,7 +44,6 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
     for (const f of ['050_multiempresa_base','051_multiempresa_workspace_id','052_multiempresa_virada']) await db.exec(read(`migrations/${f}.sql`));
     if (!process.env.SKIP_INTEGRATION_FIX) {
       await db.exec(read('migrations/20261008112355_multiempresa_integracao_modulos.sql'));
-      await db.exec(read('migrations/20261008113918_multiempresa_limite_usuarios.sql'));
     }
     const WS1 = (await db.query(`select id from hub.workspaces where slug='luhpanda'`)).rows[0].id;
     const WS2 = randomUUID();
@@ -54,7 +53,8 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
     const snapBefore = await call(BIA,'hub_rpc_modules_snapshot');
     assert.equal(snapBefore.products.length,0,'ws2 não lê estoque do ws1');
     assert.equal(snapBefore.advisory.length,0,'ws2 não lê Contator do ws1');
-    await assert.rejects(call(BIA,'hub_rpc_onboarding_salvar_empresa',{cnpj:'00.000.000/0001-91',razao_social:'Segundo CNPJ'}), /empresas_um_cnpj_por_workspace/);
+    // P5 (grill 08/10): vários CNPJs por workspace
+    assert.ok(await call(BIA,'hub_rpc_onboarding_salvar_empresa',{cnpj:'00.000.000/0001-91',razao_social:'Segundo CNPJ'}));
     const stockB = await makeStock(BIA,'Item da outra empresa');
     assert.equal((await db.query('select workspace_id from hub.stock_products where id=$1',[stockB.prod])).rows[0].workspace_id,WS2);
     await assert.rejects(call(BIA,'hub_rpc_stock_save','product',{id:stockA.prod,name:'Roubo',sku:'ITEM',unit:'un',minimum_quantity:1,target_quantity:10,pack_quantity:1}), /workspace|row-level security/);

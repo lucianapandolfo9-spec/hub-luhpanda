@@ -1,6 +1,13 @@
--- Schema-only do schema hub em PRODUÇÃO (projeto HUB Luh Panda), lido por catálogo (só SELECT) em 08/10/2026, depois de 041, 042, 043, 044, 20261008112314 e 20261008112347.
--- SEM DADOS. Inclui as tabelas que nunca tiveram migration no repo (recebiveis, custos_fixos, config, cobranca_envios).
--- Usado só pelos testes de isolamento (PGlite). Não aplicar em banco nenhum.
+-- ============================================================
+-- HUB — 000: BASELINE do schema hub (P17, grill 08/10/2026)
+--
+-- Estrutura de produção lida por catálogo (só SELECT) em 08/10/2026, ANTES da 050:
+-- equivale a 001–044 + 20261008112314 + 20261008112347. SEM DADOS.
+-- Serve pra um banco NOVO nascer igual ao de produção. Num banco novo: rode SÓ
+-- este arquivo (no lugar de 001–044) e depois 050 em diante.
+-- 🔴 NÃO rodar no banco atual (tudo já existe). Supõe Supabase (auth, storage, roles).
+-- Pré-requisito do workspace 1: insert into hub.workspaces (nome, slug) values ('Luh Panda','luhpanda');
+-- ============================================================
 set check_function_bodies = off;
 create schema if not exists hub;
 CREATE OR REPLACE FUNCTION hub.default_workspace_id()

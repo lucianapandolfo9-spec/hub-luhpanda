@@ -24,10 +24,15 @@ const run = async (label) => {
   return res;
 };
 const antes = await run();
-for (const m of ['050_multiempresa_base','051_multiempresa_workspace_id','052_multiempresa_virada', '20261008112355_multiempresa_integracao_modulos', '20261008113918_multiempresa_limite_usuarios']) await db.exec(L(`migrations/${m}.sql`));
-const depois = await run();
-let dif=0;
-for (const k of Object.keys(depois)) if ((antes[k]??'(nova)')!==depois[k]) { dif++; console.log(k.padEnd(45), '| antes:', antes[k]??'(nova)', '| depois:', depois[k]); }
-const quebradas = Object.keys(antes).filter((k) => antes[k] !== depois[k]);
-console.log('RPCs:', Object.keys(depois).length, '| novas:', dif - quebradas.length, '| existentes com resultado diferente:', quebradas.length);
-process.exit(quebradas.length ? 1 : 0);
+const comparar = (rotulo, depois) => {
+  const quebradas = Object.keys(antes).filter((k) => antes[k] !== depois[k]);
+  for (const k of quebradas) console.log('  ✘', k, '| antes:', antes[k], '| depois:', depois[k]);
+  console.log(`${rotulo}: RPCs ${Object.keys(depois).length} | novas ${Object.keys(depois).length - Object.keys(antes).length} | existentes com resultado diferente: ${quebradas.length}`);
+  return quebradas.length;
+};
+// etapa 1+2 (o que está autorizado a aplicar agora) e depois a virada
+for (const m of ['050_multiempresa_base','051_multiempresa_workspace_id']) await db.exec(L(`migrations/${m}.sql`));
+let erros = comparar('050+051', await run());
+for (const m of ['052_multiempresa_virada', '20261008112355_multiempresa_integracao_modulos']) await db.exec(L(`migrations/${m}.sql`));
+erros += comparar('050→052+integração', await run());
+process.exit(erros ? 1 : 0);

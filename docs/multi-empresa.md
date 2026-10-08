@@ -1,11 +1,41 @@
-# Hub: base multi-empresa (desenho + migrations em DRAFT)
+# Hub: base multi-empresa
 
-> **Estado: DRAFT. Nada disto foi aplicado em produção.** As migrations 050, 051 e 052
-> rodaram só em PGlite (Postgres 17 em memória), com 2 workspaces fictícios.
-> Antes de aplicar: `/grill-me` de banco com a Luciana usando as perguntas da §10.
+> **Estado (08/10/2026):** o grill de banco com a Luciana foi feito (§0).
+> **050 e 051** só acrescentam (não mudam nada pra ninguém) e estão **autorizadas** a ir
+> pra produção. Ver o registro de aplicação no `00 — Hub Dev.md`.
+> **052 (a virada) e `20261008112355` (integração da Isa): 🔴 NÃO APLICAR.** Entram juntas
+> só na entrada do 1º cliente pagante, com backup novo e ela testando junto (P12).
 >
 > Escrito em 07/10/2026 a partir das decisões do grill de 06/10 e 07/10 (seção B), do
 > banco de produção lido **só com SELECT** e da pesquisa regulatória do Contator de 07/10.
+
+## 0. Decisões do grill de banco (08/10/2026)
+
+| # | Decisão | Onde está |
+|---|---|---|
+| P1 | Header `x-workspace-id`, automático com 1 workspace. Quem tem 2 ou mais tem um **workspace padrão** (`workspace_membros.padrao`), usado quando o front não manda header | 050 `current_workspace_id()` + `rpc_definir_workspace_padrao` |
+| P2 | 3 vagas de qualquer papel; **contador fora da conta** | 050 (trigger de vagas) |
+| P3 | **MUDOU:** ela e a Isa podem abrir o workspace de um cliente **só pra leitura**, numa **sessão de suporte** com motivo obrigatório e expiração curta (padrão 30 min, máx. 2h). **Escrita nunca.** Cada sessão fica registrada e **qualquer membro do cliente vê o log** | 050 `sessoes_suporte`, `rpc_plataforma_abrir_suporte` / `encerrar` / `rpc_suporte_acessos` |
+| P4 | Isa é admin da plataforma já. Ela ainda não tem conta no projeto: o admin fica **pendente pelo e-mail** e vale no 1º login com esse e-mail (ninguém cria a conta). O e-mail dela **não entra no repo** (público): é inserido à parte, na aplicação | 050 `plataforma_admins(email, user_id)` |
+| P5 | **Vários CNPJs** por workspace (CNPJ repetido no mesmo workspace continua proibido) | 050 + ajuste na `20261008112355` |
+| P6 | **MUDOU:** dois workspaces dela: **Luh Panda** (nº 1, com freelas e Pandoka) e **Certo Agro**. O Certo Agro nasce **vazio**. Nenhum dado é movido sem ela confirmar a lista | 050 (seed) |
+| P7 | aprovi.ai passa a usar `hub.workspaces`, em etapa própria (não agora) | — |
+| P8 | BrasilAPI + CNPJá aberta de reserva, numa Edge Function com cache. API comercial antes do cadastro aberto | etapa 4 |
+| P9 | Sócios: só nome + qualificação | 050 |
+| P10 | Faixas do Simples | 050 |
+| P11 | Bot de cobrança: n8n → **Edge Function** com `service_role` + **segredo por workspace** | 052 (grant) + etapa 4 |
+| P12 | 052 entra na entrada do 1º pagante, com backup e ela testando. 050/051 já | §8 |
+| P13 | O Dono do cliente convida o contador (a empresa assinante contrata o contador direto) | 050 |
+| P14 | **MUDOU:** convite **só por e-mail** (Supabase Auth). O token **nunca** volta pro navegador: `rpc_criar_convite` devolve só o id, e só a Edge Function de envio (`service_role`) chama `rpc_convite_emitir_token`, monta o link e manda o e-mail | 050 |
+| P15 | Cliente que cancela: export + dados apagados 90 dias depois | 050 (`encerrado_em`, `apagar_dados_em`) + job na etapa 6 |
+| P16 | Os 4 PDFs vão pra pasta do workspace 1 na etapa 4 | etapa 4 |
+| P17 | `migrations/000_baseline_hub_2026-10-08.sql`, gerada da estrutura de produção | repo |
+
+⚠️ **Divergência entre as sócias (para alinhar):** a revisão da Isa no PR (08/10, 11h43 UTC)
+tratou como vigentes **1 CNPJ por assinatura** e **contador ocupando vaga**. O grill de banco
+com a Luciana decidiu o contrário (P5 e P2). Este PR segue o grill. A migration da Isa que
+fazia o contador ocupar vaga foi **preservada** em `migrations/propostas/` (fora da cadeia de
+aplicação). Da migration de integração dela, só saiu a trava de 1 CNPJ; o resto ficou intacto.
 
 ## 1. O que muda, em uma frase
 
@@ -48,7 +78,7 @@ hub.plataforma_admins (ela, Isa)              ├──< hub.convites (token só
 |---|---|---|
 | `hub.workspaces` (já existia) | a empresa assinante | + `status` (`onboarding`/`ativo`/`suspenso`/`encerrado`), `vagas` (padrão 3) |
 | `hub.plataforma_admins` | quem pode criar workspace e convite (ela, Isa) | **não** dá acesso a dado de cliente (P3) |
-| `hub.workspace_membros` | usuário × workspace × papel | `papel` ∈ dono/operador/consulta · contador = `consulta` + `eh_contador`, **ocupa vaga** (exceção permanece proposta) · trigger barra o 4º usuário e impede ficar sem dono |
+| `hub.workspace_membros` | usuário × workspace × papel | `papel` ∈ dono/operador/consulta · contador = `consulta` + `eh_contador`, **não ocupa vaga** (P2) · `padrao` (P1) · trigger barra o 4º usuário e impede ficar sem dono |
 | `hub.convites` | entrada por convite | token aleatório, só o **sha256** fica no banco · 7 dias · aceita só logado com o **mesmo e-mail** · uso único |
 | `hub.modulos` / `hub.workspace_modulos` | módulos contratados | **sem preço** (repo público; preço fica no vault/planilha) · histórico `desde`/`ate` |
 | `hub.workspace_canais` | como uma automação descobre o workspace | `(tipo, identificador)` único: `evolution_instancia`, `meta_phone_number_id`, `google_calendar`, `docuseal`, `meetily` |
@@ -58,7 +88,7 @@ hub.plataforma_admins (ela, Isa)              ├──< hub.convites (token só
 
 **Por que o perfil fiscal mora em `hub.empresas` e não numa tabela nova:** `hub.empresas` já é
 "o CNPJ que emite" (hoje: o MEI dela, com `teto_anual_centavos`), e `clientes.empresa_id` já
-aponta pra ela. Cada workspace tem um único CNPJ, conforme decisão comercial já informada. A migration complementar de integração reforça isso com UNIQUE(workspace_id); não apaga nem junta cadastros existentes incompatíveis.
+aponta pra ela. Um workspace pode ter **vários CNPJs** (P5, grill 08/10); o mesmo CNPJ não se repete dentro do workspace.
 
 ## 4. Primeiro acesso: CNPJ → Receita → o dono confirma
 
@@ -219,15 +249,16 @@ dependa de `is_admin`, tabela sem RLS ou FK entre tabelas de dado sem `workspace
 
 | Etapa | O quê | Muda comportamento? | Volta |
 |---|---|---|---|
-| **1 · 050** | tabelas de conta, perfil fiscal, helpers, RPCs de convite/onboarding, seed (ela = dono do ws1 + admin da plataforma + instância `LuhPessoal`) | **não** | `rollback/050_down.sql` |
+| **1 · 050** | tabelas de conta, perfil fiscal, helpers, RPCs de convite/onboarding/suporte, seed (ela = dono do ws1 **padrão** + dono do **Certo Agro** vazio + admin da plataforma + instância `LuhPessoal`). Na aplicação, fora do repo: Isa como admin pendente pelo e-mail | **não** | `rollback/050_down.sql` |
 | **2 · 051** | `workspace_id` nas 6 tabelas + backfill + FKs compostas + índices + auditoria com workspace | **não** (default continua ws1) | `rollback/051_down.sql` |
-| **3 · 052** | a virada: `hub_rpc`, policies, defaults, unicidade, 5 RPCs, storage, `check_bot_secret` por workspace | **sim**, pra todo mundo menos ela | `rollback/052_down.sql` (recusa rodar se já houver dado de outro workspace) |
+| **3 · 052 + `20261008112355`** 🔴 não aplicar | a virada: `hub_rpc`, policies, defaults, unicidade, 5 RPCs, storage, `check_bot_secret` por workspace | **sim**, pra todo mundo menos ela | `rollback/052_down.sql` (recusa rodar se já houver dado de outro workspace) |
 | 4 · (PR futuro) | Edge Functions e n8n mandam workspace · velocímetro do MEI no Dash só quando a empresa do workspace for MEI (hoje mostra o teto do MEI até pra workspace de Simples/Presumido) · `cnpj-consultar` · telas de convite/onboarding/membros · mover os 4 PDFs · RPCs de escrita com `pode_escrever()` explícito · seed das 4 mensagens de cobrança por workspace | sim | por PR |
 | 5 · (PR futuro) | remover o **fallback ws1** das automações (sem canal = erro) | sim | 1 função |
 | 6 · (PR futuro) | trava de módulo no banco (`modulo_ativo`) · Asaas · cadastro aberto | sim | — |
 
-**Ordem obrigatória:** 037–044 (já no ar em 08/10) e a 041/042 da tela "Novo cliente" antes; 050 → 051 → 052 juntas
-ou separadas. Pontos de aplicação:
+**Ordem obrigatória:** 037–044, 041/042 e `20261008112314`/`20261008112347` (todas já no ar em
+08/10) antes; 050 → 051 agora; 052 + `20261008112355` juntas, na janela do 1º pagante.
+A proposta da Isa em `migrations/propostas/` **não** está na cadeia. Pontos de aplicação:
 - **Antes da 050:** dump completo do schema `hub` + dados. O projeto **não tem backup** (Free).
 - **Depois da 052:** abrir o Hub logada e passar pelas telas, `get_advisors` (security) e
   `curl` sem sessão nas RPCs. Primeiro disparo do n8n assistido.
@@ -254,7 +285,7 @@ cd tests/multi-empresa && npm install && node isolamento.test.mjs && node compat
 
 Quando houver Supabase local ou branch, os mesmos cenários viram pgTAP (`supabase test db`).
 
-## 10. Perguntas que só a Luciana decide (para o `/grill-me` de banco)
+## 10. Perguntas do `/grill-me` de banco — respondidas em 08/10 (ver §0)
 
 Formato: opções, com ⭐ na recomendação. Tudo que dava para descobrir lendo repo e banco já está acima.
 
@@ -264,7 +295,7 @@ b) Workspace "atual" salvo no perfil do usuário (duas abas brigam)
 c) Parâmetro em cada RPC (reescreve as 68)
 
 **P2. As 3 vagas são:**
-a) ⭐ 3 usuários de qualquer papel, com pelo menos 1 Dono; contador conta entre os três (regra vigente, reforçada na correção de limite)
+a) ⭐ 3 usuários de qualquer papel, com pelo menos 1 Dono; contador fora da conta — **DECIDIDO 08/10**
 b) Exatamente 1 Dono + 1 Operador + 1 Consulta
 c) Vagas por plano (mensalidade maior = mais vagas); o campo `vagas` já permite
 
@@ -277,8 +308,8 @@ c) Acesso total
 a) ⭐ Sim (preciso do e-mail de login dela)
 b) Depois
 
-**P5. Quantos CNPJs por assinatura? — DECIDIDO**
-Um único CNPJ por workspace, com aparelhos e locais ilimitados e três usuários de acesso, conforme decisão já informada. Não ampliar para vários CNPJs sem uma nova decisão comercial.
+**P5. Quantos CNPJs por assinatura? — DECIDIDO 08/10 (grill com a Luciana): vários.**
+(A revisão da Isa registrou "um único CNPJ"; ver a divergência na §0.)
 
 **P6. O que é seu e não é Luh Panda (Certo Agro, freelas, Pandoka) fica onde?**
 a) ⭐ Tudo continua no workspace 1, como hoje
@@ -385,8 +416,8 @@ Rollback: primeiro `rollback/053_integracao_down.sql`, depois 052_down, 051_down
 
 Validação reprodutível: `cd tests/multi-empresa && npm ci --ignore-scripts && npm test`. São 93 verificações de isolamento/rollback, compatibilidade das 64 RPCs existentes e um teste combinado com SQL dos PRs #3, #12 e #11 (snapshots sem dados, em fixtures/prs). Esse teste cobre leitura/escrita de estoque, isolamento Contator, Consulta sem escrita, criação de cliente no workspace correto, recusa de assinar contrato alheio e retry DocuSeal no segundo workspace. Um workflow executa a suíte no CI. As fixtures devem acompanhar novas alterações nesses PRs antes da implantação.
 
-P5 (vários CNPJs) deixa de ser pendência: a decisão vigente é um único CNPJ por assinatura. As demais perguntas continuam pendentes, inclusive a proposta de acesso extra para contador fora das três vagas. A revisão técnica não aprova essa proposta comercial. Frontend multiempresa, roteamento de todas as integrações/arquivos e implantação/homologação completos continuam fora do escopo desta correção e impedem liberar o recurso em produção.
+~~P5 (vários CNPJs) deixa de ser pendência: a decisão vigente é um único CNPJ por assinatura.~~ **Superado pelo grill de 08/10: vários CNPJs (§0).** As demais perguntas continuam pendentes, inclusive a proposta de acesso extra para contador fora das três vagas. A revisão técnica não aprova essa proposta comercial. Frontend multiempresa, roteamento de todas as integrações/arquivos e implantação/homologação completos continuam fora do escopo desta correção e impedem liberar o recurso em produção.
 
-A correção complementar de limite de usuários aplica a regra vigente de **três usuários incluindo o contador**, sem liberar a exceção ainda proposta. O onboarding/convite rejeita o quarto usuário; a coluna ocupa_vaga fica verdadeira para todo usuário. Instalar essa migration nova também, ainda na manutenção, depois da correção de integração. Os testes de vagas cobrem a recusa de contador como quarto usuário. 050/051/052 ficam preservadas como histórico do desenho inicial, e não devem ser usadas isoladamente.
+~~A correção complementar de limite de usuários aplica a regra vigente de **três usuários incluindo o contador**~~ **(superado pelo grill de 08/10: contador fora da conta; a migration foi para `migrations/propostas/`)**, sem liberar a exceção ainda proposta. O onboarding/convite rejeita o quarto usuário; a coluna ocupa_vaga fica verdadeira para todo usuário. Instalar essa migration nova também, ainda na manutenção, depois da correção de integração. Os testes de vagas cobrem a recusa de contador como quarto usuário. 050/051/052 ficam preservadas como histórico do desenho inicial, e não devem ser usadas isoladamente.
 
 A lista workspace_modulos ainda é cadastro de módulos, não bloqueio de cada RPC por pacote contratado. O enforcement no servidor e o fluxo de contratação precisam ser implementados antes de venda/ativação multiempresa. Credenciais Google/Evolution, jobs, PDFs e UI devem ser homologados por workspace; não basta o teste SQL de isolamento.

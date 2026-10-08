@@ -91,7 +91,7 @@ checar(!!botAntes && botAntes.includes('schema hub'), 'ACHADO: hoje o bot com ch
 
 // ---------------------------------------------------------------- migrations
 console.log('\n# aplicando 050 → 051 → 052');
-for (const m of ['050_multiempresa_base', '051_multiempresa_workspace_id', '052_multiempresa_virada', '20261008112355_multiempresa_integracao_modulos', '20261008113918_multiempresa_limite_usuarios']) {
+for (const m of ['050_multiempresa_base', '051_multiempresa_workspace_id', '052_multiempresa_virada', '20261008112355_multiempresa_integracao_modulos']) {
   try { await db.exec(ler(`migrations/${m}.sql`)); checar(true, `${m} aplicou`); }
   catch (e) { checar(false, `${m} aplicou`, e.message); process.exit(1); }
 }
@@ -119,29 +119,39 @@ checar((await como(LU, `select public.hub_rpc_cliente('acme') c`))[0].c?.cliente
 const novoRec = await como(LU, `select public.hub_rpc_salvar_recebivel($1::jsonb) id`,
   [JSON.stringify({ cliente_id: (await db.query(`select id from hub.clientes where slug='beta'`)).rows[0].id, competencia: '2026-11-05', descricao: 'Extra', valor_centavos: 5000, origem: 'extra' })]);
 checar((await db.query('select workspace_id from hub.recebiveis where id=$1', [novoRec[0].id])).rows[0].workspace_id === WS1, 'recebível novo dela nasce no workspace 1 (default)');
-checar((await como(LU, 'select * from public.hub_rpc_meus_workspaces()')).length === 1, 'ela é membro de 1 workspace');
+const meusWs = await como(LU, 'select * from public.hub_rpc_meus_workspaces()');
+checar(meusWs.length === 2 && meusWs.some((w) => w.slug === 'certo-agro'), 'P6: ela é dona de 2 workspaces (Luh Panda + Certo Agro)');
+const WSCA = meusWs.find((w) => w.slug === 'certo-agro').workspace_id;
+checar((await db.query('select count(*)::int n from hub.clientes where workspace_id=$1', [WSCA])).rows[0].n === 0, 'P6: Certo Agro nasce vazio (nenhum dado movido)');
+checar((await como(LU, 'select * from public.hub_rpc_carteira()', [], { 'x-workspace-id': WSCA })).length === 0, 'P6: com o header do Certo Agro ela vê a carteira (vazia) dele');
+checar((await como(LU, 'select * from public.hub_rpc_carteira()')).length === 2, 'sem header ela cai no padrão (Luh Panda)');
 
 console.log('\n# convite: Luciana (admin da plataforma) cria o workspace 2 e convida a dona');
 const criado = (await como(LU, `select public.hub_rpc_plataforma_criar_workspace($1::jsonb) r`,
   [JSON.stringify({ nome: 'Padaria Fictícia', email_dono: BIA.email, modulos: ['financeiro', 'clientes_cobranca'] })]))[0].r;
 const WS2 = criado.workspace_id;
-checar(!!WS2 && !!criado.token, 'workspace 2 criado + token de convite');
+checar(!!WS2 && !!criado.convite_id && !criado.token, 'P14: workspace 2 criado; o token NÃO volta pro navegador');
+checar(!!(await falha(LU, 'select public.hub_rpc_convite_emitir_token($1)', [criado.convite_id])), 'P14: usuário logado não emite o token');
+const emitir = async (convite_id) => (await como('service', 'select public.hub_rpc_convite_emitir_token($1) r', [convite_id]))[0].r;
+const emitido = await emitir(criado.convite_id);
+criado.token = emitido.token;
+checar(emitido.email === BIA.email && !!emitido.token, 'P14: só a Edge Function (service_role) pega o token pra mandar por e-mail');
 checar(!!(await falha(INT, `select public.hub_rpc_plataforma_criar_workspace('{"nome":"x","email_dono":"a@b.c"}'::jsonb)`)), 'não-admin não cria workspace');
 checar(!!(await falha(INT, `select public.hub_rpc_aceitar_convite($1)`, [criado.token])), 'convite não serve pra outro e-mail');
 checar((await como(BIA, `select public.hub_rpc_aceitar_convite($1) w`, [criado.token]))[0].w === WS2, 'dona aceita e entra no workspace 2');
 checar(!!(await falha(BIA, `select public.hub_rpc_aceitar_convite($1)`, [criado.token])), 'convite não reaproveita');
 checar((await db.query(`select count(*)::int n from hub.convites where token_hash = $1`, [criado.token])).rows[0].n === 0, 'token em claro não fica no banco');
 
-console.log('\n# vagas: 3 usuários, incluindo contador; exceção não aprovada');
+console.log('\n# vagas (P2, grill 08/10): 3 usuários de qualquer papel; contador fora da conta');
 const convidar = async (email, papel, eh_contador = false) =>
-  (await como(BIA, `select public.hub_rpc_criar_convite($1::jsonb) r`, [JSON.stringify({ email, papel, eh_contador })]))[0].r.token;
+  (await emitir((await como(BIA, `select public.hub_rpc_criar_convite($1::jsonb) r`, [JSON.stringify({ email, papel, eh_contador })]))[0].r.convite_id)).token;
 const tOpe = await convidar(OPE.email, 'operador');
 const tCon = await convidar(CON.email, 'consulta');
 const tCtb = await convidar(CTB.email, 'consulta', true);
 const tExt = await convidar(EXT.email, 'operador');
 await como(OPE, 'select public.hub_rpc_aceitar_convite($1)', [tOpe]);
 await como(CON, 'select public.hub_rpc_aceitar_convite($1)', [tCon]);
-checar(!!(await falha(CTB, 'select public.hub_rpc_aceitar_convite($1)', [tCtb])), 'contador também é recusado quando as três vagas estão ocupadas');
+checar(!(await falha(CTB, 'select public.hub_rpc_aceitar_convite($1)', [tCtb])), 'contador entra com as 3 vagas ocupadas');
 const semVaga = await falha(EXT, 'select public.hub_rpc_aceitar_convite($1)', [tExt]);
 checar(!!semVaga && semVaga.includes('sem vaga'), '4º usuário (não contador) é recusado', semVaga);
 checar(!!(await falha(OPE, `select public.hub_rpc_criar_convite('{"email":"x@y.z","papel":"dono"}'::jsonb)`)), 'operador não convida');
@@ -203,12 +213,36 @@ checar(!!(await falha(CON, `select public.hub_rpc_salvar_cliente($1::jsonb)`, [J
 const idAcmeWs2 = (await db.query(`select id from hub.clientes where slug='acme' and workspace_id=$1`, [WS2])).rows[0].id;
 await falha(CON, `select public.hub_rpc_salvar_cliente($1::jsonb)`, [JSON.stringify({ id: idAcmeWs2, empresa_id: empId, slug: 'acme', nome: 'Alterado pela consulta' })]);
 checar((await db.query('select nome from hub.clientes where id=$1', [idAcmeWs2])).rows[0].nome === 'Acme da Padaria', 'Consulta não altera');
-checar(!!(await falha(CTB, 'select * from public.hub_rpc_carteira()')), 'contador sem vaga e sem vínculo não lê o workspace');
+checar((await como(CTB, 'select * from public.hub_rpc_carteira()')).length === 1, 'contador (Consulta) lê');
 checar(!(await falha(OPE, `select public.hub_rpc_salvar_cliente($1::jsonb)`, [JSON.stringify({ empresa_id: empId, slug: 'op', nome: 'Do operador' })])), 'Operador cria');
 const membros = await como(BIA, 'select * from public.hub_rpc_membros()');
-checar(membros.length === 3, 'dona vê os 3 membros', JSON.stringify(membros));
+checar(membros.length === 4, 'dona vê os 4 membros (3 vagas + contador)', JSON.stringify(membros));
 checar((await como(CON, 'select * from public.hub_rpc_membros()')).length === 0, 'Consulta não lista membros');
 checar(!!(await falha(CON, 'select count(*) from hub.eventos_auditoria')), 'auditoria não é exposta direto (RPC-only)');
+
+console.log('\n# P3: suporte da plataforma = só leitura, com motivo, expira, cliente vê');
+checar(!!(await falha(LU, 'select * from public.hub_rpc_carteira()', [], { 'x-workspace-id': WS2 })), 'admin SEM sessão de suporte não entra no ws2');
+checar(!!(await falha(LU, `select public.hub_rpc_plataforma_abrir_suporte($1::jsonb)`, [JSON.stringify({ workspace_id: WS2, motivo: 'x' })])), 'sessão sem motivo é recusada');
+checar(!!(await falha(INT, `select public.hub_rpc_plataforma_abrir_suporte($1::jsonb)`, [JSON.stringify({ workspace_id: WS1, motivo: 'quero ver tudo do ws1' })])), 'não-admin não abre suporte');
+const sup = (await como(LU, `select public.hub_rpc_plataforma_abrir_suporte($1::jsonb) r`, [JSON.stringify({ workspace_id: WS2, motivo: 'Cliente pediu ajuda com recebível', minutos: 999 })]))[0].r;
+checar(new Date(sup.expira_em) - Date.now() <= 120 * 60 * 1000 + 5000, 'sessão de suporte limitada a 2h mesmo pedindo mais');
+checar((await como(LU, 'select * from public.hub_rpc_carteira()', [], { 'x-workspace-id': WS2 })).length >= 1, 'com sessão aberta, admin LÊ o ws2');
+await falha(LU, `select public.hub_rpc_salvar_cliente($1::jsonb)`, [JSON.stringify({ id: idAcmeWs2, empresa_id: empId, slug: 'acme', nome: 'Alterado pelo suporte' })], { 'x-workspace-id': WS2 });
+checar((await db.query('select nome from hub.clientes where id=$1', [idAcmeWs2])).rows[0].nome === 'Acme da Padaria', 'suporte NÃO altera');
+checar(!!(await falha(LU, `select public.hub_rpc_salvar_cliente($1::jsonb)`, [JSON.stringify({ empresa_id: empId, slug: 'sup', nome: 'Criado pelo suporte' })], { 'x-workspace-id': WS2 })), 'suporte NÃO cria');
+checar(!!(await falha(LU, `select public.hub_rpc_criar_convite('{"email":"a@b.c","papel":"operador"}'::jsonb)`, [], { 'x-workspace-id': WS2 })), 'suporte NÃO convida');
+const logCliente = await como(CON, 'select * from public.hub_rpc_suporte_acessos()');
+checar(logCliente.length === 1 && logCliente[0].motivo.includes('recebível') && logCliente[0].admin_email === LU.email, 'o cliente (até Consulta) vê quem entrou, quando e por quê');
+checar((await como(OPE, 'select * from public.hub_rpc_suporte_acessos()', [], { 'x-workspace-id': WS1 })).length === 0 || !!(await falha(OPE, 'select * from public.hub_rpc_suporte_acessos()', [], { 'x-workspace-id': WS1 })), 'log de outro workspace não aparece');
+await como(LU, 'select public.hub_rpc_plataforma_encerrar_suporte($1)', [sup.sessao_id]);
+checar(!!(await falha(LU, 'select * from public.hub_rpc_carteira()', [], { 'x-workspace-id': WS2 })), 'sessão encerrada = acesso cortado');
+await db.query(`update hub.sessoes_suporte set aberta_em = now() - interval '3 hours', expira_em = now() - interval '1 hour', encerrada_em = null`);
+checar(!!(await falha(LU, 'select * from public.hub_rpc_carteira()', [], { 'x-workspace-id': WS2 })), 'sessão expirada = acesso cortado');
+
+console.log('\n# P4: admin pendente por e-mail vira admin no 1º login');
+await db.query(`insert into hub.plataforma_admins (email) values ($1)`, [ISA.email]);
+checar((await como(ISA, 'select hub.is_plataforma_admin() a'))[0].a === true, 'Isa (sem conta prévia vinculada) é admin ao logar com o e-mail cadastrado');
+checar((await como(INT, 'select hub.is_plataforma_admin() a'))[0].a === false, 'outro e-mail não é admin');
 
 console.log('\n# automações (service_role / segredo do bot)');
 await db.query(`insert into hub.workspace_canais (workspace_id, tipo, identificador) values ($1, 'evolution_instancia', 'PadariaZap')`, [WS2]);

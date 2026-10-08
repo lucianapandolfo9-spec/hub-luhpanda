@@ -23,5 +23,5 @@ begin
   end if;
 end $$;
 drop function hub.docuseal_definir_workspace(bigint);
-alter table hub.empresas drop constraint empresas_um_cnpj_por_workspace;
+drop index if exists hub.uq_empresas_ws_cnpj;
 commit;

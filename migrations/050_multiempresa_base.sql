@@ -1,8 +1,8 @@
 -- ============================================================
 -- HUB — 050: base multi-empresa (ETAPA 1 de 3, ADITIVA)
 --
--- ⚠️ DRAFT — NÃO APLICAR. Depende do /grill-me de banco com a Luciana
--- (perguntas em docs/multi-empresa.md §10). Testada só em PGlite.
+-- Grill de banco feito em 08/10/2026 (decisões em docs/multi-empresa.md §10).
+-- 050 e 051 só ACRESCENTAM e foram autorizadas a aplicar; a 052 NÃO.
 --
 -- O que faz: cria as tabelas de conta (membros, convites, módulos, canais,
 -- aceite de termos, trilha de acesso a dado fiscal, admins da plataforma),
@@ -47,13 +47,21 @@ alter table hub.workspaces
   add column if not exists status text not null default 'ativo'
     check (status in ('onboarding','ativo','suspenso','encerrado')),
   add column if not exists vagas smallint not null default 3 check (vagas between 1 and 50),
-  add column if not exists criado_por uuid;
+  add column if not exists criado_por uuid,
+  -- P15: cliente que cancela → export + dados apagados 90 dias depois (job na etapa 6)
+  add column if not exists encerrado_em timestamptz,
+  add column if not exists apagar_dados_em date;
 
 -- ---------- admins da plataforma (Luciana, Isa) ----------
--- Criam empresa e mandam convite. NÃO enxergam dado de cliente por serem
--- admin: pra ver um workspace, precisam ser membro dele (pergunta P3).
+-- Criam empresa e mandam convite. Dado de cliente: só LEITURA, por sessão de
+-- suporte explícita, com motivo, expiração curta e log visível pro cliente (P3).
+-- P4: admin pode existir só pelo e-mail (user_id nulo) e vira admin no 1º
+-- login com esse e-mail, sem ninguém criar a conta por ela. O e-mail da Isa
+-- NÃO entra no repo (público): é inserido à parte na hora de aplicar.
 create table hub.plataforma_admins (
-  user_id uuid primary key references auth.users(id) on delete cascade,
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique check (email = lower(btrim(email)) and email like '%_@_%'),
+  user_id uuid unique references auth.users(id) on delete cascade,
   criado_em timestamptz not null default now()
 );
 alter table hub.plataforma_admins enable row level security;
@@ -70,12 +78,15 @@ create table hub.workspace_membros (
   ocupa_vaga boolean generated always as (not eh_contador) stored,
   ativo boolean not null default true,
   convite_id uuid,
+  -- workspace aberto quando o front não manda header (P1): obrigatório pra quem tem 2+
+  padrao boolean not null default false,
   criado_em timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint workspace_membros_unico unique (workspace_id, user_id),
   constraint contador_e_consulta check (not eh_contador or papel = 'consulta')
 );
 create index idx_workspace_membros_user on hub.workspace_membros (user_id) where ativo;
+create unique index uq_workspace_membros_padrao on hub.workspace_membros (user_id) where padrao;
 alter table hub.workspace_membros enable row level security;
 
 create trigger trg_workspace_membros_updated_at before update on hub.workspace_membros
@@ -128,7 +139,10 @@ create table hub.convites (
   email text not null check (email = lower(btrim(email)) and email like '%_@_%'),
   papel text not null check (papel in ('dono','operador','consulta')),
   eh_contador boolean not null default false check (not eh_contador or papel = 'consulta'),
-  token_hash text not null unique,          -- sha256 do token; o token em claro só sai 1 vez
+  -- sha256 do token. P14: o convite só chega por E-MAIL (Supabase Auth). O token em
+  -- claro nunca volta pro navegador: só a Edge Function de envio (service_role) o recebe.
+  token_hash text not null unique,
+  enviado_em timestamptz,
   criado_por uuid,
   criado_em timestamptz not null default now(),
   expira_em timestamptz not null default now() + interval '7 days',
@@ -211,6 +225,23 @@ create table hub.acessos_sensiveis (
 );
 create index idx_acessos_sensiveis_ws on hub.acessos_sensiveis (workspace_id, em desc);
 alter table hub.acessos_sensiveis enable row level security;
+
+-- ---------- P3: sessão de suporte (leitura, com motivo, expira, cliente vê) ----------
+create table hub.sessoes_suporte (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references hub.workspaces(id) on delete cascade,
+  admin_user_id uuid not null references auth.users(id) on delete cascade,
+  admin_email text not null,
+  motivo text not null check (length(btrim(motivo)) >= 10),
+  aberta_em timestamptz not null default now(),
+  expira_em timestamptz not null,
+  encerrada_em timestamptz,
+  constraint sessoes_suporte_curta check (expira_em > aberta_em and expira_em <= aberta_em + interval '2 hours')
+);
+create index idx_sessoes_suporte_ativa on hub.sessoes_suporte (admin_user_id, workspace_id, expira_em) where encerrada_em is null;
+alter table hub.sessoes_suporte enable row level security;
+create trigger trg_sessoes_suporte_auditoria after insert or update or delete on hub.sessoes_suporte
+  for each row execute function hub.registrar_auditoria();
 
 -- ---------- perfil fiscal: mora em hub.empresas ----------
 -- hub.empresas já é "o CNPJ que fatura" dentro do workspace (Luh Panda MEI).
@@ -296,6 +327,34 @@ alter table hub.empresas
 --      hub.workspace_id que a própria RPC definiu a partir do canal; sem
 --      ele, cai no workspace 1 (COMPAT da etapa 3, sai na etapa 5).
 --   3) anon sem segredo: NULL.
+create or replace function hub.is_plataforma_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $$
+  select auth.uid() is not null and exists (
+    select 1 from hub.plataforma_admins a
+    where a.user_id = auth.uid()
+       or (a.user_id is null and a.email = lower(coalesce(auth.email(), ''))))
+$$;
+
+-- sessão de suporte ativa do admin logado neste workspace (ou null)
+create or replace function hub.sessao_suporte_ativa(p_ws uuid)
+returns uuid
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $$
+  select s.id from hub.sessoes_suporte s
+  where s.workspace_id = p_ws and s.admin_user_id = auth.uid()
+    and s.encerrada_em is null and now() < s.expira_em
+    and hub.is_plataforma_admin()
+  order by s.aberta_em desc limit 1
+$$;
+
 create or replace function hub.current_workspace_id()
 returns uuid
 language plpgsql
@@ -311,7 +370,7 @@ declare
 begin
   if v_uid is not null then
     begin
-      v_hdr := nullif(current_setting('request.headers', true)::json->>'x-workspace-id', '');
+      v_hdr := nullif(nullif(current_setting('request.headers', true), '')::json->>'x-workspace-id', '');
     exception when others then v_hdr := null;
     end;
     v_hdr := coalesce(v_hdr, v_guc);
@@ -323,15 +382,23 @@ begin
       end;
       perform 1 from hub.workspace_membros m join hub.workspaces w on w.id = m.workspace_id
         where m.workspace_id = v_ws and m.user_id = v_uid and m.ativo and w.status in ('onboarding','ativo');
-      return case when found then v_ws else null end;
+      if found then return v_ws; end if;
+      -- P3: admin da plataforma com sessão de suporte aberta = leitura
+      if hub.sessao_suporte_ativa(v_ws) is not null then return v_ws; end if;
+      return null;
     end if;
+    -- sem header: o único workspace, ou o marcado como padrão
     select m.workspace_id into v_ws from hub.workspace_membros m join hub.workspaces w on w.id = m.workspace_id
-      where m.user_id = v_uid and m.ativo and w.status in ('onboarding','ativo');
+      where m.user_id = v_uid and m.ativo and w.status in ('onboarding','ativo')
+      order by m.padrao desc, m.criado_em
+      limit 1;
+    if v_ws is null then return null; end if;
     if (select count(*) from hub.workspace_membros m join hub.workspaces w on w.id = m.workspace_id
-        where m.user_id = v_uid and m.ativo and w.status in ('onboarding','ativo')) = 1 then
+        where m.user_id = v_uid and m.ativo and w.status in ('onboarding','ativo')) = 1
+       or exists (select 1 from hub.workspace_membros where user_id = v_uid and workspace_id = v_ws and padrao and ativo) then
       return v_ws;
     end if;
-    return null;  -- 0 ou 2+ workspaces sem header: obriga escolher
+    return null;  -- 2+ workspaces, nenhum padrão e sem header: obriga escolher
   end if;
 
   if coalesce(auth.role(), '') = 'service_role' or coalesce(current_setting('hub.bot_ok', true), '') = '1' then
@@ -349,8 +416,10 @@ stable
 security definer
 set search_path = pg_catalog
 as $$
-  select m.papel from hub.workspace_membros m
-  where m.user_id = auth.uid() and m.ativo and m.workspace_id = hub.current_workspace_id()
+  select coalesce(
+    (select m.papel from hub.workspace_membros m
+      where m.user_id = auth.uid() and m.ativo and m.workspace_id = hub.current_workspace_id()),
+    case when hub.sessao_suporte_ativa(hub.current_workspace_id()) is not null then 'suporte' end)
 $$;
 
 create or replace function hub.eh_automacao()
@@ -390,14 +459,6 @@ stable
 security definer
 set search_path = pg_catalog
 as $$ select coalesce(hub.papel_atual(), '') = 'dono' $$;
-
-create or replace function hub.is_plataforma_admin()
-returns boolean
-language sql
-stable
-security definer
-set search_path = pg_catalog
-as $$ select exists (select 1 from hub.plataforma_admins where user_id = auth.uid()) $$;
 
 create or replace function hub.modulo_ativo(p_slug text)
 returns boolean
@@ -450,18 +511,47 @@ language plpgsql
 security definer
 set search_path = pg_catalog, extensions
 as $$
-declare
-  v_token text := encode(gen_random_bytes(24), 'hex');
-  v_id uuid;
+declare v_id uuid;
 begin
+  -- hash provisório inutilizável; o token de verdade nasce no envio do e-mail
   insert into hub.convites (workspace_id, email, papel, eh_contador, token_hash, criado_por)
   values (p_ws, lower(btrim(p_email)), p_papel, coalesce(p_contador, false),
-          encode(digest(v_token, 'sha256'), 'hex'), auth.uid())
+          'pendente:' || encode(gen_random_bytes(24), 'hex'), auth.uid())
   returning id into v_id;
-  return jsonb_build_object('convite_id', v_id, 'token', v_token);
+  return jsonb_build_object('convite_id', v_id, 'envio', 'email');
 end;
 $$;
 revoke all on function hub._gerar_convite(uuid, text, text, boolean) from public;
+
+-- P14: só a Edge Function de envio (service_role) pega o token em claro, monta o
+-- link e manda pelo e-mail do Supabase Auth. Cada emissão troca o token (o
+-- link anterior para de valer).
+create or replace function hub.rpc_convite_emitir_token(p_convite_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, extensions
+as $$
+declare
+  v_token text := encode(gen_random_bytes(24), 'hex');
+  c hub.convites%rowtype;
+begin
+  if auth.uid() is not null or coalesce(auth.role(), '') <> 'service_role' then
+    raise exception 'acesso negado';
+  end if;
+  update hub.convites
+     set token_hash = encode(digest(v_token, 'sha256'), 'hex'),
+         enviado_em = now(),
+         expira_em = greatest(expira_em, now() + interval '7 days')
+   where id = p_convite_id and aceito_em is null and revogado_em is null
+  returning * into c;
+  if not found then raise exception 'convite inválido'; end if;
+  return jsonb_build_object('email', c.email, 'token', v_token, 'workspace_id', c.workspace_id,
+    'workspace_nome', (select nome from hub.workspaces where id = c.workspace_id), 'papel', c.papel);
+end;
+$$;
+revoke all on function hub.rpc_convite_emitir_token(uuid) from public, anon, authenticated;
+grant execute on function hub.rpc_convite_emitir_token(uuid) to service_role;
 
 -- Ela/Isa criam a empresa e o convite do dono (entrada por convite, grill 07/10)
 create or replace function hub.rpc_plataforma_criar_workspace(p jsonb)
@@ -705,6 +795,71 @@ begin
 end;
 $$;
 
+-- ---------- P3: abrir / encerrar suporte e o log que o cliente vê ----------
+create or replace function hub.rpc_plataforma_abrir_suporte(p jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  v_ws uuid := (p->>'workspace_id')::uuid;
+  v_min int := least(greatest(coalesce((p->>'minutos')::int, 30), 5), 120);
+  v_id uuid;
+  v_exp timestamptz := now() + make_interval(mins => v_min);
+begin
+  if not hub.is_plataforma_admin() then raise exception 'acesso negado'; end if;
+  if not exists (select 1 from hub.workspaces where id = v_ws) then raise exception 'workspace não encontrado'; end if;
+  if length(btrim(coalesce(p->>'motivo',''))) < 10 then raise exception 'motivo obrigatório (mín. 10 caracteres)'; end if;
+  insert into hub.sessoes_suporte (workspace_id, admin_user_id, admin_email, motivo, expira_em)
+  values (v_ws, auth.uid(), lower(coalesce(auth.email(),'')), btrim(p->>'motivo'), v_exp)
+  returning id into v_id;
+  return jsonb_build_object('sessao_id', v_id, 'expira_em', v_exp, 'modo', 'somente_leitura');
+end;
+$$;
+
+create or replace function hub.rpc_plataforma_encerrar_suporte(p_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+begin
+  update hub.sessoes_suporte set encerrada_em = now()
+    where id = p_id and admin_user_id = auth.uid() and encerrada_em is null;
+end;
+$$;
+
+-- qualquer membro do workspace vê quem da plataforma entrou, quando e por quê
+create or replace function hub.rpc_suporte_acessos()
+returns table (id uuid, admin_email text, motivo text, aberta_em timestamptz, expira_em timestamptz, encerrada_em timestamptz)
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $$
+  select s.id, s.admin_email, s.motivo, s.aberta_em, s.expira_em, s.encerrada_em
+  from hub.sessoes_suporte s
+  join hub.workspace_membros m on m.workspace_id = s.workspace_id and m.user_id = auth.uid() and m.ativo
+  where s.workspace_id = hub.current_workspace_id()
+  order by s.aberta_em desc
+$$;
+
+create or replace function hub.rpc_definir_workspace_padrao(p_ws uuid)
+returns void
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+begin
+  if not exists (select 1 from hub.workspace_membros where user_id = auth.uid() and workspace_id = p_ws and ativo) then
+    raise exception 'acesso negado';
+  end if;
+  update hub.workspace_membros set padrao = false where user_id = auth.uid() and padrao and workspace_id <> p_ws;
+  update hub.workspace_membros set padrao = true where user_id = auth.uid() and workspace_id = p_ws;
+end;
+$$;
+
 -- ---------- wrappers públicos (padrão do repo: PostgREST só vê public) ----------
 create or replace function public.hub_rpc_meus_workspaces()
 returns table (workspace_id uuid, nome text, slug text, status text, papel text, eh_contador boolean)
@@ -732,6 +887,20 @@ create or replace function public.hub_rpc_aceitar_termos(p jsonb) returns void
 language sql set search_path = pg_catalog as $$ select hub.rpc_aceitar_termos(p) $$;
 create or replace function public.hub_rpc_perfil_fiscal() returns setof jsonb
 language sql set search_path = pg_catalog as $$ select * from hub.rpc_perfil_fiscal() $$;
+create or replace function public.hub_rpc_plataforma_abrir_suporte(p jsonb) returns jsonb
+language sql set search_path = pg_catalog as $$ select hub.rpc_plataforma_abrir_suporte(p) $$;
+create or replace function public.hub_rpc_plataforma_encerrar_suporte(p_id uuid) returns void
+language sql set search_path = pg_catalog as $$ select hub.rpc_plataforma_encerrar_suporte(p_id) $$;
+create or replace function public.hub_rpc_suporte_acessos()
+returns table (id uuid, admin_email text, motivo text, aberta_em timestamptz, expira_em timestamptz, encerrada_em timestamptz)
+language sql stable set search_path = pg_catalog as $$ select * from hub.rpc_suporte_acessos() $$;
+create or replace function public.hub_rpc_definir_workspace_padrao(p_ws uuid) returns void
+language sql set search_path = pg_catalog as $$ select hub.rpc_definir_workspace_padrao(p_ws) $$;
+-- wrapper do token: só service_role (Edge Function de envio do convite)
+create or replace function public.hub_rpc_convite_emitir_token(p_convite_id uuid) returns jsonb
+language sql set search_path = pg_catalog as $$ select hub.rpc_convite_emitir_token(p_convite_id) $$;
+revoke all on function public.hub_rpc_convite_emitir_token(uuid) from public, anon, authenticated;
+grant execute on function public.hub_rpc_convite_emitir_token(uuid) to service_role;
 
 -- ---------- grants: nada pra anon; authenticated só nas RPCs ----------
 do $$
@@ -743,6 +912,8 @@ begin
     where (n.nspname = 'hub' and p.proname in (
              'current_workspace_id','papel_atual','eh_automacao','pode_ler','pode_escrever','eh_dono',
              'is_plataforma_admin','modulo_ativo','ingestor_definir_workspace','cnpj_valido','cnpj_normalizar',
+             'sessao_suporte_ativa','rpc_plataforma_abrir_suporte','rpc_plataforma_encerrar_suporte',
+             'rpc_suporte_acessos','rpc_definir_workspace_padrao',
              'trg_membros_regras',
              'rpc_meus_workspaces','rpc_plataforma_criar_workspace','rpc_plataforma_definir_modulos',
              'rpc_criar_convite','rpc_revogar_convite','rpc_aceitar_convite','rpc_membros','rpc_alterar_membro',
@@ -751,7 +922,8 @@ begin
              'hub_rpc_meus_workspaces','hub_rpc_plataforma_criar_workspace','hub_rpc_plataforma_definir_modulos',
              'hub_rpc_criar_convite','hub_rpc_revogar_convite','hub_rpc_aceitar_convite','hub_rpc_membros',
              'hub_rpc_alterar_membro','hub_rpc_onboarding_salvar_empresa','hub_rpc_onboarding_confirmar_regime',
-             'hub_rpc_aceitar_termos','hub_rpc_perfil_fiscal'))
+             'hub_rpc_aceitar_termos','hub_rpc_perfil_fiscal','hub_rpc_plataforma_abrir_suporte',
+             'hub_rpc_plataforma_encerrar_suporte','hub_rpc_suporte_acessos','hub_rpc_definir_workspace_padrao'))
   loop
     execute format('revoke all on function %s from public, anon', f.sig);
     if f.proname not in ('trg_membros_regras','ingestor_definir_workspace') then
@@ -775,11 +947,22 @@ begin
   if v_uid is null or v_ws is null then
     raise exception '050: usuário dela ou workspace luhpanda não encontrado — abortando';
   end if;
-  insert into hub.plataforma_admins (user_id) values (v_uid) on conflict do nothing;
-  insert into hub.workspace_membros (workspace_id, user_id, papel) values (v_ws, v_uid, 'dono')
+  insert into hub.plataforma_admins (email, user_id) values ('lucianapandolfo9@gmail.com', v_uid)
+    on conflict (email) do update set user_id = excluded.user_id;
+  insert into hub.workspace_membros (workspace_id, user_id, papel, padrao) values (v_ws, v_uid, 'dono', true)
     on conflict (workspace_id, user_id) do nothing;
   insert into hub.workspace_modulos (workspace_id, modulo_slug)
     select v_ws, slug from hub.modulos on conflict do nothing;
+  -- P6: o Certo Agro é workspace próprio (dela). Nasce VAZIO: nenhum dado é
+  -- movido aqui; a lista do que poderia ir pra lá vai pra ela confirmar.
+  insert into hub.workspaces (nome, slug, status) values ('Certo Agro', 'certo-agro', 'ativo')
+    on conflict (slug) do nothing;
+  insert into hub.workspace_membros (workspace_id, user_id, papel)
+    select id, v_uid, 'dono' from hub.workspaces where slug = 'certo-agro'
+    on conflict (workspace_id, user_id) do nothing;
+  insert into hub.workspace_modulos (workspace_id, modulo_slug)
+    select w.id, m.slug from hub.workspaces w cross join hub.modulos m where w.slug = 'certo-agro'
+    on conflict do nothing;
   -- a instância que o Hub dela já usa (nome já está no código de wa-send/wa-groups)
   insert into hub.workspace_canais (workspace_id, tipo, identificador)
     values (v_ws, 'evolution_instancia', 'LuhPessoal') on conflict do nothing;

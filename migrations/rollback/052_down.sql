@@ -14,7 +14,7 @@ begin
     join pg_attribute a on a.attrelid = c.oid and a.attname = 'workspace_id' and not a.attisdropped
     where c.relnamespace = 'hub'::regnamespace and c.relkind = 'r'
       and c.relname not in ('eventos_auditoria','acessos_sensiveis','workspace_membros','convites',
-                            'workspace_modulos','workspace_canais','workspace_aceites')
+                            'workspace_modulos','workspace_canais','workspace_aceites','sessoes_suporte')
   loop
     execute format('select count(*) from hub.%I where workspace_id <> %L', t, v_ws1) into n;
     if n > 0 then v := v || t || '(' || n || ') '; end if;
@@ -87,7 +87,7 @@ begin
     join pg_attribute a on a.attrelid = c.oid and a.attname = 'workspace_id' and not a.attisdropped
     where c.relnamespace = 'hub'::regnamespace and c.relkind = 'r'
       and c.relname not in ('eventos_auditoria','acessos_sensiveis','workspace_membros','convites',
-                            'workspace_modulos','workspace_canais','workspace_aceites')
+                            'workspace_modulos','workspace_canais','workspace_aceites','sessoes_suporte')
   loop
     execute format('alter table hub.%I alter column workspace_id set default hub.default_workspace_id()', t);
   end loop;
