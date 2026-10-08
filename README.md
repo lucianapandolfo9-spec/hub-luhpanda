@@ -15,7 +15,7 @@ cá; se houver divergência, vale o que está aqui. O histórico técnico de con
 
 ## 1. Estado deste documento
 
-Escrito em 06/10/2026 e revisado em 07/10/2026, a partir de: PR #2 (planejamento e revisão), informações citadas no
+Escrito em 06/10/2026 e revisado em 08/10/2026, a partir de: PR #2 (planejamento e revisão), informações citadas no
 desenho de Luciana e Isa de 06/10/2026, estado real da `main` e especificação do Contator
 (v1.0, 29/09/2026).
 
@@ -100,7 +100,9 @@ venda** (seção 16).
 | Estoque | 6 | **Em branch** (PR #3): telas, movimentos, compras, limites, histórico e pacote Supabase. Instalação e homologação pendentes |
 | Cardápio digital | sem pacote | **Proposto**, sem escopo nem preço. Não está incluído no estoque |
 | PWA (instalação no celular) | todos | **Em branch** (PR `feat/pwa-favicon-panda`), sem merge ainda |
-| Multi-empresa, papéis, módulos por empresa | todos | **A fazer.** Hoje o acesso é de um único usuário |
+| Multi-empresa, papéis, módulos por empresa | todos | **Em branch DRAFT** (PR #15): migrations e testes de isolamento. Frontend, integrações completas e homologação pendentes; hoje o acesso continua de um único usuário |
+
+Novo cliente em tela única e ativação das parcelas na assinatura estão no [PR #12](https://github.com/lucianapandolfo9-spec/hub-luhpanda/pull/12). A integração automática DocuSeal está no [PR #11](https://github.com/lucianapandolfo9-spec/hub-luhpanda/pull/11), ainda DRAFT. Instalar o SQL correspondente antes de publicar as telas; merge não aplica migrations nem configura serviços externos.
 
 ## 6. Arquitetura: banco único multi-empresa
 
@@ -126,7 +128,7 @@ idempotentes.
 
 - **3 usuários por CNPJ.**
 - **Papéis por empresa:** Dono, Operador e Consulta.
-- **Proposta a confirmar:** contador do cliente como Consulta sem ocupar vaga dos 3. A regra confirmada é três usuários por CNPJ; exceção não está implementada.
+- **Proposta a confirmar:** contador do cliente como Consulta sem ocupar vaga dos 3. A regra confirmada é três usuários por CNPJ; exceção só aparece no desenho DRAFT do PR #15 e não está disponível em produção nem aprovada por esta revisão.
 - Login atual: link mágico por e-mail (Supabase Auth). É a base; falta trocar a autorização
   de "um e-mail" por convites e permissões por empresa.
 - **Em aberto:** se o Dono conta entre os 3, e a matriz exata de permissão por papel.
