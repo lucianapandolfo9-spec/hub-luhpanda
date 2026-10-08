@@ -434,23 +434,37 @@ async function loadCarteiraCache(){
 
 // Medidor do teto MEI — SEMPRE visível, independe do filtro de período do
 // dash (é um acumulado do ano corrente). Faixas: verde até ~70%, amarelo a
-// partir de ~85%, vermelho perto/em 100%. Acima de R$ 97.200 (120% do teto)
-// o desenquadramento do MEI é RETROATIVO, com multa e juros — guarda
-// financeira real, registrada no CLAUDE.md dela.
-const MEI_LIMITE_RETROATIVO_CENTAVOS = 9720000; // R$ 97.200 = 120% de R$ 81.000
+// partir de ~85%, vermelho perto/em 100%.
+//
+// 08/10/2026 (migration 043) — o teto é DO ANO e vem do banco
+// (hub.mei_limites): no ano de abertura é PROPORCIONAL (LC 123/2006, art.
+// 18-A, §2º: R$ 6.750 × meses, contando o mês de abertura). MEI dela abriu
+// em 29/04/2026 → 2026 = R$ 60.750, faixa de 20% = R$ 72.900, e acima dela o
+// desenquadramento retroage à DATA DE ABERTURA. De 2027 em diante: R$ 81.000
+// / R$ 97.200, retroagindo a 1º/jan. Antes daqui a tela tinha R$ 81.000 e
+// R$ 97.200 chumbados, o que estava errado pro ano inteiro de 2026.
+// Os números de fallback só valem pra aba aberta antes da 043.
 function velocimetroMEI(v){
   const entrado = Number(v.entrado_ano_centavos||0);
-  const teto = Number(v.teto_centavos||8100000); // R$ 81.000
-  const pctReal = (entrado/teto)*100;
+  const teto = Number(v.teto_centavos||8100000);
+  const tolerancia = Number(v.tolerancia_centavos||Math.round(teto*1.2));
+  const ano = v.ano || new Date().getFullYear();
+  const anoAbertura = !!v.ano_abertura;
+  const retroageA = v.retroage_a ? formatDateBR(v.retroage_a) : `01/01/${ano}`;
+  const pctReal = teto > 0 ? (entrado/teto)*100 : 0;
   const pct = Math.min(pctReal, 100);
-  const acimaRetroativo = entrado >= MEI_LIMITE_RETROATIVO_CENTAVOS;
+  const acimaTolerancia = entrado > tolerancia;
 
   let cls = 'ok', msg = '';
-  if(acimaRetroativo || entrado >= teto){
+  if(acimaTolerancia){
     cls = 'bad';
-    msg = acimaRetroativo
-      ? '🔴 Passou de R$ 97.200 — o desenquadramento do MEI já é retroativo (multa e juros).'
-      : '🔴 Teto de R$ 81.000 atingido — qualquer centavo a mais aproxima do limite retroativo.';
+    msg = `🔴 Passou de ${centavosToBRL(tolerancia)} (teto + 20%): o desenquadramento do MEI retroage a ${retroageA}, com multa e juros.`;
+  } else if(entrado > teto){
+    cls = 'bad';
+    msg = `🔴 Passou do teto de ${centavosToBRL(teto)}, ainda dentro dos 20%: imposto complementar sobre o excesso e saída do MEI em 1º/jan/${Number(ano)+1}. Acima de ${centavosToBRL(tolerancia)} vira retroativo.`;
+  } else if(entrado >= teto){
+    cls = 'bad';
+    msg = `🔴 Teto de ${centavosToBRL(teto)} atingido — qualquer centavo a mais já é excesso.`;
   } else if(pctReal >= 85){
     cls = 'warn';
     msg = '🟡 Perto do teto — hora de planejar mudança de enquadramento.';
@@ -459,18 +473,22 @@ function velocimetroMEI(v){
     msg = '🟡 Passou de 70% do teto — de olho no ritmo dos próximos meses.';
   }
 
+  const nota = anoAbertura
+    ? `Ano de abertura (CNPJ aberto em ${retroageA}): teto <b>proporcional</b> de ${v.meses} meses × ${centavosToBRL(Math.round(Number(v.teto_anual_centavos||8100000)/12))} = <b>${centavosToBRL(teto)}</b>. Acima de <b>${centavosToBRL(tolerancia)}</b> (teto + 20%) o desenquadramento retroage à <b>data de abertura</b>, com multa e juros sobre o período todo.`
+    : `Acima de <b>${centavosToBRL(tolerancia)}</b> (teto + 20%) o desenquadramento do MEI retroage a ${retroageA}, com multa e juros sobre o período todo, não só sobre o excedente.`;
+
   return `
   <div class="card">
     <div class="row-between">
-      <div class="label" style="font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--fraco);">Teto MEI — ${new Date().getFullYear()}</div>
+      <div class="label" style="font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--fraco);">Teto MEI — ${esc(ano)}${anoAbertura ? ' (proporcional)' : ''}</div>
       <div class="muted" style="font-size:12.5px;">${centavosToBRL(entrado)} de ${centavosToBRL(teto)}</div>
     </div>
     <div class="veloc">
       <div class="veloc-track"><div class="veloc-fill ${cls}" style="width:${pct.toFixed(1)}%"></div></div>
-      <div class="veloc-labels"><span>0</span><span>${pctReal.toFixed(0)}%</span><span>R$ 81.000</span></div>
+      <div class="veloc-labels"><span>0</span><span>${pctReal.toFixed(0)}%</span><span>${centavosToBRL(teto)}</span></div>
     </div>
     ${msg ? `<div class="veloc-msg ${cls}">${msg}</div>` : ''}
-    <div class="veloc-nota">Acima de <b>R$ 97.200</b> (120% do teto) o desenquadramento do MEI é retroativo — multa e juros sobre o período todo, não só sobre o excedente.</div>
+    <div class="veloc-nota">${nota}</div>
   </div>`;
 }
 
