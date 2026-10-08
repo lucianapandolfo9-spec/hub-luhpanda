@@ -91,7 +91,7 @@ checar(!!botAntes && botAntes.includes('schema hub'), 'ACHADO: hoje o bot com ch
 
 // ---------------------------------------------------------------- migrations
 console.log('\n# aplicando 050 → 051 → 052');
-for (const m of ['050_multiempresa_base', '051_multiempresa_workspace_id', '052_multiempresa_virada']) {
+for (const m of ['050_multiempresa_base', '051_multiempresa_workspace_id', '052_multiempresa_virada', '20261008112355_multiempresa_integracao_modulos']) {
   try { await db.exec(ler(`migrations/${m}.sql`)); checar(true, `${m} aplicou`); }
   catch (e) { checar(false, `${m} aplicou`, e.message); process.exit(1); }
 }
@@ -243,7 +243,7 @@ console.log('\n# rollback 052 → 051 → 050 (na volta, o Hub dela tem que func
 checar(!!(await db.exec(ler('migrations/rollback/052_down.sql')).catch((e) => e.message)), '052_down recusa enquanto existe dado do ws2');
 await db.query(`delete from storage.objects where name like $1`, [`${WS2}/%`]);
 for (const t of ['clientes', 'conversas', 'prospects', 'empresas']) await db.query(`delete from hub.${t} where workspace_id = $1`, [WS2]);
-for (const m of ['052_down', '051_down', '050_down']) {
+for (const m of ['053_integracao_down', '052_down', '051_down', '050_down']) {
   try { await db.exec(ler(`migrations/rollback/${m}.sql`)); checar(true, `${m} aplicou`); }
   catch (e) { checar(false, `${m} aplicou`, e.message); }
 }

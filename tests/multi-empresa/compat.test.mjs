@@ -24,7 +24,7 @@ const run = async (label) => {
   return res;
 };
 const antes = await run();
-for (const m of ['050_multiempresa_base','051_multiempresa_workspace_id','052_multiempresa_virada']) await db.exec(L(`migrations/${m}.sql`));
+for (const m of ['050_multiempresa_base','051_multiempresa_workspace_id','052_multiempresa_virada', '20261008112355_multiempresa_integracao_modulos']) await db.exec(L(`migrations/${m}.sql`));
 const depois = await run();
 let dif=0;
 for (const k of Object.keys(depois)) if ((antes[k]??'(nova)')!==depois[k]) { dif++; console.log(k.padEnd(45), '| antes:', antes[k]??'(nova)', '| depois:', depois[k]); }

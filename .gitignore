@@ -31,4 +31,3 @@ supabase/.branches/
 
 # testes locais (PGlite)
 tests/**/node_modules/
-tests/**/package-lock.json

@@ -58,7 +58,7 @@ hub.plataforma_admins (ela, Isa)              ├──< hub.convites (token só
 
 **Por que o perfil fiscal mora em `hub.empresas` e não numa tabela nova:** `hub.empresas` já é
 "o CNPJ que emite" (hoje: o MEI dela, com `teto_anual_centavos`), e `clientes.empresa_id` já
-aponta pra ela. Um workspace pode ter mais de um CNPJ (pergunta P5); o onboarding cria o primeiro.
+aponta pra ela. Cada workspace tem um único CNPJ, conforme decisão comercial já informada. A migration complementar de integração reforça isso com UNIQUE(workspace_id); não apaga nem junta cadastros existentes incompatíveis.
 
 ## 4. Primeiro acesso: CNPJ → Receita → o dono confirma
 
@@ -277,9 +277,8 @@ c) Acesso total
 a) ⭐ Sim (preciso do e-mail de login dela)
 b) Depois
 
-**P5. Uma empresa assinante pode ter mais de um CNPJ?**
-a) ⭐ Sim, vários CNPJs no mesmo workspace (é como `hub.empresas` já funciona; o plano base cobra 1)
-b) Não: 1 CNPJ = 1 workspace
+**P5. Quantos CNPJs por assinatura? — DECIDIDO**
+Um único CNPJ por workspace, com aparelhos e locais ilimitados e três usuários de acesso, conforme decisão já informada. Não ampliar para vários CNPJs sem uma nova decisão comercial.
 
 **P6. O que é seu e não é Luh Panda (Certo Agro, freelas, Pandoka) fica onde?**
 a) ⭐ Tudo continua no workspace 1, como hoje
@@ -375,3 +374,15 @@ b) Deixar só a fixture de teste
   aceite do acordo de tratamento de dados por versão. `acessos_sensiveis` guarda quem leu dado fiscal.
 - O perfil fiscal (§4) é a entrada do Contator: regime confirmado, faixa, CNAEs e opção pelo
   Simples/MEI com datas.
+
+## Revisão de integração — 08/10/2026
+
+**Continua DRAFT; não aplicar nem liberar clientes externos ainda.** A 052 sozinha não cobre os helpers SECURITY DEFINER dos PRs #3 e #12. Em teste combinado, os helpers de estoque/Contator continuam como postgres e usam o workspace fixo da Luh, expondo o snapshot a outro assinante. A ativação contratual e os helpers de contato também precisam obedecer RLS.
+
+A nova `20261008112355_multiempresa_integracao_modulos.sql` vem **depois** de 050/051/052, das migrations de estoque e das migrations 041/042 e suas correções, quando presentes. Ela troca os owners dos helpers por hub_rpc, resolve o workspace atual em estoque e Novo cliente, limita a um CNPJ por assinatura e resolve eventos DocuSeal por submission ID somente para service_role. Não altera migrations históricas. Executar todo o conjunto em manutenção, com tráfego bloqueado, e só reabrir depois da validação; não disponibilizar a 052 isoladamente. Instalar os módulos depois da virada exige uma migration de integração adicional, pois CREATE FUNCTION/REPLACE pode reintroduzir owner postgres.
+
+Rollback: primeiro `rollback/053_integracao_down.sql`, depois 052_down, 051_down e 050_down, ainda em manutenção. A recusa da 052_down quando há dados de outro workspace permanece.
+
+Validação reprodutível: `cd tests/multi-empresa && npm ci --ignore-scripts && npm test`. São 92 verificações de isolamento/rollback, compatibilidade das 64 RPCs existentes e um teste combinado com SQL dos PRs #3, #12 e #11 (snapshots sem dados, em fixtures/prs). Esse teste cobre leitura/escrita de estoque, isolamento Contator, Consulta sem escrita, criação de cliente no workspace correto, recusa de assinar contrato alheio e retry DocuSeal no segundo workspace. Um workflow executa a suíte no CI. As fixtures devem acompanhar novas alterações nesses PRs antes da implantação.
+
+P5 (vários CNPJs) deixa de ser pendência: a decisão vigente é um único CNPJ por assinatura. As demais perguntas continuam pendentes, inclusive a proposta de acesso extra para contador fora das três vagas. A revisão técnica não aprova essa proposta comercial. Frontend multiempresa, roteamento de todas as integrações/arquivos e implantação/homologação completos continuam fora do escopo desta correção e impedem liberar o recurso em produção.
