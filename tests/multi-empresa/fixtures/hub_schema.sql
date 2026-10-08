@@ -1,6 +1,6 @@
--- Schema-only do schema hub em PRODUÇÃO (projeto HUB Luh Panda), lido por catálogo (só SELECT) em 08/10/2026, depois de 041, 042, 043, 044, 20261008112314 e 20261008112347.
--- SEM DADOS. Inclui as tabelas que nunca tiveram migration no repo (recebiveis, custos_fixos, config, cobranca_envios).
--- Usado só pelos testes de isolamento (PGlite). Não aplicar em banco nenhum.
+-- Estrutura do schema hub para os testes (PGlite). Gerado por
+-- scripts/sanitizar-fixture-schema.mjs: sem dados, sem comentários,
+-- e-mail da admin trocado por admin@hub.test. Não aplicar em banco nenhum.
 set check_function_bodies = off;
 create schema if not exists hub;
 CREATE OR REPLACE FUNCTION hub.default_workspace_id()
@@ -213,7 +213,7 @@ begin
     r.valor_centavos, r.entrada_centavos, r.falta_centavos, r.entrou_em, r.vence_em,
     r.origem, r.observacao, r.contrato_id,
     case
-      when r.valor_centavos = 0 then 'sem_cobranca'   -- 044
+      when r.valor_centavos = 0 then 'sem_cobranca'
       when r.falta_centavos = 0 then 'pago'
       when r.entrada_centavos > 0 then 'parcial'
       when r.vence_em is not null and r.vence_em < v_hoje then 'vencido'
@@ -243,10 +243,10 @@ begin
   v_anual := coalesce(v_anual, 8100000);
 
   if v_aberta is not null and extract(year from v_aberta)::int = p_ano then
-    v_meses := 13 - extract(month from v_aberta)::int;      -- mês de abertura conta
+    v_meses := 13 - extract(month from v_aberta)::int;
     v_teto := round(v_anual::numeric / 12 * v_meses)::bigint;
   elsif v_aberta is not null and extract(year from v_aberta)::int > p_ano then
-    v_meses := 0; v_teto := 0;                              -- ainda não existia
+    v_meses := 0; v_teto := 0;
   else
     v_teto := v_anual;
   end if;
@@ -275,7 +275,7 @@ begin
     r.valor_centavos, r.entrada_centavos, r.falta_centavos, r.entrou_em, r.vence_em,
     r.origem, r.observacao,
     case
-      when r.valor_centavos = 0 then 'sem_cobranca'   -- 044
+      when r.valor_centavos = 0 then 'sem_cobranca'
       when r.falta_centavos = 0 then 'pago'
       when r.entrada_centavos > 0 then 'parcial'
       when r.vence_em is not null and r.vence_em < v_hoje then 'vencido'
@@ -283,7 +283,6 @@ begin
     end as status
   from hub.recebiveis r
   join hub.clientes c on c.id = r.cliente_id
-  -- 038: por MÊS, não igualdade de data
   where date_trunc('month', r.competencia) = date_trunc('month', p_competencia)
   order by c.nome;
 end;
@@ -332,7 +331,6 @@ AS $function$
 begin
   if not hub.is_admin() then raise exception 'acesso negado'; end if;
   return query
-  -- lateral, e não (f(p)).*: o .* expandido chamaria a função 1× por coluna
   select q.* from hub.prospects p
   cross join lateral hub.prospect_com_contato_do_cliente(p) q
   order by p.perdido, p.coluna, p.created_at;
@@ -369,7 +367,6 @@ declare
 begin
   if not hub.check_bot_secret(p_secret) then raise exception 'acesso negado'; end if;
 
-  -- cobrança pro CLIENTE nunca sai no fim de semana; escalação pra ELA continua valendo
   if not v_fim_de_semana then
     select coalesce(jsonb_agg(jsonb_build_object(
         'recebivel_id', r.id, 'bucket', b.bucket, 'cliente_nome', c.nome,
@@ -487,7 +484,7 @@ begin
    where id = v_ct.id
   returning * into v_ct;
 
-  if coalesce(v_ct.valor_mensal_centavos, 0) <= 0 then   -- percentual puro: nada a gerar
+  if coalesce(v_ct.valor_mensal_centavos, 0) <= 0 then
     return jsonb_build_object('contrato_id', v_ct.id, 'ja_estava_ativo', false,
                               'parcelas_criadas', 0, 'pulados_legado', 0);
   end if;
@@ -564,7 +561,7 @@ CREATE OR REPLACE FUNCTION hub.rpc_novo_cliente(p jsonb)
  SET search_path TO 'pg_catalog'
 AS $function$
 declare
-  v_ws uuid := hub.default_workspace_id();   -- ← vira current_workspace_id() no multi-empresa
+  v_ws uuid := hub.default_workspace_id();
   v_id uuid;
   v_prospect_id uuid := nullif(p->>'prospect_id','')::uuid;
   v_prospect hub.prospects;
@@ -597,8 +594,6 @@ begin
   v_id := nullif(p->>'id','')::uuid;
   if v_id is null then raise exception 'hub_novo_cliente_sem_id'; end if;
 
-  -- Idempotência: serializa chamadas com o MESMO id e, se a 1ª já criou,
-  -- devolve o resultado dela. Duplo clique / retry nunca duplica nada.
   perform pg_advisory_xact_lock(hashtextextended('hub.novo_cliente:' || v_id::text, 0));
   if exists (select 1 from hub.clientes where id = v_id) then
     return (
@@ -609,7 +604,6 @@ begin
       from hub.clientes c where c.id = v_id);
   end if;
 
-  -- ---------- validação (tudo antes de gravar qualquer linha) ----------
   if v_nome is null then raise exception 'hub_novo_cliente_sem_nome'; end if;
   if v_slug_base is null or v_slug_base !~ '^[a-z0-9]+(-[a-z0-9]+)*$' then
     raise exception 'hub_novo_cliente_slug_invalido';
@@ -621,7 +615,6 @@ begin
     raise exception 'hub_novo_cliente_sem_percentual';
   end if;
   if v_tipo = 'fixo' then v_pct := null; end if;
-  -- R$ 0 = "sem cobrança" (044): no percentual puro vira "sem valor mensal"
   if v_tipo = 'percentual' and v_valor = 0 then v_valor := null; end if;
   if v_tipo in ('fixo','misto') and (v_valor is null or v_valor <= 0) then
     raise exception 'hub_novo_cliente_sem_valor';
@@ -629,7 +622,6 @@ begin
   if v_valor is not null and v_valor <= 0 then raise exception 'hub_novo_cliente_sem_valor'; end if;
   if v_parcelas is not null and v_parcelas < 1 then raise exception 'hub_novo_cliente_parcelas_invalidas'; end if;
   if not v_recorrente and v_valor is not null and v_parcelas is null then
-    -- pontual com valor tem fim: sem nº de parcelas viraria mensalidade infinita
     raise exception 'hub_novo_cliente_pontual_sem_parcelas';
   end if;
   if v_valor is not null and (v_dia is null or v_dia not between 1 and 28) then
@@ -666,16 +658,13 @@ begin
     end if;
   end if;
 
-  -- IDs diferentes com o mesmo slug também precisam serializar.
   perform pg_advisory_xact_lock(hashtextextended('hub.novo_cliente.slug:' || v_ws::text || ':' || v_slug_base, 0));
-  -- slug livre: nome-2, nome-3... (slug é UNIQUE global hoje)
   v_slug := v_slug_base;
   while exists (select 1 from hub.clientes where slug = v_slug) loop
     v_n := v_n + 1;
     v_slug := v_slug_base || '-' || v_n;
   end loop;
 
-  -- ---------- gravação ----------
   insert into hub.clientes (id, workspace_id, empresa_id, slug, nome, segmento, origem, status,
                             entrou_em, recorrente, tipo_cobranca, percentual_comissao, observacao)
   values (v_id, v_ws, hub.default_empresa_id(), v_slug, v_nome,
@@ -717,7 +706,6 @@ begin
     v_primeiro := false;
   end loop;
 
-  -- card do CRM em "Cliente aberto" (coluna 5), ligado ao cliente
   if v_prospect_id is not null then
     update hub.prospects
        set coluna = 5, fechado_em = v_hoje, perdido = false, motivo_perda = null,
@@ -766,7 +754,7 @@ CREATE OR REPLACE FUNCTION hub.is_admin()
  STABLE SECURITY DEFINER
  SET search_path TO 'pg_catalog'
 AS $function$
-  select coalesce(auth.email(), '') = 'lucianapandolfo9@gmail.com';
+  select coalesce(auth.email(), '') = 'admin@hub.test';
 $function$
 ;
 CREATE OR REPLACE FUNCTION hub.set_updated_at()
@@ -933,7 +921,6 @@ begin
       ) x
     ), '[]'::jsonb),
     'clientes_ativos', (select count(*) from hub.clientes where status = 'ativo'),
-    -- 043: teto do ANO, proporcional no ano de abertura (hub.mei_limites)
     'velocimetro_mei', (
       select jsonb_build_object(
         'entrado_ano_centavos', coalesce((
@@ -1646,12 +1633,10 @@ CREATE OR REPLACE FUNCTION hub.crm_ids(p_fone_norm text)
  SET search_path TO 'pg_catalog'
 AS $function$
   select
-    -- prospect ativo ganha de prospect perdido com o mesmo telefone
     (select p.id from hub.prospects p
       where hub.fone_norm(p.contato_whatsapp) = p_fone_norm
       order by coalesce(p.perdido, false) asc, p.created_at desc nulls last
       limit 1),
-    -- contato principal ganha dos secundarios
     (select c.cliente_id from hub.contatos c
       where hub.fone_norm(c.whatsapp_e164) = p_fone_norm
       order by coalesce(c.is_principal, false) desc
@@ -1735,7 +1720,6 @@ begin
       erro   = case when v_status = 'erro'
                     then left(coalesce(p->>'erro', 'falha desconhecida'), 500)
                     else null end,
-      -- so grava o id quando veio; nunca apaga um id ja existente
       evolution_msg_id = coalesce(v_evo_id, evolution_msg_id)
   where id = (p->>'msg_id')::uuid;
 end;
@@ -1754,7 +1738,6 @@ declare v_id uuid;
 begin
   if not hub.is_admin() then raise exception 'acesso negado'; end if;
 
-  -- A identidade do cliente vem do banco antes de desmarcar outro principal.
   if exists (select 1 from hub.contatos where id = nullif(p->>'id','')::uuid and cliente_id <> v_cliente) then
     raise exception 'hub_contato_cliente_divergente';
   end if;
@@ -2439,7 +2422,6 @@ begin
   v_comp := date_trunc('month', p_competencia)::date;
   v_ultimo_dia := (v_comp + interval '1 month - 1 day')::date;
 
-  -- o reajuste nunca desce abaixo do mês corrente. Fuso dela, não o do servidor.
   v_hoje := (now() at time zone 'America/Recife')::date;
   v_piso := greatest(v_comp, date_trunc('month', v_hoje)::date);
 
@@ -2452,12 +2434,11 @@ begin
     where ct.status = 'ativo'
       and ct.recorrencia_ativa
       and ct.valor_mensal_centavos is not null
-      and ct.valor_mensal_centavos > 0          -- 044: contrato de R$ 0 não gera recebível
+      and ct.valor_mensal_centavos > 0
       and coalesce(cl.recorrente, true) is not false
-    order by ct.id  -- ordem estável: idempotência não pode depender do plano
+    order by ct.id
   loop
 
-    -- ---------- A) criação do mês pedido ----------
 
     select exists (
       select 1 from hub.recebiveis r
@@ -2466,10 +2447,6 @@ begin
     ) into v_ja_existe;
 
     if not v_ja_existe then
-      -- LEGADO = recebível de contrato lançado à mão antes da 034, sem
-      -- contrato_id (em produção: os de Set/26).
-      -- ⚠️ (array_agg(id order by id))[1] e NÃO min(id): o Postgres não tem
-      -- agregado min/max pra uuid. Foi o bug da 035, pego no primeiro teste.
       select count(*), (array_agg(r.id order by r.id))[1] into v_legado_n, v_legado_id
       from hub.recebiveis r
       where r.cliente_id = rec.cliente_id
@@ -2478,16 +2455,12 @@ begin
         and date_trunc('month', r.competencia)::date = v_comp;
 
       if v_legado_n = 1 and rec.contratos_do_cliente = 1 then
-        -- um órfão, um contrato: adoção certa, não é chute. Não conta como
-        -- "linha tocada": o retorno é criados + reajustados.
         update hub.recebiveis set contrato_id = rec.contrato_id where id = v_legado_id;
 
       elsif v_legado_n > 0 then
-        -- ambíguo (ex.: The Best, 2 órfãos em Set/26): RECUA.
         null;
 
       else
-        -- numeração por DISTÂNCIA DE MESES a partir de base estável.
         v_base := date_trunc('month', coalesce(
                     rec.inicio_em,
                     (select min(r.competencia) from hub.recebiveis r
@@ -2529,7 +2502,6 @@ begin
       end if;
     end if;
 
-    -- ---------- B) reajuste em massa — o conserto do bug ----------
     update hub.recebiveis r
        set valor_centavos = rec.valor_mensal_centavos,
            sincronizado_planilha = false
@@ -2544,10 +2516,6 @@ begin
     get diagnostics v_n = row_count;
     v_ajustados := v_ajustados + v_n;
 
-    -- ---------- C) 039: vencimento que faltou ----------
-    -- Parcela que nasceu antes do contrato ter dia_vencimento ficava sem
-    -- data pra sempre (The Best Nov/Dez/Jan, 07/10). Só PREENCHE nulo:
-    -- vencimento que ela editou à mão nunca é sobrescrito.
     if rec.dia_vencimento is not null then
       update hub.recebiveis r
          set vence_em = make_date(
@@ -2703,7 +2671,6 @@ begin
     raise exception 'nenhum contrato com docuseal_submission_id = %', v_submission_id;
   end if;
 
-  -- audit log sempre (vale mesmo pra contrato que já estava ativo)
   update hub.contratos
      set docuseal_audit_log_url = coalesce(v_audit_url, docuseal_audit_log_url)
    where id = v_contrato.id;
@@ -2712,11 +2679,8 @@ begin
     v_ativacao := jsonb_build_object('ja_estava_ativo', true);
   else
     begin
-      -- 🔗 PONTO DE INTEGRAÇÃO com a 041: a função única de "assinou".
       v_ativacao := hub.ativar_contrato_assinado(v_contrato.id, v_assinado_em, false);
     exception when others then
-      -- recusou (guarda do banco): o evento NÃO se perde.
-      -- Um evento atrasado não reabre contratos encerrados/arquivados.
       update hub.contratos set status = 'assinado', assinado_em = v_assinado_em
        where id = v_contrato.id and status not in ('encerrado','arquivado');
       v_ativacao := jsonb_build_object('ativado', false, 'erro', sqlerrm);
@@ -2799,12 +2763,8 @@ AS $function$
 declare v_id uuid;
         v_comp date;
 begin
-  -- confirmado por introspecção que a versão em produção TEM este guard.
-  -- Sem ele, qualquer usuário authenticated escreveria recebível de qualquer
-  -- cliente. Nunca remover ao recriar esta função.
   if not hub.is_admin() then raise exception 'acesso negado'; end if;
 
-  -- 038: competência é o MÊS. Qualquer dia vira o dia 1.
   v_comp := date_trunc('month', (p->>'competencia')::date)::date;
   if v_comp is null then raise exception 'competência é obrigatória'; end if;
 
@@ -2814,8 +2774,6 @@ begin
     cliente_id=excluded.cliente_id, competencia=excluded.competencia, descricao=excluded.descricao,
     valor_centavos=excluded.valor_centavos, vence_em=excluded.vence_em, origem=excluded.origem,
     observacao=excluded.observacao, sincronizado_planilha=false,
-    -- precedência: payload explícito (é assim que ela DESTRAVA) > mudou o valor
-    -- pela tela (trava) > fica como estava (salvar só a observação não destrava).
     valor_travado = case
       when p ? 'valor_travado' then coalesce((p->>'valor_travado')::boolean, false)
       when hub.recebiveis.valor_centavos is distinct from excluded.valor_centavos then true
@@ -3492,7 +3450,6 @@ revoke all on function hub.rpc_contratos() from public;grant execute on function
 revoke all on function hub_rpc_contratos() from public;grant execute on function hub_rpc_contratos() to authenticated; grant execute on function hub_rpc_contratos() to service_role;
 revoke all on function hub.rpc_salvar_recebivel(jsonb) from public;grant execute on function hub.rpc_salvar_recebivel(jsonb) to authenticated;
 set check_function_bodies = on;
--- políticas do bucket contratos (storage.objects), como estão em produção
 create policy hub_contratos_admin_select on storage.objects for select using ((bucket_id = 'contratos'::text) and hub.is_admin());
 create policy hub_contratos_admin_insert on storage.objects for insert with check ((bucket_id = 'contratos'::text) and hub.is_admin());
 create policy hub_contratos_admin_update on storage.objects for update using ((bucket_id = 'contratos'::text) and hub.is_admin()) with check ((bucket_id = 'contratos'::text) and hub.is_admin());

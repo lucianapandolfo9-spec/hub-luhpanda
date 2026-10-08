@@ -941,13 +941,16 @@ end $$;
 do $$
 declare
   v_uid uuid;
+  v_email text;
   v_ws uuid := (select id from hub.workspaces where slug = 'luhpanda');
 begin
-  select id into v_uid from auth.users where email = 'lucianapandolfo9@gmail.com';
+  -- o e-mail dela sai da própria hub.is_admin() de hoje (001), sem repetir aqui
+  v_email := lower(substring(pg_get_functiondef('hub.is_admin()'::regprocedure) from '''([^''[:space:]]+@[^''[:space:]]+)'''));
+  select id into v_uid from auth.users where lower(email) = v_email;
   if v_uid is null or v_ws is null then
     raise exception '050: usuário dela ou workspace luhpanda não encontrado — abortando';
   end if;
-  insert into hub.plataforma_admins (email, user_id) values ('lucianapandolfo9@gmail.com', v_uid)
+  insert into hub.plataforma_admins (email, user_id) values (v_email, v_uid)
     on conflict (email) do update set user_id = excluded.user_id;
   insert into hub.workspace_membros (workspace_id, user_id, papel, padrao) values (v_ws, v_uid, 'dono', true)
     on conflict (workspace_id, user_id) do nothing;

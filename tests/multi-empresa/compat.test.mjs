@@ -9,8 +9,8 @@ import fs from 'fs';
 import path from 'node:path'; import { fileURLToPath } from 'node:url';
 const R=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..')+'/'; const L=(p)=>fs.readFileSync(R+p,'utf8');
 const db=new PGlite({extensions:{pgcrypto}});
-await db.exec(L('tests/multi-empresa/fixtures/supabase_stub.sql')); await db.exec(L('tests/multi-empresa/fixtures/hub_schema_prod_2026-10-08.sql'));
-await db.exec(`insert into auth.users(id,email) values ('00000000-0000-4000-8000-00000000000a','lucianapandolfo9@gmail.com');
+await db.exec(L('tests/multi-empresa/fixtures/supabase_stub.sql')); await db.exec(L('tests/multi-empresa/fixtures/hub_schema.sql'));
+await db.exec(`insert into auth.users(id,email) values ('00000000-0000-4000-8000-00000000000a','admin@hub.test');
 insert into hub.workspaces(nome,slug) values('Luh Panda','luhpanda'); insert into hub.empresas(nome,cnpj,tipo) values('Luh Panda','11222333000181','mei');
 insert into hub.clientes(empresa_id,slug,nome) select id,'acme','Acme' from hub.empresas;`);
 const run = async (label) => {
@@ -18,7 +18,7 @@ const run = async (label) => {
   const res={};
   for (const f of fns) {
     const args = f.a ? f.a.split(', ').map(x=>{const t=x.split(' ').slice(1).join(' '); return t==='jsonb'?`'{}'::jsonb`:`null::${t}`}).join(',') : '';
-    try { await db.transaction(async tx=>{ await tx.query(`select set_config('request.jwt.claims','{"role":"authenticated","sub":"00000000-0000-4000-8000-00000000000a","email":"lucianapandolfo9@gmail.com"}',true)`); await tx.query('set local role authenticated'); await tx.query(`select * from public.${f.proname}(${args})`); throw new Error('__rollback__ok'); }); }
+    try { await db.transaction(async tx=>{ await tx.query(`select set_config('request.jwt.claims','{"role":"authenticated","sub":"00000000-0000-4000-8000-00000000000a","email":"admin@hub.test"}',true)`); await tx.query('set local role authenticated'); await tx.query(`select * from public.${f.proname}(${args})`); throw new Error('__rollback__ok'); }); }
     catch(e){ res[f.proname]= e.message==='__rollback__ok'?'ok':e.message.slice(0,80); }
   }
   return res;

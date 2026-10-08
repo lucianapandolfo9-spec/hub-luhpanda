@@ -46,10 +46,10 @@ async function falha(quem, sql, params = [], headers = {}) {
 // ---------------------------------------------------------------- base
 console.log('\n# carga: stub Supabase + schema hub de produção');
 await db.exec(ler('tests/multi-empresa/fixtures/supabase_stub.sql'));
-await db.exec(ler('tests/multi-empresa/fixtures/hub_schema_prod_2026-10-08.sql'));
+await db.exec(ler('tests/multi-empresa/fixtures/hub_schema.sql'));
 
 // usuários fictícios (o e-mail dela é o único real, e já está no repo desde a 001)
-const LU  = { id: '00000000-0000-4000-8000-00000000000a', email: 'lucianapandolfo9@gmail.com' };
+const LU  = { id: '00000000-0000-4000-8000-00000000000a', email: 'admin@hub.test' };
 const ISA = { id: '00000000-0000-4000-8000-00000000000b', email: 'isa@exemplo.test' };
 const BIA = { id: '00000000-0000-4000-8000-00000000000c', email: 'dona@padaria.test' };   // dono ws2
 const OPE = { id: '00000000-0000-4000-8000-00000000000d', email: 'operador@padaria.test' };

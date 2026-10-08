@@ -5,7 +5,7 @@ import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 const read = p => readFileSync(new URL('../../' + p, import.meta.url), 'utf8');
-const LU = { id: '00000000-0000-4000-8000-00000000000a', email: 'lucianapandolfo9@gmail.com' };
+const LU = { id: '00000000-0000-4000-8000-00000000000a', email: 'admin@hub.test' };
 const BIA = { id: '00000000-0000-4000-8000-00000000000b', email: 'dona@exemplo.test' };
 const CON = { id: '00000000-0000-4000-8000-00000000000c', email: 'consulta@exemplo.test' };
 
@@ -19,7 +19,7 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
   });
   try {
     await db.exec(read('tests/multi-empresa/fixtures/supabase_stub.sql'));
-    await db.exec(read('tests/multi-empresa/fixtures/hub_schema_prod_2026-10-08.sql'));
+    await db.exec(read('tests/multi-empresa/fixtures/hub_schema.sql'));
     for (const f of ['041_novo_cliente_tela_unica', '20261008112314_novo_cliente_integridade',
       '042_docuseal_ativa_contrato', '20261008112347_docuseal_preserva_encerramento',
       '20261006052445_estoque_contator_estrategico', '20261007204101_estoque_unidade_historico']) {

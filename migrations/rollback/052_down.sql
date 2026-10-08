@@ -104,15 +104,29 @@ alter table hub.reunioes drop constraint reunioes_ws_meetily_meeting_id_key, add
 alter table hub.config drop constraint config_pkey, add constraint config_pkey primary key (chave);
 
 -- funções de volta ao texto de produção (07/10/2026)
+-- is_admin() volta a ser "e-mail da dona do workspace 1" (o mesmo texto da 001;
+-- o e-mail sai do banco, não fica repetido aqui)
+do $do$
+declare v_email text;
+begin
+  select lower(u.email) into v_email
+  from hub.workspace_membros m
+  join hub.workspaces w on w.id = m.workspace_id and w.slug = 'luhpanda'
+  join auth.users u on u.id = m.user_id
+  where m.papel = 'dono' and m.ativo
+  order by m.criado_em limit 1;
+  if v_email is null then raise exception '052_down: dona do workspace 1 não encontrada'; end if;
+  execute format($f$
 CREATE OR REPLACE FUNCTION hub.is_admin()
  RETURNS boolean
  LANGUAGE sql
  STABLE SECURITY DEFINER
  SET search_path TO 'pg_catalog'
-AS $function$
-  select coalesce(auth.email(), '') = 'lucianapandolfo9@gmail.com';
-$function$
-;
+AS $body$
+  select coalesce(auth.email(), '') = %L;
+$body$
+$f$, v_email);
+end $do$;
 CREATE OR REPLACE FUNCTION hub.is_ingestor()
  RETURNS boolean
  LANGUAGE sql

@@ -42,6 +42,15 @@ const SCOPE = "https://www.googleapis.com/auth/calendar";
 // mais amplo; `calendar.events` sozinho dava 403 insufficientPermissions.
 // Continua sem acesso a Gmail/Drive/etc — é só o produto Calendar inteiro.
 
+// SEC-HUB-002 (08/10/2026): `?error=` vem da URL — qualquer um monta o link.
+// Sem escapar, era HTML refletido na página. Esta function é pública por
+// necessidade (o Google redireciona pra cá sem JWT), então nada que vem da
+// querystring entra cru no HTML.
+function escaparHtml(t: string) {
+  return t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 function paginaHtml(titulo: string, corpoHtml: string, cor = "#FF6B35") {
   return new Response(
     `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
@@ -82,7 +91,7 @@ Deno.serve(async (req: Request) => {
   const erro = url.searchParams.get("error");
   if (erro) {
     return paginaHtml("Autorização recusada", `
-      <p class="warn">O Google devolveu: <code>${erro}</code>. Nada foi salvo.
+      <p class="warn">O Google devolveu: <code>${escaparHtml(erro)}</code>. Nada foi salvo.
       Pode tentar de novo recarregando esta página.</p>
     `);
   }

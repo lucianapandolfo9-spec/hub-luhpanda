@@ -52,7 +52,7 @@ banco só deixa ler e escrever o que é do workspace da requisição. Os dados d
 | Tabelas no schema `hub` | 20 |
 | Com `workspace_id` (migration 010, de 22/09) | 14. A coluna existe, mas **nenhuma policy usa**: o default é o workspace fixo `luhpanda` |
 | Sem `workspace_id` | `recebiveis`, `custos_fixos`, `cobranca_envios`, `mensagens`, `eventos_auditoria`, `config` |
-| 🔴 Tabelas **sem migration no repo** | `recebiveis`, `custos_fixos`, `config`, `cobranca_envios`. Só existem em produção. O schema real agora está versionado em `tests/multi-empresa/fixtures/hub_schema_prod_2026-10-08.sql` (só estrutura, sem dados) |
+| 🔴 Tabelas **sem migration no repo** | `recebiveis`, `custos_fixos`, `config`, `cobranca_envios`. Só existem em produção. O schema real agora está versionado em `tests/multi-empresa/fixtures/hub_schema.sql` (só estrutura, sanitizada) e em `migrations/000_baseline_hub_2026-10-08.sql` |
 | RPCs de negócio (`rpc_*`, `bot_*`) | 68 em `hub`, quase todas com wrapper `public.hub_rpc_*`. 59 checam `hub.is_admin()` |
 | Posse das RPCs | todas `SECURITY DEFINER` do `postgres`, que tem **BYPASSRLS**. A RLS não vale dentro delas: a única trava é o `if not hub.is_admin()` |
 | Policies | 19, todas `hub.is_admin()` |
@@ -237,7 +237,7 @@ dependa de `is_admin`, tabela sem RLS ou FK entre tabelas de dado sem `workspace
 
 | Peça | Hoje | Depois da 052 (sem mudar nada) | O que muda na etapa 4 |
 |---|---|---|---|
-| `wa-send`, `reuniao-analisar`, `docuseal-integrar`, `agenda-google` (repassam o JWT dela) | `is_admin` = e-mail | funcionam: ela tem 1 workspace | repassar o header `x-workspace-id` quando o usuário tiver 2 ou mais · `wa-send`: instância vem de `workspace_canais`, não de `EVOLUTION_INSTANCIA` · `docuseal-integrar`: `EMAIL_CONTRATADA`/`NOME_CONTRATADA` (hoje fixos no código) vêm do perfil da empresa · `agenda-google`: refresh token e lista de calendários **por workspace**, não secret global |
+| `wa-send`, `reuniao-analisar`, `docuseal-integrar`, `agenda-google` (repassam o JWT dela) | `is_admin` = e-mail + portão `verificarAdmin()` com o mesmo e-mail (SEC-HUB-001) | funcionam: o workspace padrão dela é o 1 | `verificarAdmin()` vira "logado + membro do workspace" (via RPC) · repassar o header `x-workspace-id` quando o usuário tiver 2 ou mais · `wa-send`: instância vem de `workspace_canais`, não de `EVOLUTION_INSTANCIA` · `docuseal-integrar`: `EMAIL_CONTRATADA`/`NOME_CONTRATADA` (hoje fixos no código) vêm do perfil da empresa · `agenda-google`: refresh token e lista de calendários **por workspace**, não secret global |
 | `docuseal-webhook` (`service_role`) | `is_ingestor` | cai no ws1 (compat) | achar o workspace pelo `docuseal_submission_id` (helper do `postgres`) e definir o GUC antes da RPC |
 | `wa-groups`, `google-oauth-callback` | ver riscos R2/R3 | iguais | por workspace + checagem de membro |
 | n8n `HUB — Conversas WhatsApp` (`bYWqiukkixOla1GN`, publicado) | `is_ingestor` (service_role) | cai no ws1 (compat) | mandar `"instancia": "<nome>"` no payload. Cliente com Meta Cloud API: `meta_phone_number_id` |
@@ -271,7 +271,7 @@ cd tests/multi-empresa && npm install && node isolamento.test.mjs && node compat
 
 - `fixtures/supabase_stub.sql`: o mínimo do Supabase (roles `anon`/`authenticated`/`service_role`,
   `auth.uid()/email()/role()` lendo `request.jwt.claims`, storage).
-- `fixtures/hub_schema_prod_2026-10-08.sql`: **estrutura** do `hub` de produção (sem dados).
+- `fixtures/hub_schema.sql`: **estrutura** do `hub` de produção (08/10, sem dados), **sanitizada** por `scripts/sanitizar-fixture-schema.mjs` (sem comentários; e-mail da admin = `admin@hub.test`). O dump cru fica fora do git (SEC-HUB-014).
 - **`isolamento.test.mjs` (90 verificações, todas passando):** backfill sem perda · CNPJ
   numérico e alfanumérico · a Luciana igual · convite (e-mail errado, reuso, token fora do banco)
   · vagas e contador · onboarding fiscal com rastro LGPD · **isolamento** (carteira, ficha por slug,
@@ -370,10 +370,7 @@ b) Deixar só a fixture de teste
 - **R1 (achado, pré-existente):** o bot de cobrança não roda hoje. Os wrappers `public.hub_bot_*`
   são SECURITY INVOKER, o `anon` não tem USAGE no `hub` e o `service_role` não tem EXECUTE nas
   `bot_*`. Os workflows estão inativos, por isso ninguém viu. O teste reproduz o erro.
-- **R2 (achado, pré-existente, @seguranca):** `agenda-google` (ações `calendarios`/`listar`/`obter`)
-  e `wa-groups` só exigem **qualquer** sessão válida do projeto. Elas não checam se é ela. O
-  projeto tem 8 usuários (aprovi.ai junto), então qualquer um deles poderia listar a agenda e os
-  grupos de WhatsApp dela. Conferir no painel se o cadastro está aberto.
+- **R2 — FECHADO (SEC-HUB-001, PR #16):** era pior do que o descrito (o `verify_jwt` aceitava até a anon key). Hoje toda Edge Function chama `verificarAdmin()` (`supabase/functions/_shared/admin.ts`) antes de serviço externo. ⚠️ **Para a etapa 4:** esse portão compara com o **mesmo e-mail fixo** de `hub.is_admin()`. Na virada (052), ele tem que passar a validar pelo Auth + checar membro do workspace via RPC, senão o cliente de outro workspace leva 403 nas functions.
 - **R3:** o OAuth do Google sem `state` (P0 do PR #2) continua. Por workspace, isso vira
   token por cliente e precisa ser resolvido antes.
 - **R4:** **sem backup** (Free). A 051 e a 052 mexem em constraint e posse de função. Dump
