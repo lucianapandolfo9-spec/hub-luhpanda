@@ -31,6 +31,7 @@ function toast(msg){
   // dos dois fica legível. Quem chega por último é quem tem a informação mais
   // nova (ex.: "Contrato salvo" seguido do resultado da geração de recebíveis).
   document.querySelectorAll('.toast').forEach(t => t.remove());
+  liberarEnvioModal();
   const t = document.createElement('div');
   t.className = 'toast'; t.textContent = msg;
   document.body.appendChild(t);
@@ -199,10 +200,50 @@ function modalErro(msg){
   if(!el) return false;
   el.textContent = msg;
   el.hidden = false;
+  liberarEnvioModal();
   el.scrollIntoView({ block:'nearest', behavior:'smooth' });
   return true;
 }
 function closeModal(){ modalRoot.innerHTML = ''; document.body.classList.remove('apres-print-mode'); }
+
+// 07/10/2026 — trava de DUPLO ENVIO pra todo formulário de modal.
+// Bug real: o Palácio Dos Esportes ganhou 2 recebíveis idênticos com 205 ms
+// de diferença (duplo clique em "Salvar"). Nenhum salvarX() travava o botão.
+// Listener em CAPTURA no modal-root: roda antes do onsubmit inline do form.
+// 1º submit marca o form e desabilita os botões; 2º submit morre aqui.
+// Libera em: toast() (sucesso, erro do rpc() e validação local já chamam
+// toast), modalErro(), ou 10 s como rede de segurança. Sucesso normalmente
+// fecha o modal, e aí o form some junto com a trava.
+function liberarEnvioModal(){
+  modalRoot.querySelectorAll('form[data-enviando]').forEach(f => {
+    delete f.dataset.enviando;
+    f.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = false; });
+  });
+}
+modalRoot.addEventListener('submit', ev => {
+  const f = ev.target;
+  if(!(f instanceof HTMLFormElement)) return;
+  if(f.dataset.enviando){ ev.preventDefault(); ev.stopImmediatePropagation(); return; }
+  f.dataset.enviando = '1';
+  f.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = true; });
+  setTimeout(() => { if(f.isConnected && f.dataset.enviando){ delete f.dataset.enviando; f.querySelectorAll('button[type=submit]').forEach(b => { b.disabled = false; }); } }, 10000);
+}, true);
+
+// Competência é sempre o MÊS (dia 1). Bug de 07/10/2026: o campo era
+// type="date", ela escolheu 07/10, o banco gravou 2026-10-07 e a tela
+// Recebíveis (que busca 2026-10-01) nunca mais mostrou o recebível.
+// A 038 normaliza no banco também — aqui é pra tela já mandar certo.
+function competenciaParaMes(iso){ return iso ? String(iso).slice(0,7) : ''; }
+// Safari desktop sem suporte a type="month" cai em texto: aceita "2026-10",
+// "2026-10-07" e "10/2026". Formato desconhecido → null (o banco recusa).
+function mesParaCompetencia(v){
+  const t = String(v || '').trim();
+  let m = t.match(/^(\d{4})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-01`;
+  m = t.match(/^(\d{1,2})\/(\d{4})$/);
+  if(m) return `${m[2]}-${m[1].padStart(2,'0')}-01`;
+  return null;
+}
 
 // ============================================================
 // ROTA (hash)
@@ -1337,7 +1378,7 @@ function formRecebivel(r){
     <form onsubmit="return salvarRecebivel(event)">
       <input type="hidden" id="f-id" value="${esc(r.id||'')}">
       <div class="field"><label>Cliente</label><select id="f-cliente" required>${opts}</select></div>
-      <div class="field"><label>Competência</label><input id="f-competencia" type="date" required value="${r.competencia||financeiroCompetencia}"></div>
+      <div class="field"><label>Competência (mês)</label><input id="f-competencia" type="month" required placeholder="AAAA-MM" value="${competenciaParaMes(r.competencia||financeiroCompetencia)}"></div>
       <div class="field"><label>Descrição</label><input id="f-descricao" required value="${esc(r.descricao||'')}"></div>
       <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" required value="${centavosToInputValue(r.valor_centavos)}"></div>
       <div class="field"><label>Vence em</label><input id="f-vence" type="date" value="${r.vence_em||''}"></div>
@@ -1367,7 +1408,7 @@ async function salvarRecebivel(ev){
     await rpc('hub_rpc_salvar_recebivel', { p: {
       id: document.getElementById('f-id').value || undefined,
       cliente_id: document.getElementById('f-cliente').value,
-      competencia: document.getElementById('f-competencia').value,
+      competencia: mesParaCompetencia(document.getElementById('f-competencia').value),
       descricao: document.getElementById('f-descricao').value,
       valor_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
       vence_em: document.getElementById('f-vence').value || null,
