@@ -1,4 +1,4 @@
-// SEC-HUB-001 — prova do portão de admin das Edge Functions do Hub.
+// SEC-HUB-012 — prova do portão de admin das Edge Functions do Hub.
 // Roda em Node (>= 22.18, que lê .ts direto): `node --test` nesta pasta.
 //
 // 1) unidade: verificarAdmin() recusa sem token, com anon key, com sessão
