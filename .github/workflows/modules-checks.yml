@@ -1,0 +1,30 @@
+name: Estoque e Contator
+on:
+  pull_request:
+    paths:
+      [
+        "modules/**",
+        "migrations/**",
+        "tests/**",
+        "package*.json",
+        "index.html",
+        ".github/workflows/modules-checks.yml",
+      ]
+  push:
+    branches: [main]
+    paths:
+      ["modules/**", "migrations/**", "tests/**", "package*.json", "index.html"]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm test
