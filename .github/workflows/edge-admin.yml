@@ -1,0 +1,16 @@
+# SEC-HUB-001 — toda Edge Function com JWT do Hub passa pelo portão de admin
+# (supabase/functions/_shared/admin.ts) antes de tocar serviço externo.
+name: edge admin
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  portao:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm test
+        working-directory: tests/edge-admin

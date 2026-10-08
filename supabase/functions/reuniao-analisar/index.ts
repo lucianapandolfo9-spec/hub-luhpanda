@@ -44,6 +44,7 @@
 // Prompt sozinho e promessa. A validacao no codigo e a trava.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { verificarAdmin } from "../_shared/admin.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")
@@ -331,9 +332,11 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return responder({ erro: "metodo nao permitido" }, 405);
 
-  const auth = req.headers.get("Authorization") ?? "";
-  const jwt = auth.replace(/^Bearer\s+/i, "").trim();
-  if (!jwt) return responder({ erro: "sem sessao" }, 401);
+  // SEC-HUB-001: portão de admin ANTES de qualquer secret/serviço externo
+  // (ver _shared/admin.ts — verify_jwt sozinho deixa passar a anon key).
+  const portao = await verificarAdmin(req, { supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
+  if (!portao.ok) return responder({ erro: portao.erro }, portao.status);
+  const jwt = portao.jwt;
 
   if (!GEMINI_API_KEY) {
     return responder({
