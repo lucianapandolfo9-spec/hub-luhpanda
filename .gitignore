@@ -28,3 +28,6 @@ secrets/
 # Supabase CLI — estado local por clone
 supabase/.temp/
 supabase/.branches/
+
+# Dependências dos testes locais
+node_modules/
