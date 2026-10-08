@@ -1415,7 +1415,11 @@ async function salvarRecebivel(ev){
       origem: document.getElementById('f-origem').value,
       observacao: document.getElementById('f-observacao').value || null,
     }});
-    closeModal(); toast('Recebível salvo.'); renderFinanceiro();
+    closeModal(); toast('Recebível salvo.');
+    // 07/10 — salvo de dentro da ficha, a ficha recarrega (antes pulava pra
+    // tela Recebíveis com o hash ainda em #/cliente/...).
+    const rota = currentRoute();
+    if(rota.page === 'cliente' && rota.param) renderCliente(rota.param); else renderFinanceiro();
   } catch(e){}
   return false;
 }
@@ -1766,6 +1770,13 @@ async function renderCliente(slug){
     const { data: dem, error } = await hubClient.rpc('hub_rpc_demandas_cliente', { p_cliente_id: data.cliente.id });
     data.demandas = error ? null : (dem || []);
   } catch(e){ data.demandas = null; }
+  // 07/10/2026 (migration 040) — recebíveis do cliente na aba Financeiro.
+  // Chamada direta, igual demandas: `null` = RPC ainda não existe no banco,
+  // a seção avisa em vez de estourar toast.
+  try {
+    const { data: rec, error } = await hubClient.rpc('hub_rpc_recebiveis_cliente', { p_cliente_id: data.cliente.id });
+    data.recebiveis = error ? null : (rec || []);
+  } catch(e){ data.recebiveis = null; }
   clienteAtual = data;
   pilarAtivo = 'financeiro';
   contatoConversaId = null;
@@ -1938,6 +1949,43 @@ function renderPilarContratos(){
     ${contratosHtml}`;
 }
 
+// 07/10/2026 — "abri o cliente novo e não vi o recebível dele". A ficha não
+// mostrava dinheiro nenhum. Lista tudo do cliente (todos os meses); editar,
+// marcar pago e apagar continuam na tela Recebíveis (fonte única das ações).
+function secaoRecebiveisCliente(data){
+  const recs = data.recebiveis;
+  const temContratoAtivo = (data.contratos || []).some(x => x.contrato && x.contrato.status === 'ativo');
+  const cab = `
+    <div class="row-between" style="margin-bottom:12px;">
+      <h2 class="section-title" style="margin:0;">Recebíveis</h2>
+      <button class="btn btn-sm btn-outline" onclick="abrirNovoRecebivelCliente()">+ Novo recebível</button>
+    </div>`;
+  if(recs === null) return cab + `<div class="pilar-empty">A lista de recebíveis do cliente ainda não está no banco (migration 040).</div>`;
+  const aviso = temContratoAtivo ? '' : `<p class="dim" style="font-size:12px;margin:0 0 10px;">Sem contrato ativo: nenhum recebível nasce sozinho para este cliente. Crie o contrato na aba Contratos ou lance o recebível à mão.</p>`;
+  if(!recs.length) return cab + aviso + `<div class="card"><span class="muted">Nenhum recebível lançado.</span></div>`;
+  const aberto = recs.reduce((s,r) => s + Number(r.falta_centavos||0), 0);
+  const linhas = recs.map(r => `
+    <tr>
+      <td data-label="Mês">${monthLabel(r.competencia)}/${String(r.competencia).slice(0,4)}</td>
+      <td data-label="Descrição" class="muted">${esc(r.descricao)}${r.origem && r.origem!=='contrato' ? ' <span class="badge badge-roxo">extra</span>' : ''}</td>
+      <td data-label="Valor" class="money">${centavosToBRL(r.valor_centavos)}</td>
+      <td data-label="Falta" class="money">${centavosToBRL(r.falta_centavos)}</td>
+      <td data-label="Vencimento">${r.vence_em ? formatDateBR(r.vence_em) : '<span class="flag">sem venc.</span>'}</td>
+      <td data-label="Status"><span class="badge ${contratoBadgeClass(r.status)}">${statusLabel(r.status)}</span></td>
+    </tr>`).join('');
+  return cab + aviso + `
+    <p class="muted" style="margin:0 0 8px;">Em aberto: <b>${centavosToBRL(aberto)}</b> · ${recs.length} lançamento${recs.length>1?'s':''}</p>
+    <div class="tablewrap"><table>
+      <thead><tr><th>Mês</th><th>Descrição</th><th style="text-align:right">Valor</th><th style="text-align:right">Falta</th><th>Vencimento</th><th>Status</th></tr></thead>
+      <tbody>${linhas}</tbody>
+    </table></div>`;
+}
+async function abrirNovoRecebivelCliente(){
+  try{ await loadCarteiraCache(); } catch(e){}
+  const c = clienteAtual.cliente;
+  openModal('Novo recebível — ' + esc(c.nome), formRecebivel({ cliente_id: c.id, cliente_nome: c.nome, competencia: todayISO().slice(0,7) + '-01' }));
+}
+
 function renderPilarFinanceiro(){
   const data = clienteAtual;
   const contatos = data.contatos || [];
@@ -1954,7 +2002,8 @@ function renderPilarFinanceiro(){
     </div>`).join('') : `<div class="muted">Nenhum contato cadastrado.</div>`;
 
   return `
-    <div class="row-between" style="margin-bottom:12px;">
+    ${secaoRecebiveisCliente(data)}
+    <div class="row-between" style="margin-bottom:12px;margin-top:24px;">
       <h2 class="section-title" style="margin:0;">Contatos</h2>
       <button class="btn btn-sm btn-outline" onclick="abrirNovoContato()">+ Novo contato</button>
     </div>
