@@ -57,12 +57,12 @@ function centavosToInputValue(c){
 // Bloco G — cliente por comissão não tem mensalidade, mostra o percentual
 // no lugar do "R$ X/mês" do card da carteira.
 function valorCarteiraCard(c){
-  if(c.tipo_cobranca === 'percentual'){
-    const pct = c.percentual_comissao != null
-      ? Number(c.percentual_comissao).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:2})
-      : '—';
-    return `${pct}% sobre vendas`;
-  }
+  const pct = c.percentual_comissao != null
+    ? Number(c.percentual_comissao).toLocaleString('pt-BR', {minimumFractionDigits:1, maximumFractionDigits:2})
+    : '—';
+  if(c.tipo_cobranca === 'percentual') return `${pct}% sobre vendas`;
+  // 041 — "misto": fixo + comissão (grill 07/10, caso The Best 6×1.200 + 5%)
+  if(c.tipo_cobranca === 'misto') return `${centavosToBRL(c.valor_mensal_centavos)} + ${pct}%`;
   return centavosToBRL(c.valor_mensal_centavos);
 }
 function todayISO(){
@@ -164,6 +164,35 @@ function friendlyError(err){
   // é a rede de proteção contra cobrar a mesma competência duas vezes no mesmo
   // contrato. Sem esta linha o erro chegaria cru na tela.
   if(m.includes('uq_recebiveis_contrato_mes')) return 'Já existe um recebível desse contrato nessa competência — edite o que já está lá em vez de criar outro.';
+  // 07/10 (migration 041) — tela única "Novo cliente" e botão "Contrato assinado"
+  const ERROS_041 = {
+    hub_novo_cliente_sem_id: 'A tela perdeu a chave de criação — fecha e abre "Novo cliente" de novo.',
+    hub_novo_cliente_sem_nome: 'Falta o nome do cliente.',
+    hub_novo_cliente_slug_invalido: 'O identificador (slug) só aceita letras minúsculas, números e hífen.',
+    hub_novo_cliente_tipo_cobranca_invalido: 'Tipo de cobrança inválido.',
+    hub_novo_cliente_sem_percentual: 'Cobrança com porcentagem precisa do percentual (entre 0 e 100).',
+    hub_novo_cliente_sem_valor: 'Falta o valor mensal (ou da parcela).',
+    hub_novo_cliente_parcelas_invalidas: 'Número de parcelas precisa ser 1 ou mais.',
+    hub_novo_cliente_pontual_sem_parcelas: 'Trabalho pontual precisa do número de parcelas — senão vira mensalidade sem fim.',
+    hub_novo_cliente_sem_vencimento: 'Falta o dia de vencimento (1 a 28).',
+    hub_novo_cliente_sem_inicio: 'Falta a data de início.',
+    hub_novo_cliente_sem_porta_saida: 'Escolhe a porta de saída: manutenção mensal ou desligamento.',
+    hub_novo_cliente_sem_servico: 'Marca pelo menos um serviço do catálogo — é ele que vai pro contrato.',
+    hub_novo_cliente_servico_invalido: 'Um dos serviços marcados não existe mais ou está inativo — recarrega a página.',
+    hub_novo_cliente_sem_contato: 'Cadastra pelo menos um contato.',
+    hub_novo_cliente_contato_sem_nome: 'Todo contato precisa de nome.',
+    hub_novo_cliente_dois_principais: 'Só um contato pode ser o principal.',
+    hub_novo_cliente_prospect_nao_encontrado: 'Esse prospect não existe mais no CRM.',
+    hub_novo_cliente_prospect_ja_e_cliente: 'Esse prospect já virou cliente — abre a ficha dele pelo CRM.',
+    contatos_papeis_validos: 'Papel de contato inválido (só financeiro, decisor ou operacional).',
+    uq_contatos_um_principal: 'Esse cliente já tem um contato principal.',
+    hub_assinatura_sem_data: 'Falta a data da assinatura.',
+    hub_assinatura_no_futuro: 'A data da assinatura está no futuro.',
+    hub_contrato_nao_pode_assinar: 'Contrato encerrado ou arquivado não pode ser marcado como assinado.',
+    hub_contrato_sem_valor: 'O contrato está sem valor mensal — edite o contrato antes de marcar como assinado.',
+    hub_contrato_sem_vencimento: 'O contrato está sem dia de vencimento — edite o contrato antes de marcar como assinado (sem isso as parcelas nasceriam sem data).',
+  };
+  for(const k in ERROS_041){ if(m.includes(k)) return ERROS_041[k]; }
   if(m.includes('acesso negado')) return 'Sessão sem permissão pra essa ação.';
   if(m.includes('Could not find the function')) return 'Essa função ainda não está instalada no banco — migration pendente de aplicação.';
   return m;
@@ -938,66 +967,230 @@ function acaoCartaoCliente(slug, acao){
 function toggleTipoCobranca(){
   const tipo = document.getElementById('f-tipo-cobranca').value;
   const wrapPct = document.getElementById('wrap-percentual');
-  if(wrapPct) wrapPct.style.display = (tipo === 'percentual') ? '' : 'none';
+  if(wrapPct) wrapPct.style.display = (tipo === 'percentual' || tipo === 'misto') ? '' : 'none';
 }
 function campoTipoCobranca(c){
   c = c || {};
-  const tipo = c.tipo_cobranca === 'percentual' ? 'percentual' : 'fixo';
+  const tipo = ['percentual','misto'].includes(c.tipo_cobranca) ? c.tipo_cobranca : 'fixo';
   return `
     <div class="field"><label>Tipo de cobrança</label>
       <select id="f-tipo-cobranca" onchange="toggleTipoCobranca()">
         <option value="fixo" ${tipo==='fixo'?'selected':''}>Valor fixo — mensalidade combinada</option>
         <option value="percentual" ${tipo==='percentual'?'selected':''}>Porcentagem sobre vendas — comissão</option>
+        <option value="misto" ${tipo==='misto'?'selected':''}>Fixo + porcentagem sobre vendas</option>
       </select>
     </div>
-    <div id="wrap-percentual" class="field" style="${tipo==='percentual'?'':'display:none;'}">
+    <div id="wrap-percentual" class="field" style="${tipo!=='fixo'?'':'display:none;'}">
       <label>Percentual (%)</label>
       <input id="f-percentual" type="number" step="0.01" min="0" max="100" value="${c.percentual_comissao != null ? c.percentual_comissao : ''}" placeholder="ex: 33.3">
-      <p class="dim" style="font-size:12px;margin:4px 0 0;">Só registro — o valor mensal fica em branco, o recebível de cada venda continua lançado manual (Financeiro → Recebíveis), igual hoje.</p>
+      <p class="dim" style="font-size:12px;margin:4px 0 0;">Só registro — o recebível da comissão continua lançado manual (Financeiro → Recebíveis), igual hoje. No "Fixo + %", o fixo vira parcela normal do contrato.</p>
     </div>`;
 }
 
-async function abrirNovoCliente(){
-  const empresas = await rpc('hub_rpc_empresas').catch(()=>[]);
-  const empresaId = empresas[0]?.id || '';
-  openModal('Novo cliente', `
-    <form onsubmit="return salvarCliente(event)">
-      <input type="hidden" id="f-empresa-id" value="${esc(empresaId)}">
-      <div class="field"><label>Nome</label><input id="f-nome" required oninput="document.getElementById('f-slug').value = slugify(this.value)"></div>
-      <div class="field"><label>Slug (identificador único)</label><input id="f-slug" required></div>
-      <div class="field"><label>Segmento</label><input id="f-segmento" placeholder="ex: Restaurante, Tráfego..."></div>
-      <div class="field"><label>Status</label>
-        <select id="f-status">
-          <option value="prospect">Prospect</option>
-          <option value="ativo" selected>Ativo</option>
-          <option value="pausado">Pausado</option>
-        </select>
+// ============================================================
+// TELA ÚNICA "NOVO CLIENTE" (07/10/2026 — grill 07/10, seção A; migration 041)
+//
+// Um formulário só cria TUDO numa transação (hub_rpc_novo_cliente):
+// cliente + contrato RASCUNHO + serviços (contrato_itens) + contatos com
+// papel + card do CRM em "Cliente aberto", ligado ao cliente.
+// NENHUMA parcela nasce aqui — elas nascem no botão "Contrato assinado".
+//
+// Idempotência: o id do cliente é gerado AQUI, quando a tela abre, e vai no
+// payload. Duplo clique, retry ou rede lenta → a 2ª chamada devolve o que a
+// 1ª criou (o banco serializa pelo id). A trava de duplo envio dos modais
+// (038) continua valendo por cima.
+//
+// Entradas: botão "+ Novo cliente" da Carteira (vazio) e "Fechou → virar
+// cliente" no card do prospect (preenchido com nome/contato/valor).
+// ============================================================
+function novoUUID(){
+  if(window.crypto && crypto.randomUUID) return crypto.randomUUID();
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map(x => x.toString(16).padStart(2,'0')).join('');
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+
+// Mesma regra de hub.contato_do_papel (041): quem tem o papel → principal →
+// qualquer um, sempre entre quem tem o canal pedido preenchido.
+function contatoPorPapel(contatos, papel, canal){
+  const tem = c => canal === 'email' ? !!(c.email && c.email.trim()) : !!c.whatsapp_e164;
+  return (contatos || []).filter(tem).sort((a,b) =>
+    ((b.papeis||[]).includes(papel) - (a.papeis||[]).includes(papel)) ||
+    ((b.is_principal?1:0) - (a.is_principal?1:0)))[0];
+}
+const PAPEIS_CONTATO = [
+  ['financeiro','Financeiro'], ['decisor','Decisor'], ['operacional','Operacional'],
+];
+function papeisCheckboxes(prefixo, marcados){
+  marcados = marcados || [];
+  return PAPEIS_CONTATO.map(([v,rot]) => `
+    <label class="checkrow" style="gap:5px;"><input type="checkbox" data-papel="${v}" name="${prefixo}-papel" ${marcados.includes(v)?'checked':''}> ${rot}</label>`).join('');
+}
+function papeisBadges(papeis){
+  return (papeis || []).map(p => `<span class="badge badge-roxo" style="margin-left:4px;">${esc((PAPEIS_CONTATO.find(x=>x[0]===p)||[p,p])[1])}</span>`).join('');
+}
+
+let ncContatoSeq = 0;
+function ncContatoRow(ct){
+  ct = ct || {};
+  const i = ncContatoSeq++;
+  return `
+    <div class="card nc-contato" data-i="${i}" style="padding:12px;margin-bottom:10px;">
+      <div class="field-row3">
+        <div class="field"><label>Nome</label><input class="nc-ct-nome" value="${esc(ct.nome||'')}" placeholder="quem é"></div>
+        <div class="field"><label>WhatsApp</label><input class="nc-ct-whats" value="${esc(ct.whatsapp_e164||'')}" placeholder="5584999998888 ou ...@g.us"></div>
+        <div class="field"><label>E-mail</label><input class="nc-ct-email" type="email" value="${esc(ct.email||'')}"></div>
       </div>
-      ${campoTipoCobranca()}
-      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2"></textarea></div>
+      <div class="row" style="gap:14px;flex-wrap:wrap;align-items:center;">
+        ${papeisCheckboxes('nc-'+i, ct.papeis)}
+        <label class="checkrow" style="gap:5px;"><input type="checkbox" class="nc-ct-grupo" ${ct.eh_grupo?'checked':''}> é grupo</label>
+        <label class="checkrow" style="gap:5px;"><input type="radio" name="nc-principal" class="nc-ct-principal" ${ct.is_principal?'checked':''}> principal</label>
+        <button type="button" class="btn btn-sm btn-outline" style="margin-left:auto;" onclick="this.closest('.nc-contato').remove()">Remover</button>
+      </div>
+    </div>`;
+}
+function ncAdicionarContato(){
+  document.getElementById('nc-contatos').insertAdjacentHTML('beforeend', ncContatoRow({}));
+}
+function ncToggleTipo(){
+  const pontual = document.getElementById('nc-tipo').value === 'pontual';
+  document.getElementById('nc-parcelas-label').textContent = pontual ? 'Nº de parcelas' : 'Nº de parcelas (opcional)';
+  document.getElementById('nc-valor-label').textContent = pontual ? 'Valor da parcela (R$)' : 'Valor mensal (R$)';
+  document.getElementById('nc-tipo-dica').textContent = pontual
+    ? 'Projeto com fim: gera exatamente essas parcelas quando o contrato for assinado.'
+    : 'Mensalidade: sem nº de parcelas, gera todo mês enquanto o contrato estiver ativo; com nº, para na última.';
+}
+
+async function abrirNovoCliente(prefill){
+  prefill = prefill || {};
+  const catalogo = window.__catalogo && window.__catalogo.length
+    ? window.__catalogo
+    : await rpc('hub_rpc_catalogo').catch(()=>[]);
+  window.__catalogo = catalogo;
+  const ativos = (catalogo || []).filter(s => s.ativo !== false);
+  ncContatoSeq = 0;
+  const hoje = todayISO();
+  const contatoInicial = prefill.contato || {};
+
+  openModal(prefill.prospect_id ? `Fechou → virar cliente` : 'Novo cliente', `
+    <form onsubmit="return salvarNovoCliente(event)">
+      <input type="hidden" id="nc-id" value="${novoUUID()}">
+      <input type="hidden" id="nc-prospect" value="${esc(prefill.prospect_id||'')}">
+      <input type="hidden" id="nc-origem" value="${esc(prefill.origem||'')}">
+
+      <p class="eyebrow" style="color:var(--fraco);margin-top:0;">Cliente</p>
+      <div class="field-row3">
+        <div class="field"><label>Nome</label><input id="nc-nome" required value="${esc(prefill.nome||'')}" oninput="document.getElementById('nc-slug').value = slugify(this.value)"></div>
+        <div class="field"><label>Slug (identificador)</label><input id="nc-slug" required value="${esc(slugify(prefill.nome||''))}"></div>
+        <div class="field"><label>Segmento (opcional)</label><input id="nc-segmento" placeholder="ex: Restaurante"></div>
+      </div>
+
+      <p class="eyebrow" style="color:var(--fraco);">Contrato</p>
+      <div class="field"><label>Tipo</label>
+        <select id="nc-tipo" onchange="ncToggleTipo()">
+          <option value="recorrente">Recorrente — mensalidade</option>
+          <option value="pontual">Pontual — projeto com fim</option>
+        </select>
+        <p class="dim" id="nc-tipo-dica" style="font-size:12px;margin:4px 0 0;">Mensalidade: sem nº de parcelas, gera todo mês enquanto o contrato estiver ativo; com nº, para na última.</p>
+      </div>
+      <div class="field-row3">
+        <div class="field"><label id="nc-valor-label">Valor mensal (R$)</label><input id="nc-valor" type="number" step="0.01" min="0" value="${centavosToInputValue(prefill.valor_centavos)}"></div>
+        <div class="field"><label id="nc-parcelas-label">Nº de parcelas (opcional)</label><input id="nc-parcelas" type="number" min="1" step="1" placeholder="ex: 6"></div>
+        <div class="field"><label>Dia de vencimento</label><input id="nc-dia" type="number" min="1" max="28" placeholder="1 a 28"></div>
+        <div class="field"><label>Data de início</label><input id="nc-inicio" type="date" value="${hoje}"></div>
+      </div>
+      ${campoTipoCobranca({})}
+
+      <p class="eyebrow" style="color:var(--fraco);">Serviços do catálogo</p>
+      <div class="card" style="padding:10px 12px;margin-bottom:12px;max-height:220px;overflow:auto;">
+        ${ativos.length ? ativos.map(s => `
+          <div class="row-between" style="padding:5px 0;gap:10px;">
+            <label class="checkrow" style="gap:6px;"><input type="checkbox" class="nc-serv" value="${esc(s.id)}"> ${esc(s.nome)} <span class="dim" style="font-size:11px;">${tipoServico(s)}${s.anexo_escopo ? '' : ' · sem Anexo I'}</span></label>
+            <input class="nc-serv-valor" data-id="${esc(s.id)}" type="number" step="0.01" min="0" placeholder="R$ (opcional)" style="max-width:130px;">
+          </div>`).join('') : '<div class="muted">Catálogo vazio — cadastre em Preços & Serviços.</div>'}
+      </div>
+      <p class="dim" style="font-size:12px;margin:-6px 0 14px;">Valor por serviço é opcional. Com um serviço só, ele leva o valor mensal. "Sem Anexo I" = o envio pra assinatura por e-mail vai recusar até o anexo ser escrito.</p>
+
+      <p class="eyebrow" style="color:var(--fraco);">Porta de saída</p>
+      <div class="field-row3">
+        <div class="field" style="grid-column:span 2;"><label>Como esse contrato termina</label>
+          <select id="nc-porta" required>
+            <option value="">— escolhe uma —</option>
+            <option value="manutencao_mensal">Manutenção mensal — continua rodando e você cobra por mês</option>
+            <option value="desligamento_build_30">Desligamento — paga o que foi construído + 30% e leva</option>
+          </select>
+        </div>
+        <div class="field"><label>Valor (R$, opcional)</label><input id="nc-porta-valor" type="number" step="0.01" min="0" placeholder="ex: 800"></div>
+      </div>
+
+      <div class="row-between" style="margin-top:6px;">
+        <p class="eyebrow" style="color:var(--fraco);margin:0;">Contatos</p>
+        <button type="button" class="btn btn-sm btn-outline" onclick="ncAdicionarContato()">+ contato</button>
+      </div>
+      <p class="dim" style="font-size:12px;margin:4px 0 10px;">Fonte única: a cobrança procura o <b>financeiro</b>, a assinatura procura o <b>decisor</b>; sem papel marcado, vale o principal.</p>
+      <div id="nc-contatos">${ncContatoRow({ papeis:['decisor','financeiro'], is_principal:true, ...contatoInicial })}</div>
+
+      <p class="dim" style="font-size:12px;margin:10px 0 0;">Salvar cria o cliente, o contrato em <b>rascunho</b> e o card no CRM. As parcelas só nascem quando você marcar <b>"Contrato assinado"</b> na ficha.</p>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar</button>
+        <button type="submit" class="btn btn-primary">Criar cliente</button>
       </div>
-    </form>`);
+    </form>`, 'wide');
 }
-async function salvarCliente(ev){
+
+function ncLerContatos(){
+  return [...document.querySelectorAll('#nc-contatos .nc-contato')].map(el => ({
+    nome: el.querySelector('.nc-ct-nome').value.trim(),
+    whatsapp_e164: el.querySelector('.nc-ct-whats').value.trim() || null,
+    email: el.querySelector('.nc-ct-email').value.trim() || null,
+    eh_grupo: el.querySelector('.nc-ct-grupo').checked,
+    is_principal: el.querySelector('.nc-ct-principal').checked,
+    papeis: [...el.querySelectorAll('input[data-papel]:checked')].map(x => x.dataset.papel),
+  })).filter(c => c.nome || c.whatsapp_e164 || c.email);
+}
+
+async function salvarNovoCliente(ev){
   ev.preventDefault();
+  const v = id => document.getElementById(id).value;
+  const tipoCobranca = v('f-tipo-cobranca');
+  const servicos = [...document.querySelectorAll('.nc-serv:checked')].map(x => {
+    const valorEl = document.querySelector(`.nc-serv-valor[data-id="${x.value}"]`);
+    return { servico_id: x.value, valor_centavos: valorEl ? brlInputToCentavos(valorEl.value) : null };
+  });
+  const contatos = ncLerContatos();
+  if(!servicos.length){ modalErro('Marca pelo menos um serviço do catálogo — é ele que vai pro contrato.'); return false; }
+  if(!contatos.length){ modalErro('Cadastra pelo menos um contato.'); return false; }
+
   try{
-    const tipoCobranca = document.getElementById('f-tipo-cobranca').value;
-    await rpc('hub_rpc_salvar_cliente', { p: {
-      empresa_id: document.getElementById('f-empresa-id').value,
-      nome: document.getElementById('f-nome').value,
-      slug: document.getElementById('f-slug').value,
-      segmento: document.getElementById('f-segmento').value || null,
-      status: document.getElementById('f-status').value,
-      observacao: document.getElementById('f-observacao').value || null,
+    const r = await rpc('hub_rpc_novo_cliente', { p: {
+      id: v('nc-id'),
+      prospect_id: v('nc-prospect') || null,
+      origem: v('nc-origem') || null,
+      nome: v('nc-nome').trim(),
+      slug: v('nc-slug').trim(),
+      segmento: v('nc-segmento').trim() || null,
+      recorrente: v('nc-tipo') === 'recorrente',
+      valor_mensal_centavos: brlInputToCentavos(v('nc-valor')),
+      parcelas_total: v('nc-parcelas') || null,
+      dia_vencimento: v('nc-dia') || null,
+      inicio_em: v('nc-inicio') || null,
       tipo_cobranca: tipoCobranca,
-      percentual_comissao: tipoCobranca === 'percentual'
-        ? (document.getElementById('f-percentual').value || null) : null,
+      percentual_comissao: tipoCobranca !== 'fixo' ? (v('f-percentual') || null) : null,
+      porta_saida_tipo: v('nc-porta') || null,
+      porta_saida_valor_centavos: brlInputToCentavos(v('nc-porta-valor')),
+      servicos, contatos,
     }});
-    closeModal(); toast('Cliente salvo.'); carteira = []; renderCarteira();
-  } catch(e){}
+    closeModal();
+    toast(r && r.ja_existia
+      ? 'Esse cliente já tinha sido criado (clique repetido) — abrindo a ficha.'
+      : 'Cliente criado. Contrato em rascunho — as parcelas nascem no "Contrato assinado".');
+    carteira = []; prospectsCache = [];
+    location.hash = '#/cliente/' + r.slug;
+  } catch(e){
+    console.error('salvarNovoCliente:', e);
+    modalErro(friendlyError(e));
+  }
   return false;
 }
 
@@ -2042,7 +2235,7 @@ function renderPilarFinanceiro(){
 
   const contatosHtml = contatos.length ? contatos.map((ct,i) => `
     <div class="row-between" style="padding:9px 0;border-top:1px solid var(--line);">
-      <div><b>${esc(ct.nome)}</b> <span class="muted">${esc(ct.papel||'')}</span>
+      <div><b>${esc(ct.nome)}</b> <span class="muted">${esc(ct.papel||'')}</span>${papeisBadges(ct.papeis)}
         <div class="muted" style="font-size:12px;">${ct.eh_grupo?'👥 ':''}${esc(ct.whatsapp_e164 || '')} ${ct.email?'· '+esc(ct.email):''}</div>
       </div>
       <div class="row">
@@ -2117,7 +2310,7 @@ async function salvarClienteFicha(ev){
       endereco: document.getElementById('f-endereco').value || null,
       // Bloco G — tipo de cobrança (fixo × porcentagem)
       tipo_cobranca: tipoCobranca,
-      percentual_comissao: tipoCobranca === 'percentual'
+      percentual_comissao: tipoCobranca !== 'fixo'
         ? (document.getElementById('f-percentual').value || null) : null,
       // passthrough obrigatório: o upsert do banco sobrescreve TODAS as
       // colunas — sem repassar o que a ficha não edita, salvar apagaria
@@ -2533,7 +2726,12 @@ function formContato(ct){
       <input type="hidden" id="f-id" value="${esc(ct.id||'')}">
       <input type="hidden" id="f-cliente-id" value="${esc(ct.cliente_id||'')}">
       <div class="field"><label>Nome</label><input id="f-nome" required value="${esc(ct.nome||'')}"></div>
-      <div class="field"><label>Papel</label><input id="f-papel" value="${esc(ct.papel||'')}" placeholder="dono, financeiro..."></div>
+      <div class="field"><label>Cargo / rótulo (opcional)</label><input id="f-papel" value="${esc(ct.papel||'')}" placeholder="dono, sócia, gerente..."></div>
+      ${/* 041 — papel que o sistema usa: cobrança → financeiro, assinatura → decisor */''}
+      <div class="field"><label>Papel no sistema</label>
+        <div class="row" style="gap:14px;flex-wrap:wrap;">${papeisCheckboxes('fc', ct.papeis)}</div>
+        <p class="dim" style="font-size:12px;margin:4px 0 0;">Cobrança vai pro financeiro; assinatura e envio do contrato, pro decisor. Sem papel marcado, vale o principal.</p>
+      </div>
       <div class="field"><label>Tipo de contato</label>
         <select id="f-tipo-contato">
           <option value="telefone" ${!ct.eh_grupo?'selected':''}>Telefone</option>
@@ -2561,6 +2759,7 @@ async function salvarContato(ev){
       eh_grupo: document.getElementById('f-tipo-contato').value === 'grupo',
       email: document.getElementById('f-email').value || null,
       is_principal: document.getElementById('f-principal').checked,
+      papeis: [...document.querySelectorAll('input[name="fc-papel"]:checked')].map(x => x.dataset.papel),
     }});
     closeModal(); toast('Contato salvo.');
     renderCliente(clienteAtual.cliente.slug);
@@ -2599,6 +2798,11 @@ async function renderCRM(){
   // mesmo filtro da tela Carteira (D1.1): só recorrente entra na coluna
   // "Cliente aberto". `!== false` pelo mesmo motivo — ver renderCarteira().
   clientesCRM = carteira.filter(c => c.status === 'ativo' && c.recorrente !== false);
+  // 041 — card do prospect LIGADO a cliente (tela única / "Fechou → virar
+  // cliente") já representa esse cliente na coluna "Cliente aberto": tira o
+  // card virtual do mesmo cliente pra não aparecer duas vezes.
+  const ligados = new Set((prospectsCache || []).filter(p => p.cliente_id && !p.perdido).map(p => p.cliente_id));
+  clientesCRM = clientesCRM.filter(c => !ligados.has(c.cliente_id));
   conversasResumo = {};
   (resumo || []).forEach(c => {
     if(c.prospect_id) conversasResumo[c.prospect_id] = c;
@@ -2639,10 +2843,10 @@ function desenharCRM(){
   const cols = KCOLS.map((titulo,i)=>{
     const doColuna = ativos.filter(p=>p.coluna===i);
     const cards = doColuna.map(p=>{
-      const conv = (conversasResumo || {})[p.id] || null;
+      const conv = (conversasResumo || {})[p.id] || (p.cliente_id && (conversasResumo || {})[p.cliente_id]) || null;
       return `
-      <div class="kcard ${conv && conv.nao_lida ? 'tem-nao-lida' : ''}" onclick="location.hash='#/prospect/${p.id}'">
-        <div class="nome">${esc(p.nome)}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}${conv && conv.tem_sugestao_reuniao ? '<span class="knova" style="background:var(--roxo);">💡</span>' : ''}</div>
+      <div class="kcard ${p.cliente_id ? 'kcard-cliente' : ''} ${conv && conv.nao_lida ? 'tem-nao-lida' : ''}" onclick="location.hash='#/prospect/${p.id}'">
+        <div class="nome">${esc(p.nome)}${p.cliente_id ? ' <span class="kcli">cliente</span>' : ''}${conv && conv.eh_grupo ? ' 👥' : ''}${conv && conv.nao_lida ? '<span class="knova">nova</span>' : ''}${conv && conv.tem_sugestao_reuniao ? '<span class="knova" style="background:var(--roxo);">💡</span>' : ''}</div>
         <div class="meta"><span>${formatDateBR(p.entrou_em)}${p.gravacao?' · 🎥':''}</span>${p.valor_estimado_centavos?`<span class="valor">${centavosCompact(p.valor_estimado_centavos)}</span>`:''}</div>
         ${conv ? `<div class="conv">
           <span class="prev">${conv.ultima_msg_direcao === 'saida' ? '<span class="eu">você:</span> ' : ''}${esc(truncar(conv.ultima_msg_previa, 50))}</span>
@@ -2757,6 +2961,7 @@ async function renderProspect(id){
   const p = await rpc('hub_rpc_prospect', { p_id: id }).catch(()=>null);
   if(!p){ root.innerHTML = shell('crm', `<div class="empty">Prospect não encontrado.</div>`); return; }
   prospectAtual = p;
+  if(p.cliente_id) await loadCarteiraCache();   // 041 — slug do cliente ligado
   desenharProspect();
 }
 
@@ -2792,7 +2997,13 @@ function desenharProspect(){
       <div class="row" style="gap:8px;flex-wrap:wrap;">
         ${!p.perdido && p.coluna>0 ? `<button class="btn btn-outline btn-sm" onclick="voltarEtapaProspect()">Voltar etapa</button>` : ''}
         ${!p.perdido && p.coluna<5 ? `<button class="btn btn-outline btn-sm" onclick="avancarEtapaProspect()">Avançar etapa</button>` : ''}
-        ${!p.perdido && p.coluna===5 ? `<button class="btn btn-primary btn-sm" onclick="abrirConverterProspect()">Converter em cliente</button>` : ''}
+        ${/* 041 — "Fechou → virar cliente" abre a tela única preenchida e LIGA
+              o card ao cliente (antes: "Converter em cliente", só na coluna 5,
+              criava o cliente sem contato e sem ligar o card). Vale em qualquer
+              etapa: fechou na reunião, fechou. */''}
+        ${p.cliente_id
+          ? `<button class="btn btn-primary btn-sm" onclick="abrirClienteDoProspect()">Abrir cliente</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="abrirFechouVirarCliente()">Fechou → virar cliente</button>`}
         <button class="btn btn-outline btn-sm" onclick="abrirEditarProspect()">Editar</button>
         ${p.perdido
           ? `<button class="btn btn-outline btn-sm" onclick="confirmarReabrirProspect()">Reabrir</button>`
@@ -2819,6 +3030,7 @@ function desenharProspect(){
         <div class="card" style="margin-bottom:14px;">
           <p class="eyebrow" style="color:var(--fraco)">Contato</p>
           <div class="muted" style="font-size:13px;">${p.contato_whatsapp ? (p.contato_eh_grupo ? '👥 grupo — ' : '') + esc(p.contato_whatsapp) : 'sem WhatsApp'}${p.contato_email ? ' · '+esc(p.contato_email) : ''}</div>
+          ${p.cliente_id ? '<div class="dim" style="font-size:11.5px;margin-top:4px;">vem do contato principal do cliente — edite na ficha dele</div>' : ''}
         </div>
         <div class="card" style="margin-bottom:14px;">
           <p class="eyebrow" style="color:var(--fraco)">Agenda</p>
@@ -2923,41 +3135,28 @@ async function confirmarApagarProspect(){
     location.hash = '#/crm';
   } catch(e){}
 }
-function abrirConverterProspect(){
+// 041 — "Fechou → virar cliente": a tela única já preenchida. O banco
+// (hub_rpc_novo_cliente) move o card pra "Cliente aberto" e liga ao cliente.
+// A antiga hub_rpc_converter_prospect_em_cliente segue no banco, sem uso.
+function abrirFechouVirarCliente(){
   const p = prospectAtual;
-  openModal('Converter em cliente', `
-    <form onsubmit="return confirmarConverterProspect(event)">
-      <div class="field"><label>Nome do cliente</label><input id="f-nome" required value="${esc(p.nome)}"></div>
-      <div class="field"><label>Slug</label><input id="f-slug" required value="${esc(slugify(p.nome))}"></div>
-      <div class="field"><label>Segmento</label><input id="f-segmento"></div>
-      <div class="field"><label>Razão social (opcional)</label><input id="f-razao"></div>
-      <div class="field"><label>Documento (opcional)</label><input id="f-documento"></div>
-      <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(p.nota||'')}</textarea></div>
-      <div class="row" style="justify-content:flex-end;margin-top:16px;">
-        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Abrir cliente</button>
-      </div>
-    </form>`);
+  abrirNovoCliente({
+    prospect_id: p.id,
+    nome: p.nome,
+    origem: p.origem,
+    valor_centavos: p.valor_estimado_centavos,
+    contato: {
+      nome: p.nome,
+      whatsapp_e164: p.contato_whatsapp,
+      email: p.contato_email,
+      eh_grupo: p.contato_eh_grupo,
+    },
+  });
 }
-async function confirmarConverterProspect(ev){
-  ev.preventDefault();
-  const p = prospectAtual;
-  const slug = document.getElementById('f-slug').value;
-  try{
-    await rpc('hub_rpc_converter_prospect_em_cliente', { p: {
-      prospect_id: p.id,
-      nome: document.getElementById('f-nome').value,
-      slug,
-      segmento: document.getElementById('f-segmento').value || null,
-      razao_social: document.getElementById('f-razao').value || null,
-      documento: document.getElementById('f-documento').value || null,
-      observacao: document.getElementById('f-observacao').value || null,
-    }});
-    closeModal(); toast('Cliente aberto!');
-    carteira = []; prospectsCache = [];
-    location.hash = '#/cliente/' + slug;
-  } catch(e){}
-  return false;
+function abrirClienteDoProspect(){
+  const cl = (carteira || []).find(c => c.cliente_id === prospectAtual.cliente_id);
+  if(!cl){ toast('Não achei o cliente ligado a esse card — recarrega a página.'); return; }
+  location.hash = '#/cliente/' + cl.slug;
 }
 
 // ============================================================
@@ -3319,9 +3518,7 @@ async function abrirAssinarDocuseal(contratoId, clienteSlug){
   const item = (dados.contratos || []).find(x => x.contrato.id === contratoId);
   if(!item){ toast('Contrato não encontrado na ficha.'); return; }
 
-  const contato = (dados.contatos || [])
-    .filter(c => c.email)
-    .sort((a,b) => (b.is_principal?1:0) - (a.is_principal?1:0))[0];
+  const contato = contatoPorPapel(dados.contatos, 'decisor', 'email');
   if(!contato){ toast('Esse cliente não tem e-mail cadastrado — adiciona no contato principal antes de mandar assinar.'); return; }
 
   const catalogo = window.__catalogo && window.__catalogo.length
@@ -3721,9 +3918,7 @@ async function confirmarEnviarContrato(contratoId, clienteSlug){
   const dados = (clienteAtual && clienteAtual.cliente && clienteAtual.cliente.slug === clienteSlug)
     ? clienteAtual
     : await rpc('hub_rpc_cliente', { p_slug: clienteSlug }).catch(()=>null);
-  const contato = ((dados && dados.contatos) || [])
-    .filter(c => c.whatsapp_e164)
-    .sort((a,b) => (b.is_principal?1:0) - (a.is_principal?1:0))[0];
+  const contato = contatoPorPapel(dados && dados.contatos, 'decisor', 'whatsapp');
   if(!contato){ toast('Esse cliente não tem WhatsApp cadastrado na ficha.'); return; }
   if(!hubClient.functions){ toast('Envio ainda não ativado — falta configurar a chave da Evolution.'); return; }
 
@@ -3859,6 +4054,10 @@ function desenharContratos(){
 // marca o contrato como assinado.
 function botoesContrato(id, slug, status, temArquivo, path, docusealId, rapido){
   return `
+    ${/* 041 — ativa + gera todas as parcelas. Some depois de ativo. */''}
+    ${['rascunho','emitido','enviado','assinado'].includes(status)
+      ? `<button class="btn btn-sm btn-primary" title="Ativa o contrato e gera todas as parcelas" onclick="abrirContratoAssinado('${esc(id)}','${esc(slug)}')">Contrato assinado</button>`
+      : ''}
     <button class="btn btn-sm btn-outline" title="Gerar o PDF do contrato pelo modelo" onclick="emitirContrato('${esc(id)}','${esc(slug)}')">Gerar PDF</button>
     <button class="btn btn-sm btn-outline" title="Mandar pro cliente pelo WhatsApp" onclick="abrirEnviarContrato('${esc(id)}','${esc(slug)}')">Enviar</button>
     ${docusealId
@@ -3871,6 +4070,85 @@ function botoesContrato(id, slug, status, temArquivo, path, docusealId, rapido){
     ${rapido
       ? `<button class="btn btn-sm btn-outline" title="${temArquivo ? 'Trocar o PDF assinado — escolhe o arquivo e sobe na hora' : 'Subir o PDF assinado — escolhe o arquivo e sobe na hora'}" onclick="subirContratoRapido('${esc(id)}','${esc(slug)}','${esc(status||'')}')">${temArquivo ? 'Trocar PDF' : 'Subir assinado'}</button>`
       : `<button class="btn btn-sm btn-outline" title="${temArquivo ? 'Trocar o PDF assinado' : 'Subir o PDF assinado'}" onclick="abrirSubirContrato('${esc(id)}','${esc(slug)}','${esc(status||'')}',${temArquivo?'true':'false'})">${temArquivo ? 'Trocar PDF' : 'Subir assinado'}</button>`}`;
+}
+
+// ---------- botão "Contrato assinado" (07/10/2026, migration 041) ----------
+// Ativa o contrato e gera TODAS as parcelas de uma vez (vencimento + "parcela
+// n/N"). Quem faz o trabalho é hub.ativar_contrato_assinado — a MESMA função
+// que o webhook do DocuSeal vai chamar quando entrar (PR separado). Daqui só
+// sai a data e a confirmação de que a porta de saída está escrita.
+// Já ativo → o banco não faz nada (duplo clique / webhook repetido inofensivos).
+function mesAnoBR(iso){ const [y,m] = iso.split('-'); return `${monthLabel(iso)}/${y.slice(2)}`; }
+async function abrirContratoAssinado(contratoId, clienteSlug){
+  const dados = (clienteAtual && clienteAtual.cliente && clienteAtual.cliente.slug === clienteSlug)
+    ? clienteAtual
+    : await rpc('hub_rpc_cliente', { p_slug: clienteSlug }).catch(()=>null);
+  const item = dados && (dados.contratos || []).find(x => x.contrato.id === contratoId);
+  if(!item){ toast('Contrato não encontrado na ficha.'); return; }
+  const co = item.contrato;
+  const percentualPuro = dados.cliente.tipo_cobranca === 'percentual' && co.valor_mensal_centavos == null;
+
+  const PORTA = { manutencao_mensal:'manutenção mensal', desligamento_build_30:'desligamento (build + 30%)', nenhuma:'nenhuma' };
+  let resumo;
+  if(percentualPuro){
+    resumo = 'Cliente só por porcentagem: o contrato fica ativo e nenhuma parcela é gerada (a comissão continua lançada à mão).';
+  } else if(co.valor_mensal_centavos == null || !co.dia_vencimento){
+    resumo = '<b>Falta valor mensal ou dia de vencimento</b> — edite o contrato antes, senão o banco recusa.';
+  } else {
+    const ini = (co.inicio_em || todayISO()).slice(0,7) + '-01';
+    if(co.parcelas_total){
+      const fim = addMeses(ini, co.parcelas_total - 1);
+      resumo = `Vai gerar <b>${co.parcelas_total} parcela${co.parcelas_total>1?'s':''} de ${centavosToBRL(co.valor_mensal_centavos)}</b>, de ${mesAnoBR(ini)} a ${mesAnoBR(fim)}, vencendo todo dia ${co.dia_vencimento}.`;
+    } else {
+      resumo = `Mensalidade de <b>${centavosToBRL(co.valor_mensal_centavos)}</b>, dia ${co.dia_vencimento}: gera de ${mesAnoBR(ini)} até este mês; daí pra frente, todo mês sozinha.`;
+    }
+    resumo += co.inicio_em ? '' : ' <span class="dim">(sem data de início no contrato: conta a partir da data da assinatura)</span>';
+  }
+
+  let portaHtml;
+  if(!co.porta_saida_tipo){
+    portaHtml = `<div class="modal-erro" style="display:block;">Esse contrato não tem porta de saída escolhida — edite o contrato e escolha antes de marcar como assinado.</div>`;
+  } else if(co.porta_saida_escrita_em){
+    portaHtml = `<div class="muted" style="font-size:12.5px;">✓ Porta de saída escrita (${esc(PORTA[co.porta_saida_tipo] || co.porta_saida_tipo)})</div>`;
+  } else {
+    portaHtml = `<div class="checkrow"><input type="checkbox" id="f-porta-escrita-ass" required>
+      <label for="f-porta-escrita-ass">A porta de saída (${esc(PORTA[co.porta_saida_tipo] || co.porta_saida_tipo)}) está escrita no contrato assinado</label></div>`;
+  }
+
+  openModal(`Contrato assinado — ${esc(dados.cliente.nome)}`, `
+    <form onsubmit="return confirmarContratoAssinado(event, '${esc(contratoId)}', '${esc(clienteSlug)}')">
+      <p class="muted" style="margin-top:0;font-size:13.5px;">${resumo}</p>
+      <div class="field"><label>Data da assinatura</label><input id="f-assinado-em" type="date" required value="${todayISO()}" max="${todayISO()}"></div>
+      ${portaHtml}
+      <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary" ${co.porta_saida_tipo ? '' : 'disabled'}>Ativar e gerar parcelas</button>
+      </div>
+    </form>`);
+}
+async function confirmarContratoAssinado(ev, contratoId, clienteSlug){
+  ev.preventDefault();
+  const porta = document.getElementById('f-porta-escrita-ass');
+  try{
+    const r = await rpc('hub_rpc_contrato_assinado', { p: {
+      contrato_id: contratoId,
+      assinado_em: document.getElementById('f-assinado-em').value,
+      porta_escrita: porta ? porta.checked : true,
+    }});
+    closeModal();
+    let msg;
+    if(r && r.ja_estava_ativo) msg = 'Esse contrato já estava ativo — nada mudou.';
+    else {
+      msg = `Contrato ativo. ${r.parcelas_criadas} parcela${r.parcelas_criadas===1?'':'s'} gerada${r.parcelas_criadas===1?'':'s'}.`;
+      if(r.pulados_legado) msg += ` ${r.pulados_legado} mês(es) pulado(s) porque já tinha recebível lançado à mão — confira em Recebíveis.`;
+    }
+    toast(msg);
+    recarregarDepoisDoContrato(clienteSlug);
+  } catch(e){
+    console.error('confirmarContratoAssinado:', e);
+    modalErro(friendlyError(e));
+  }
+  return false;
 }
 
 // ============================================================
