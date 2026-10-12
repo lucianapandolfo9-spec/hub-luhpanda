@@ -81,7 +81,7 @@ Deno.serve(async (req: Request) => {
 
   const tInicio = Date.now();
 
-  // SEC-HUB-001: portão de admin ANTES de qualquer secret/serviço externo
+  // SEC-HUB-012: portão de admin ANTES de qualquer secret/serviço externo
   // (ver _shared/admin.ts — verify_jwt sozinho deixa passar a anon key).
   const portao = await verificarAdmin(req, { supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
   if (!portao.ok) return responder({ erro: portao.erro }, portao.status);

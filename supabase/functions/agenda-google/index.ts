@@ -53,7 +53,7 @@
 //   • Supabase (RPCs hub_rpc_eventos_agenda_vincular /
 //     hub_rpc_criar_rascunho_reuniao_agenda): repassa o JWT do navegador
 //     dela, então hub.is_admin() continua valendo — mesmo padrão de sempre.
-//     ⚠️ SEC-HUB-001 (08/10/2026): isso NÃO protegia a parte Google — as
+//     ⚠️ SEC-HUB-012 (08/10/2026): isso NÃO protegia a parte Google — as
 //     ações listar/obter/calendarios/editar nem chamam RPC, e criar/cancelar
 //     falam com o Google ANTES da RPC. Com verify_jwt aceitando a anon key,
 //     qualquer um lia e mexia na agenda dela. Agora o portão exigirAdmin
@@ -155,7 +155,7 @@ async function chamarGoogleCalendar(caminho: string, init: RequestInit = {}) {
   return texto ? JSON.parse(texto) : null;
 }
 
-// SEC-HUB-001: só os calendários de CALENDARIOS (default 'primary'). Antes,
+// SEC-HUB-012: só os calendários de CALENDARIOS (default 'primary'). Antes,
 // obter/editar/cancelar aceitavam qualquer calendar id da conta dela.
 function calendarioPermitido(valor: unknown): string | null {
   const id = String(valor ?? "primary").trim() || "primary";
@@ -196,7 +196,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return responder({ erro: "método não permitido" }, 405);
 
-  // SEC-HUB-001: portão de admin ANTES de qualquer secret/serviço externo
+  // SEC-HUB-012: portão de admin ANTES de qualquer secret/serviço externo
   // (ver _shared/admin.ts — verify_jwt sozinho deixa passar a anon key).
   const portao = await verificarAdmin(req, { supabaseUrl: SUPABASE_URL, anonKey: ANON_KEY });
   if (!portao.ok) return responder({ erro: portao.erro }, portao.status);

@@ -1,4 +1,4 @@
-# SEC-HUB-001 — toda Edge Function com JWT do Hub passa pelo portão de admin
+# SEC-HUB-012 — toda Edge Function com JWT do Hub passa pelo portão de admin
 # (supabase/functions/_shared/admin.ts) antes de tocar serviço externo.
 name: edge admin
 on: [push, pull_request]
