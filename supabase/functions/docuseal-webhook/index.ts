@@ -69,6 +69,10 @@ async function rpcServiceRole(nome: string, corpo: unknown) {
 // ---------- verificação HMAC: ver ./assinatura.ts (SEC-HUB-005) ----------
 
 // ---------- forma do payload — isolado de propósito, ver cabeçalho ----------
+function ehObjeto(valor: unknown): valor is Record<string, unknown> {
+  return valor !== null && typeof valor === "object" && !Array.isArray(valor);
+}
+
 function extrairEvento(bruto: Record<string, unknown>): { tipo: string; dados: Record<string, unknown> } {
   const tipo = String(bruto.event_type ?? bruto.event ?? "");
   const dados = (bruto.data ?? bruto.submission ?? bruto) as Record<string, unknown>;
@@ -80,7 +84,7 @@ function extrairSubmissionId(dados: Record<string, unknown>): number | null {
     ?? (dados.submission as Record<string, unknown> | undefined)?.id
     ?? null;
   const n = Number(bruto);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 // 07/10/2026 (042) — data da assinatura pra função única "contrato
@@ -121,19 +125,21 @@ Deno.serve(async (req: Request) => {
     console.error(JSON.stringify({ fn: "docuseal-webhook", etapa: "assinatura", motivo: veredito.motivo }));
     return responder({ erro: "assinatura invalida (ou DOCUSEAL_WEBHOOK_SECRET nao configurado)" }, 401);
   }
-  const corpoBruto = new TextDecoder().decode(corpoBytes);
   if (!SERVICE_ROLE_KEY) {
     return responder({ erro: "configuracao incompleta", detalhe: "SUPABASE_SERVICE_ROLE_KEY ausente." }, 500);
   }
 
   let bruto: Record<string, unknown>;
   try {
-    bruto = JSON.parse(corpoBruto);
+    const payload: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(corpoBytes));
+    if (!ehObjeto(payload)) return responder({ erro: "payload deve ser um objeto" }, 400);
+    bruto = payload;
   } catch {
     return responder({ erro: "corpo nao e JSON" }, 400);
   }
 
   const { tipo, dados } = extrairEvento(bruto);
+  if (!ehObjeto(dados)) return responder({ erro: "dados do evento devem ser um objeto" }, 400);
 
   // só o evento de "TODO MUNDO assinou" avança o status. form.completed
   // dispara por SUBMITTER — ela assinar sozinha não pode virar 'assinado'
@@ -144,10 +150,9 @@ Deno.serve(async (req: Request) => {
 
   const submissionId = extrairSubmissionId(dados);
   if (submissionId === null) {
-    // 200 de propósito: não queremos que o DocuSeal fique reenviando pra
-    // sempre um payload que a gente simplesmente não sabe interpretar ainda
-    // — isso é bug de leitura nosso, não algo que retry resolve.
-    return responder({ ok: true, aviso: "nao achei o id da submission no payload", payload_recebido: bruto });
+    // Não confirmar um evento que não conseguimos gravar, nem devolver
+    // dados pessoais do envelope no diagnóstico.
+    return responder({ erro: "id da submission ausente ou invalido" }, 400);
   }
   const auditLogUrl = typeof dados.audit_log_url === "string" ? dados.audit_log_url : null;
 
