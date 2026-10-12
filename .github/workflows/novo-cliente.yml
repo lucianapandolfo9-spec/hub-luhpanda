@@ -1,0 +1,18 @@
+name: novo cliente
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  banco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/novo-cliente/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: tests/novo-cliente
+      - run: npm test
+        working-directory: tests/novo-cliente
