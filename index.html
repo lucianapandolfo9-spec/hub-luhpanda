@@ -193,6 +193,21 @@ function friendlyError(err){
     hub_contrato_sem_vencimento: 'O contrato está sem dia de vencimento — edite o contrato antes de marcar como assinado (sem isso as parcelas nasceriam sem data).',
   };
   for(const k in ERROS_041){ if(m.includes(k)) return ERROS_041[k]; }
+  // 13/10 (migration 045) — cadastro de recebível e marcar pago
+  const ERROS_045 = {
+    hub_recebivel_sem_cliente: 'Escolhe o cliente do recebível.',
+    hub_recebivel_cliente_inexistente: 'Esse cliente não existe mais — fecha o formulário e abre de novo.',
+    hub_recebivel_sem_descricao: 'Falta a descrição do recebível.',
+    hub_recebivel_valor_invalido: 'O valor precisa ser um número, zero ou mais.',
+    hub_recebivel_contrato_outro_cliente: 'Esse recebível pertence a um contrato — não dá pra passar pra outro cliente. Apague e lance de novo no cliente certo.',
+    hub_recebivel_nao_encontrado: 'Esse recebível não existe mais — recarrega a tela.',
+    hub_pagamento_valor_invalido: 'O valor recebido precisa ser maior que zero.',
+    hub_pagamento_sem_data: 'Falta a data do pagamento.',
+    hub_pagamento_maior_que_falta: 'O valor recebido é maior do que falta nesse recebível. Se o valor combinado mudou, edite o recebível primeiro.',
+    recebiveis_valor_centavos_check: 'O valor não pode ser negativo.',
+    recebiveis_competencia_dia_1: 'A competência é o mês — escolhe um mês válido.',
+  };
+  for(const k in ERROS_045){ if(m.includes(k)) return ERROS_045[k]; }
   if(m.includes('acesso negado')) return 'Sessão sem permissão pra essa ação.';
   if(m.includes('Could not find the function')) return 'Essa função ainda não está instalada no banco — migration pendente de aplicação.';
   return m;
@@ -1452,7 +1467,10 @@ async function renderFinanceiro(){
 
   const totalPrevisto = rows.reduce((s,r)=>s+Number(r.valor_centavos),0);
   const totalEntrada = rows.reduce((s,r)=>s+Number(r.entrada_centavos),0);
-  const totalVencido = rows.filter(r=>r.status==='vencido').reduce((s,r)=>s+Number(r.falta_centavos),0);
+  // 13/10 — vencido = ainda falta + venceu. O status do banco dá 'parcial' pra quem
+  // pagou um pedaço, e esse atrasado ficava fora do KPI "Vencidos".
+  const hojeISO = todayISO();
+  const totalVencido = rows.filter(r=>Number(r.falta_centavos)>0 && r.vence_em && r.vence_em < hojeISO).reduce((s,r)=>s+Number(r.falta_centavos),0);
   const clientesPagos = rows.filter(r=>r.status==='pago').length;
   // 044: R$ 0 não conta como "pago" nem entra no denominador
   const cobraveis = rows.filter(r=>r.status!=='sem_cobranca').length;
@@ -1544,7 +1562,7 @@ async function abrirMarcarPago(i){
     <form onsubmit="return confirmarPagamento(event, '${r.id}')">
       <p class="muted" style="margin-top:0;">Falta: <b>${centavosToBRL(r.falta_centavos)}</b></p>
       <div class="field"><label>Valor recebido (R$)</label>
-        <input id="f-valor" type="number" step="0.01" required value="${centavosToInputValue(r.falta_centavos)}"></div>
+        <input id="f-valor" type="number" step="0.01" min="0.01" max="${centavosToInputValue(r.falta_centavos)}" required value="${centavosToInputValue(r.falta_centavos)}"></div>
       <div class="field"><label>Data</label><input id="f-data" type="date" required value="${todayISO()}"></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
@@ -1559,7 +1577,7 @@ async function confirmarPagamento(ev, id){
     const data = document.getElementById('f-data').value;
     await rpc('hub_rpc_marcar_pago', { p_id: id, p_valor_centavos: valor, p_data: data });
     closeModal(); toast('Pagamento registrado.'); renderFinanceiro();
-  } catch(e){}
+  } catch(e){ modalErro(friendlyError(e)); }
   return false;
 }
 
@@ -1606,6 +1624,10 @@ async function confirmarApagarRecebivel(id){
 
 function formRecebivel(r){
   r = r || {};
+  // 13/10 — id gerado AQUI, na abertura do formulário. Salvar duas vezes (duplo clique,
+  // reenvio depois de erro de rede) grava a MESMA linha (ON CONFLICT id), nunca duas.
+  const idForm = r.id || (window.crypto && crypto.randomUUID ? crypto.randomUUID() : '');
+  const origemForm = r.origem || 'extra';
   // CINTO DE SEGURANÇA — hoje redundante, mantido de propósito.
   // `hub_rpc_carteira` devolve TODOS os clientes (a 023 chegou a filtrar por
   // recorrente e isso foi revertido justamente por causa daqui), então o dono
@@ -1619,15 +1641,15 @@ function formRecebivel(r){
   const opts = lista.map(c => `<option value="${esc(c.cliente_id)}" ${r.cliente_id===c.cliente_id?'selected':''}>${esc(c.nome)}</option>`).join('');
   return `
     <form onsubmit="return salvarRecebivel(event)">
-      <input type="hidden" id="f-id" value="${esc(r.id||'')}">
+      <input type="hidden" id="f-id" value="${esc(idForm)}">
       <div class="field"><label>Cliente</label><select id="f-cliente" required>${opts}</select></div>
       <div class="field"><label>Competência (mês)</label><input id="f-competencia" type="month" required placeholder="AAAA-MM" value="${competenciaParaMes(r.competencia||financeiroCompetencia)}"></div>
       <div class="field"><label>Descrição</label><input id="f-descricao" required value="${esc(r.descricao||'')}"></div>
-      <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" required value="${centavosToInputValue(r.valor_centavos)}"></div>
+      <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" min="0" required value="${centavosToInputValue(r.valor_centavos)}"></div>
       <div class="field"><label>Vence em</label><input id="f-vence" type="date" value="${r.vence_em||''}"></div>
       <div class="field"><label>Origem</label>
         <select id="f-origem">
-          ${['contrato','extra','comissao','aula','evento'].map(o => `<option value="${o}" ${r.origem===o?'selected':''}>${o}</option>`).join('')}
+          ${['contrato','extra','comissao','aula','evento'].map(o => `<option value="${o}" ${origemForm===o?'selected':''}>${o==='contrato'?'contrato (mensalidade)':o}</option>`).join('')}
         </select>
       </div>
       <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(r.observacao||'')}</textarea></div>
@@ -1640,6 +1662,8 @@ function formRecebivel(r){
 async function abrirNovoRecebivel(){
   // nunca deixa uma falha silenciosa impedir o modal de abrir — loadCarteiraCache
   // já não lança (ver comentário lá), isso aqui é cinto de segurança extra.
+  // 13/10 — cache zerado: cliente criado/arquivado em outra tela tem que aparecer (ou sumir) aqui.
+  carteira = [];
   try{ await loadCarteiraCache(); }
   catch(e){ console.error('abrirNovoRecebivel: falha ao carregar cache, abrindo modal mesmo assim:', e); }
   openModal('Novo recebível', formRecebivel());
@@ -1647,12 +1671,14 @@ async function abrirNovoRecebivel(){
 function abrirEditarRecebivel(i){ openModal('Editar recebível', formRecebivel(financeiroCache[i])); }
 async function salvarRecebivel(ev){
   ev.preventDefault();
+  const competenciaOk = mesParaCompetencia(document.getElementById('f-competencia').value);
+  if(!competenciaOk){ modalErro('Competência inválida — use o formato mês/ano (ex.: 10/2026).'); return false; }
   try{
     await rpc('hub_rpc_salvar_recebivel', { p: {
       id: document.getElementById('f-id').value || undefined,
       cliente_id: document.getElementById('f-cliente').value,
-      competencia: mesParaCompetencia(document.getElementById('f-competencia').value),
-      descricao: document.getElementById('f-descricao').value,
+      competencia: competenciaOk,
+      descricao: document.getElementById('f-descricao').value.trim(),
       valor_centavos: brlInputToCentavos(document.getElementById('f-valor').value),
       vence_em: document.getElementById('f-vence').value || null,
       origem: document.getElementById('f-origem').value,
@@ -1663,7 +1689,7 @@ async function salvarRecebivel(ev){
     // tela Recebíveis com o hash ainda em #/cliente/...).
     const rota = currentRoute();
     if(rota.page === 'cliente' && rota.param) renderCliente(rota.param); else renderFinanceiro();
-  } catch(e){}
+  } catch(e){ modalErro(friendlyError(e)); }
   return false;
 }
 
@@ -2224,6 +2250,7 @@ function secaoRecebiveisCliente(data){
     </table></div>`;
 }
 async function abrirNovoRecebivelCliente(){
+  carteira = [];
   try{ await loadCarteiraCache(); } catch(e){}
   const c = clienteAtual.cliente;
   openModal('Novo recebível — ' + esc(c.nome), formRecebivel({ cliente_id: c.id, cliente_nome: c.nome, competencia: todayISO().slice(0,7) + '-01' }));
