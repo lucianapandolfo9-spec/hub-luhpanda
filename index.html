@@ -1649,9 +1649,10 @@ function formRecebivel(r, extra){
       <input type="hidden" id="f-id" value="${esc(r.id||'')}">
       <div class="field"><label>Cliente</label><select id="f-cliente" required>${opts}</select></div>
       <div class="field"><label>Competência (mês)</label><input id="f-competencia" type="month" required placeholder="AAAA-MM" value="${competenciaParaMes(r.competencia||financeiroCompetencia)}"></div>
+      <p class="dim" style="font-size:12px;margin:-6px 0 12px;">É o mês em que esse dinheiro conta. Ao escolher o vencimento, o mês acompanha sozinho (dá pra trocar depois).</p>
       <div class="field"><label>Descrição</label><input id="f-descricao" required value="${esc(r.descricao||'')}"></div>
       <div class="field"><label>Valor (R$)</label><input id="f-valor" type="number" step="0.01" required value="${centavosToInputValue(r.valor_centavos)}"></div>
-      <div class="field"><label>Vence em</label><input id="f-vence" type="date" value="${r.vence_em||''}"></div>
+      <div class="field"><label>Vence em</label><input id="f-vence" type="date" value="${r.vence_em||''}" onchange="competenciaSegueVencimento()"></div>
       <div class="field"><label>Origem</label>
         <select id="f-origem">
           ${['contrato','extra','comissao','aula','evento'].map(o => `<option value="${o}" ${r.origem===o?'selected':''}>${o}</option>`).join('')}
@@ -1664,6 +1665,17 @@ function formRecebivel(r, extra){
         <button type="submit" class="btn btn-primary">Salvar</button>
       </div>
     </form>`;
+}
+// 15/10 — caso F7: a tela Recebíveis estava em novembro, o "Novo recebível"
+// herdou novembro e ela pôs vencimento 15/10; o lançamento caiu no mês
+// errado sem aviso. Agora escolher o vencimento puxa o mês junto.
+function competenciaSegueVencimento(){
+  const v = document.getElementById('f-vence').value;
+  const comp = document.getElementById('f-competencia');
+  if(v && comp && comp.value !== v.slice(0,7)){
+    comp.value = v.slice(0,7);
+    toast('Mês do recebível ajustado para ' + monthLabel(v.slice(0,7) + '-01') + '/' + v.slice(0,4) + ', igual ao vencimento.');
+  }
 }
 async function abrirNovoRecebivel(){
   // nunca deixa uma falha silenciosa impedir o modal de abrir — loadCarteiraCache
