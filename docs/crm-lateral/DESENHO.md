@@ -30,8 +30,8 @@ sem sair do WhatsApp.
 | D5 | De quem são os contatos | **Só Luh Panda.** Contatos da Lead Performance continuam no RD deles; nada de lead da Lead no banco da Hub |
 | D6 | Login da extensão | **Google** (Supabase OAuth via `chrome.identity`). Não mexe no modelo de e-mail do Auth (compartilhado com o aprovi.ai) |
 | D7 | Lembrete do follow-up | **Só na Hub**: bloco "Follow-ups de hoje" no Dash + selo de atrasado no card do kanban. Sem WhatsApp/n8n na V1 |
-| D8 | Distribuição | **Só da Luciana**, instalada "sem empacotar" (modo desenvolvedor) a partir de `extensao/` neste repo. Chrome Web Store só quando a Hub for vendida |
-| D9 | Ordem | **Fase 1:** banco + follow-up e notas **dentro da Hub** → Luciana testa → **Fase 2:** extensão |
+| D8 | Distribuição | **Hospedada na Chrome Web Store** (revisto em 15/10, a pedido dela). Desenvolve e testa "sem empacotar" a partir de `extensao/` neste repo; a versão que ela usa no dia a dia é instalada **pela loja**, com visibilidade **não listada** (só quem tem o link instala) e atualização automática |
+| D9 | Ordem | **Fase 1:** banco + follow-up e notas **dentro da Hub** → Luciana testa → **Fase 2:** extensão, testada sem empacotar e **publicada na Chrome Web Store** |
 
 ### Regras que valem para tudo
 
@@ -180,7 +180,24 @@ extensao/
 - [ ] Testado no WhatsApp real: prospect, cliente, grupo, número de fora (EUA), contato só com nome (vínculo manual), contato fora do CRM (virar prospect)
 - [ ] Nenhuma ação de envio/clique no WhatsApp no código (revisar `content.js`)
 - [ ] Desligar a internet / derrubar o Supabase → painel some, WhatsApp segue normal
+- [ ] Publicada na Chrome Web Store (ver 4.3) e instalada **pela loja** no Chrome dela
 - [ ] Registro no vault: `Luh Panda/Dev/00 — Hub Dev.md` (seção 🧠 Hub Luh Panda)
+
+### 4.3 Publicação na Chrome Web Store
+
+O que **só a Luciana** faz (conta dela, pagamento e aceite de termos):
+1. Criar a conta de desenvolvedor no [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) com a conta Google dela — taxa única de **US$ 5**.
+2. Aceitar o acordo de desenvolvedor e verificar o e-mail de contato.
+3. Clicar em "Enviar para revisão" depois que o pacote estiver pronto.
+
+O que quem constrói prepara:
+- **Pacote:** `.zip` de `extensao/` (sem `key` no manifest da versão da loja; a loja dá o ID definitivo). Script `scripts/empacotar-extensao` que gera o zip com a versão do `manifest.json`.
+- **ID e login Google:** depois do 1º upload a loja fixa o ID. Cadastrar `https://<id-da-loja>.chromiumapp.org/` como redirect no Supabase Auth. Para o desenvolvimento sem empacotar ter o **mesmo ID**, copiar a chave pública do painel da loja para o campo `key` do manifest **só na cópia de dev**.
+- **Ficha da loja:** nome ("Hub Luh Panda — CRM no WhatsApp"), descrição curta, ícone 128 px, 1 a 3 capturas de 1280×800, categoria Produtividade.
+- **Privacidade (obrigatório):** página de política de privacidade publicada (pode ser `docs/crm-lateral/privacidade.html` servida pelo GitHub Pages da Hub) dizendo: lê só o cabeçalho da conversa aberta (nome/número), não lê o conteúdo das mensagens, envia esses dados só para o Supabase da própria usuária, não vende nem compartilha. Preencher a aba "Práticas de privacidade" com a justificativa de cada permissão (`storage`, `identity`, host `web.whatsapp.com`, host do Supabase).
+- **Visibilidade:** **Não listada**. Não usar o nome "WhatsApp" como marca nem o logo deles (política de marca do Google e da Meta): "para WhatsApp Web" na descrição é o limite.
+- **Revisão:** costuma levar de dias a algumas semanas; cada atualização passa por revisão de novo. Por isso **correção urgente de seletor** (quando o WhatsApp muda a tela) deve ser testada sem empacotar e enviada com a versão incrementada no `manifest.json`.
+- **Risco a saber:** a loja pode recusar ou remover extensões que leem o WhatsApp Web. Se recusar, o plano B é voltar ao "sem empacotar" (funciona igual, só sem atualização automática).
 
 ---
 
@@ -194,9 +211,10 @@ extensao/
 | F2-b | Detecção por DOM + vínculo manual | 2–3 h |
 | F2-c | Painel (Shadow DOM) | 4–5 h |
 | F2-d | Teste real + revisão de segurança + registro | 2 h |
-| **Total** | | **16–21 h** |
+| F2-e | Publicação na Chrome Web Store: pacote, ficha, política de privacidade, ajuste do ID no login | 2–3 h (+ espera da revisão) |
+| **Total** | | **18–24 h** |
 
 ## 6. Fora da V1 (backlog)
 
 Mensagens prontas / "Usar no chat" · lembrete no WhatsApp via n8n · wa-js (só se o DOM ficar
-inviável) · contatos da Lead Performance · publicação na Chrome Web Store.
+inviável) · contatos da Lead Performance · loja **pública** (listada) quando a Hub for vendida.
