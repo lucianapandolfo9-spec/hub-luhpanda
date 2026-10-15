@@ -15,10 +15,13 @@ test('Cliente, contrato e parcelas: atomicidade, retry e guardas de acesso', asy
     assert.equal((await db.query('select count(*)::int n from hub.contratos')).rows[0].n, 1);
     const sameSlug = await rpc(db, 'hub_rpc_novo_cliente', payload(service));
     assert.equal(sameSlug.slug, 'cliente-2');
-    await assert.rejects(rpc(db, 'hub_rpc_contrato_assinado', { contrato_id: result.contrato_id, assinado_em: '2026-10-08' }), /exige_porta_saida/);
-    assert.equal((await db.query('select status from hub.contratos where id=$1', [result.contrato_id])).rows[0].status, 'rascunho');
-    const signed = await rpc(db, 'hub_rpc_contrato_assinado', { contrato_id: result.contrato_id, assinado_em: '2026-10-08', porta_escrita: true });
+    // 045 — porta de saída opcional: assinar sem confirmar que está escrita não trava mais
+    const signed = await rpc(db, 'hub_rpc_contrato_assinado', { contrato_id: result.contrato_id, assinado_em: '2026-10-08' });
     assert.equal(signed.parcelas_criadas, 6);
+    const ct = (await db.query('select status,porta_saida_tipo,porta_saida_escrita_em from hub.contratos where id=$1', [result.contrato_id])).rows[0];
+    assert.equal(ct.status, 'ativo');
+    assert.equal(ct.porta_saida_tipo, 'manutencao_mensal');
+    assert.equal(ct.porta_saida_escrita_em, null, 'só marca "escrita" quando ela confirma');
     const rows = (await db.query('select competencia::text,vence_em::text,valor_centavos,descricao from hub.recebiveis order by competencia')).rows;
     assert.equal(rows[0].vence_em, '2026-10-10');
     assert.equal(rows[5].vence_em, '2027-03-10');

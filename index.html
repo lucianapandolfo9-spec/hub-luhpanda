@@ -63,7 +63,28 @@ function valorCarteiraCard(c){
   if(c.tipo_cobranca === 'percentual') return `${pct}% sobre vendas`;
   // 041 — "misto": fixo + comissão (grill 07/10, caso The Best 6×1.200 + 5%)
   if(c.tipo_cobranca === 'misto') return `${centavosToBRL(c.valor_mensal_centavos)} + ${pct}%`;
+  // 045 — sem contrato com valor (avulso: George, Palácio), o valor sai dos
+  // recebíveis lançados no mês de referência. "Lanço lá e ele sobe o valor."
+  if(c.valor_mensal_centavos == null && Number(c.receb_valor_centavos) > 0) return centavosToBRL(c.receb_valor_centavos);
   return centavosToBRL(c.valor_mensal_centavos);
+}
+// 045 — "dd/mm" de uma data ISO (yyyy-mm-dd), sem passar por fuso.
+function ddmm(iso){ return iso ? iso.slice(8,10) + '/' + iso.slice(5,7) : ''; }
+// 045 — linha de recebíveis do card: quanto entrou / quanto falta no mês de
+// referência, com o vencimento do que está em aberto.
+function linhaRecebCard(c){
+  if(c.receb_competencia == null || !(Number(c.receb_valor_centavos) > 0)) return '';
+  const mes = monthLabel(c.receb_competencia);
+  const falta = Number(c.receb_falta_centavos) || 0;
+  const entrou = Number(c.receb_entrou_centavos) || 0;
+  if(falta <= 0){
+    return `<div class="receb-card ok">${mes}: ✓ recebido${c.receb_ultima_entrada ? ' em ' + ddmm(c.receb_ultima_entrada) : ''}</div>`;
+  }
+  const venc = c.receb_proximo_vence;
+  const vencido = venc && venc < todayISO();
+  const txtVenc = venc ? (vencido ? ` · venceu ${ddmm(venc)}` : ` · vence ${ddmm(venc)}`) : '';
+  const txtEntrou = entrou > 0 ? `${centavosToBRL(entrou)} entrou · ` : '';
+  return `<div class="receb-card ${vencido ? 'bad' : 'warn'}">${mes}: ${txtEntrou}falta ${centavosToBRL(falta)}${txtVenc}</div>`;
 }
 function todayISO(){
   return new Date().toLocaleDateString('sv-SE'); // yyyy-mm-dd no fuso local
@@ -855,7 +876,8 @@ async function renderDashBody(){
 function kpisCarteira(rows){
   const recorrentes = rows.filter(r => r.valor_mensal_centavos != null);
   const totalMensal = recorrentes.reduce((s,r) => s + Number(r.valor_mensal_centavos), 0);
-  const semVencimento = rows.filter(r => !r.tem_vencimento).length;
+  // 045 — cliente avulso com recebível lançado não conta como "sem vencimento"
+  const semVencimento = rows.filter(r => !r.tem_vencimento && !(Number(r.receb_valor_centavos) > 0)).length;
   return `
   <div class="kpis">
     <div class="kpi"><div class="label">Clientes ativos</div><div class="value">${rows.length}</div></div>
@@ -919,9 +941,12 @@ async function renderCarteira(){
       <span class="tipo">${esc(c.servico || '—')}</span>
       <span class="nome">${esc(c.nome)}${c.status!=='ativo' ? ` <span class="badge badge-muted" style="margin-left:4px;">${statusLabel(c.status)}</span>` : ''}</span>
       <span class="valor">${valorCarteiraCard(c)}</span>
+      ${linhaRecebCard(c)}
       <div class="meta">
-        <span>${c.tem_vencimento ? ('dia ' + c.dia_vencimento) : (carteiraVista==='arquivados' ? '—' : '<span class="flag">🔴 sem vencimento</span>')}</span>
-        <span class="badge ${contratoBadgeClass(c.contrato_status)}">${statusLabel(c.contrato_status)}</span>
+        <span>${c.tem_vencimento ? ('dia ' + c.dia_vencimento)
+          : (carteiraVista==='arquivados' ? '—'
+          : (Number(c.receb_valor_centavos) > 0 ? 'avulso, pelos recebíveis' : '<span class="flag">🔴 sem vencimento</span>'))}</span>
+        <span class="badge ${c.contrato_status ? contratoBadgeClass(c.contrato_status) : 'badge-muted'}">${c.contrato_status ? statusLabel(c.contrato_status) : 'Sem contrato'}</span>
       </div>
       ${carteiraVista!=='arquivados' ? blocoDemandasCard(c) : ''}
       <div class="cliente-card-acoes" onclick="event.stopPropagation()">
@@ -1112,17 +1137,18 @@ async function abrirNovoCliente(prefill){
       </div>
       <p class="dim" style="font-size:12px;margin:-6px 0 14px;">Valor por serviço é opcional. Com um serviço só, ele leva o valor mensal. "Sem Anexo I" = o envio pra assinatura por e-mail vai recusar até o anexo ser escrito.</p>
 
-      <p class="eyebrow" style="color:var(--fraco);">Porta de saída</p>
+      <p class="eyebrow" style="color:var(--fraco);">Se o cliente parar (opcional)</p>
       <div class="field-row3">
-        <div class="field" style="grid-column:span 2;"><label>Como esse contrato termina</label>
-          <select id="nc-porta" required>
-            <option value="">— escolhe uma —</option>
-            <option value="manutencao_mensal">Manutenção mensal — continua rodando e você cobra por mês</option>
-            <option value="desligamento_build_30">Desligamento — paga o que foi construído + 30% e leva</option>
+        <div class="field" style="grid-column:span 2;"><label>O que acontece com o sistema/serviço?</label>
+          <select id="nc-porta">
+            <option value="nenhuma">Nada: acaba quando ele parar de pagar</option>
+            <option value="manutencao_mensal">Continua rodando e ele paga manutenção todo mês</option>
+            <option value="desligamento_build_30">Ele leva o sistema pagando o que foi construído + 30%</option>
           </select>
         </div>
         <div class="field"><label>Valor (R$, opcional)</label><input id="nc-porta-valor" type="number" step="0.01" min="0" placeholder="ex: 800"></div>
       </div>
+      <p class="dim" style="font-size:12px;margin:-6px 0 14px;">É a "porta de saída": serve pra cliente de sistema não virar suporte de graça depois. Pra tráfego ou serviço avulso, deixa em "Nada".</p>
 
       <div class="row-between" style="margin-top:6px;">
         <p class="eyebrow" style="color:var(--fraco);margin:0;">Contatos</p>
@@ -2593,15 +2619,14 @@ function formContrato(co){
 
       <div id="porta-saida-wrap" style="${ehAtivo?'':'display:none;'}">
         <div class="field" style="margin-bottom:6px;">
-          <label>Como esse contrato termina</label>
+          <label>Se o cliente parar, o que acontece com o sistema/serviço? (opcional)</label>
           <select id="f-porta-tipo">
-            <option value="">— escolhe uma —</option>
-            <option value="manutencao_mensal" ${co.porta_saida_tipo==='manutencao_mensal'?'selected':''}>Manutenção mensal — continua rodando e você cobra por mês</option>
-            <option value="desligamento_build_30" ${co.porta_saida_tipo==='desligamento_build_30'?'selected':''}>Desligamento — paga o que foi construído + 30% e leva</option>
-            <option value="nenhuma" ${co.porta_saida_tipo==='nenhuma'?'selected':''}>Nenhuma — acaba quando parar de pagar</option>
+            <option value="nenhuma" ${!co.porta_saida_tipo || co.porta_saida_tipo==='nenhuma'?'selected':''}>Nada: acaba quando ele parar de pagar</option>
+            <option value="manutencao_mensal" ${co.porta_saida_tipo==='manutencao_mensal'?'selected':''}>Continua rodando e ele paga manutenção todo mês</option>
+            <option value="desligamento_build_30" ${co.porta_saida_tipo==='desligamento_build_30'?'selected':''}>Ele leva o sistema pagando o que foi construído + 30%</option>
           </select>
         </div>
-        <p class="dim" style="font-size:12px;margin:0 0 10px;">Contrato ativo precisa disso escrito — é o que evita virar trabalho de graça no mês 3.</p>
+        <p class="dim" style="font-size:12px;margin:0 0 10px;">É a "porta de saída": serve pra cliente de sistema não virar suporte de graça depois. Pra tráfego ou serviço avulso, deixa em "Nada".</p>
         <div class="checkrow" style="margin-bottom:12px;">
           <input type="checkbox" id="f-porta-escrita" ${jaTemPortaSaida?'checked':''}>
           <label for="f-porta-escrita">Já está escrito no contrato</label>
@@ -4159,8 +4184,9 @@ async function abrirContratoAssinado(contratoId, clienteSlug){
   }
 
   let portaHtml;
-  if(!co.porta_saida_tipo){
-    portaHtml = `<div class="modal-erro" style="display:block;">Esse contrato não tem porta de saída escolhida — edite o contrato e escolha antes de marcar como assinado.</div>`;
+  // 045 — porta de saída opcional: sem escolha = "nada", não trava a ativação
+  if(!co.porta_saida_tipo || co.porta_saida_tipo === 'nenhuma'){
+    portaHtml = '';
   } else if(co.porta_saida_escrita_em){
     portaHtml = `<div class="muted" style="font-size:12.5px;">✓ Porta de saída escrita (${esc(PORTA[co.porta_saida_tipo] || co.porta_saida_tipo)})</div>`;
   } else {
@@ -4175,7 +4201,7 @@ async function abrirContratoAssinado(contratoId, clienteSlug){
       ${portaHtml}
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
-        <button type="submit" class="btn btn-primary" ${co.porta_saida_tipo ? '' : 'disabled'}>Ativar e gerar parcelas</button>
+        <button type="submit" class="btn btn-primary">Ativar e gerar parcelas</button>
       </div>
     </form>`);
 }

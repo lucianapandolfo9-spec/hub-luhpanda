@@ -330,6 +330,11 @@ h2.section-title{
 /* ---------- Carteira — arquivar/reativar/apagar direto do card (28/09) ---------- */
 .cliente-card-acoes{display:flex;gap:6px;justify-content:flex-end;border-top:1px solid var(--borda);padding-top:9px;margin-top:2px;cursor:default}
 .cliente-card-acoes .btn{flex:0 0 auto}
+/* 045 — linha de recebíveis do mês no card da carteira */
+.cliente-card .receb-card{font-size:12px;margin:-2px 0 2px;color:var(--suave)}
+.cliente-card .receb-card.ok{color:var(--ok)}
+.cliente-card .receb-card.warn{color:var(--warn)}
+.cliente-card .receb-card.bad{color:var(--bad)}
 
 /* ---------- Carteira — demandas no card (D1, item 1) ---------- */
 .card-demandas{display:flex;flex-direction:column;gap:4px;border-top:1px solid var(--borda);padding-top:7px;margin-top:2px}

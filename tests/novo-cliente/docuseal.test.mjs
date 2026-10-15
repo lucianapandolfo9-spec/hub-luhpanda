@@ -15,18 +15,21 @@ test('DocuSeal: ativa uma vez, registra assinatura pendente e não reabre encerr
       const p = { docuseal_submission_id: submission, status: 'assinado', assinado_em: '2026-10-08', audit_log_url: 'https://exemplo.test/audit' };
       await assert.rejects(rpc(db, 'hub_rpc_docuseal_registrar_evento', p, 'intruso'), /acesso negado|permission denied/);
       const result = await rpc(db, 'hub_rpc_docuseal_registrar_evento', p, 'service');
-      assert.ok(result.ativacao.erro);
+      // 045 — sem a trava da porta de saída, rascunho assinado ativa direto;
+      // encerrado/arquivado continuam recusando (não reabre).
+      if (status === 'rascunho') assert.equal(result.ativacao.parcelas_criadas, 6);
+      else assert.ok(result.ativacao.erro);
       const ct = (await db.query('select status,assinado_em::text,docuseal_audit_log_url from hub.contratos where id=$1', [r.contrato_id])).rows[0];
-      assert.equal(ct.status, status === 'rascunho' ? 'assinado' : status);
-      if (status === 'rascunho') assert.equal(ct.assinado_em, '2026-10-08', 'data real permanece mesmo quando a ativação exige ajuste');
+      assert.equal(ct.status, status === 'rascunho' ? 'ativo' : status);
+      if (status === 'rascunho') assert.equal(ct.assinado_em, '2026-10-08');
       assert.equal(ct.docuseal_audit_log_url, p.audit_log_url);
     }
-    assert.equal((await db.query('select count(*)::int n from hub.recebiveis')).rows[0].n, 0);
+    assert.equal((await db.query('select count(*)::int n from hub.recebiveis')).rows[0].n, 6);
     const r = await rpc(db, 'hub_rpc_novo_cliente', payload(service));
     await db.query(`update hub.contratos set docuseal_submission_id=999,porta_saida_escrita_em=now() where id=$1`, [r.contrato_id]);
     const p = { docuseal_submission_id: 999, status: 'assinado', assinado_em: '2026-10-08' };
     assert.equal((await rpc(db, 'hub_rpc_docuseal_registrar_evento', p, 'service')).ativacao.parcelas_criadas, 6);
     assert.equal((await rpc(db, 'hub_rpc_docuseal_registrar_evento', p, 'service')).ativacao.ja_estava_ativo, true);
-    assert.equal((await db.query('select count(*)::int n from hub.recebiveis')).rows[0].n, 6);
+    assert.equal((await db.query('select count(*)::int n from hub.recebiveis')).rows[0].n, 12);
   } finally { await db.close(); }
 });

@@ -14,6 +14,7 @@ export async function database(extra = []) {
     insert into hub.servicos(slug,nome,modalidade) values('servico','Serviço','recorrente');`);
   await db.exec(read('migrations/041_novo_cliente_tela_unica.sql'));
   await db.exec(read('migrations/20261008112314_novo_cliente_integridade.sql'));
+  await db.exec(read('migrations/045_carteira_valor_recebiveis_porta_opcional.sql'));
   for (const file of extra) await db.exec(read(file));
   const service = (await db.query('select id from hub.servicos limit 1')).rows[0].id;
   return { db, service };
