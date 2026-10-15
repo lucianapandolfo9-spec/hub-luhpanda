@@ -1630,8 +1630,9 @@ async function confirmarApagarRecebivel(id){
   } catch(e){}
 }
 
-function formRecebivel(r){
+function formRecebivel(r, extra){
   r = r || {};
+  extra = extra || {};
   // CINTO DE SEGURANÇA — hoje redundante, mantido de propósito.
   // `hub_rpc_carteira` devolve TODOS os clientes (a 023 chegou a filtrar por
   // recorrente e isso foi revertido justamente por causa daqui), então o dono
@@ -1658,6 +1659,7 @@ function formRecebivel(r){
       </div>
       <div class="field"><label>Observação</label><textarea id="f-observacao" rows="2">${esc(r.observacao||'')}</textarea></div>
       <div class="row" style="justify-content:flex-end;margin-top:16px;">
+        ${extra.apagar ? `<button type="button" class="btn btn-danger" style="margin-right:auto;" onclick="${extra.apagar}">Apagar</button>` : ''}
         <button type="button" class="btn btn-outline" onclick="closeModal()">Cancelar</button>
         <button type="submit" class="btn btn-primary">Salvar</button>
       </div>
@@ -2233,8 +2235,8 @@ function secaoRecebiveisCliente(data){
   const aviso = temContratoAtivo ? '' : `<p class="dim" style="font-size:12px;margin:0 0 10px;">Sem contrato ativo: nenhum recebível nasce sozinho para este cliente. Crie o contrato na aba Contratos ou lance o recebível à mão.</p>`;
   if(!recs.length) return cab + aviso + `<div class="card"><span class="muted">Nenhum recebível lançado.</span></div>`;
   const aberto = recs.reduce((s,r) => s + Number(r.falta_centavos||0), 0);
-  const linhas = recs.map(r => `
-    <tr>
+  const linhas = recs.map((r,i) => `
+    <tr onclick="abrirEditarRecebivelFicha(${i})" style="cursor:pointer;" title="Clique para editar ou apagar">
       <td data-label="Mês">${monthLabel(r.competencia)}/${String(r.competencia).slice(0,4)}</td>
       <td data-label="Descrição" class="muted">${esc(r.descricao)}${r.origem && r.origem!=='contrato' ? ' <span class="badge badge-roxo">extra</span>' : ''}</td>
       <td data-label="Valor" class="money">${centavosToBRL(r.valor_centavos)}</td>
@@ -2248,6 +2250,42 @@ function secaoRecebiveisCliente(data){
       <thead><tr><th>Mês</th><th>Descrição</th><th style="text-align:right">Valor</th><th style="text-align:right">Falta</th><th>Vencimento</th><th>Status</th></tr></thead>
       <tbody>${linhas}</tbody>
     </table></div>`;
+}
+// 15/10 — na ficha, clicar na linha abre o mesmo "Editar recebível" da tela
+// Recebíveis, com "Apagar" no rodapé (pedido dela). Usa a lista que a ficha
+// já carregou (clienteAtual.recebiveis), sem buscar de novo.
+let recebivelFichaAtual = null;
+async function abrirEditarRecebivelFicha(i){
+  const r = (clienteAtual.recebiveis || [])[i];
+  if(!r){ toast('Não achei esse recebível — recarrega a página.'); return; }
+  recebivelFichaAtual = r;
+  try{ await loadCarteiraCache(); } catch(e){}
+  openModal('Editar recebível — ' + esc(r.cliente_nome || clienteAtual.cliente.nome),
+    formRecebivel(r, { apagar: 'abrirApagarRecebivelFicha()' }));
+}
+function abrirApagarRecebivelFicha(){
+  const r = recebivelFichaAtual;
+  if(!r) return;
+  openModal('Apagar recebível', `
+    <p class="muted" style="margin-top:0;">
+      Isso apaga de vez <b>${esc(r.descricao)}</b> (${centavosToBRL(r.valor_centavos)}, ${monthLabel(r.competencia)}/${String(r.competencia).slice(0,4)}${r.vence_em ? ', vence ' + formatDateBR(r.vence_em) : ''}).
+      ${Number(r.entrada_centavos) > 0 ? `<br><b>Atenção:</b> esse recebível tem ${centavosToBRL(r.entrada_centavos)} marcado como recebido — o valor some do financeiro junto.` : ''}
+      Fica registrado na auditoria.
+    </p>
+    <div class="row" style="justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-outline" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-danger" onclick="confirmarApagarRecebivelFicha()">Apagar</button>
+    </div>`);
+}
+async function confirmarApagarRecebivelFicha(){
+  const r = recebivelFichaAtual;
+  if(!r) return;
+  try{
+    await rpc('hub_rpc_apagar_recebivel', { p_id: r.id });
+    recebivelFichaAtual = null;
+    closeModal(); toast('Recebível apagado — rastro guardado na auditoria.');
+    renderCliente(clienteAtual.cliente.slug);
+  } catch(e){}
 }
 async function abrirNovoRecebivelCliente(){
   try{ await loadCarteiraCache(); } catch(e){}
