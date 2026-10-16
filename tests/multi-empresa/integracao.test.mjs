@@ -108,6 +108,19 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
     assert.equal(created.duplicate,false);
     assert.equal((await call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',deliveryEvent)).duplicate,true);
     assert.equal((await db.query('select count(*)::int as n from hub.delivery_events')).rows[0].n,1,'retry nao duplica evento');
+    await assert.rejects(call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',
+      {...deliveryEvent,externalStoreId:undefined,externalEventId:'e-faltando-loja'}),
+      /loja do evento nao confere/,'loja no payload normalizado deve ser obrigatoria');
+    await assert.rejects(call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',
+      {...deliveryEvent,externalStoreId:'loja-de-outro-tenant',externalEventId:'e-loja-invalida'}),
+      /loja do evento nao confere/,'eventos de loja diversa nao entram');
+    await assert.rejects(call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',
+      {...deliveryEvent,externalOrderId:'pedido-2'}),
+      /colisao entre evento e pedido/,'mesmo event ID de pedido diferente deve falhar');
+    assert.equal((await db.query('select count(*)::int as n from hub.delivery_orders')).rows[0].n,1,
+      'colisao nao cria pedido espurio');
+    assert.equal((await db.query('select count(*)::int as n from hub.delivery_events')).rows[0].n,1,
+      'colisao nao cria evento espurio');
     assert.equal((await call(BIA,'hub_rpc_delivery_orders',10)).length,1,'dono do workspace ve apenas seu pedido');
     await db.query("insert into hub.workspace_modulos(workspace_id,modulo_slug) values($1,'pedidos_delivery')",[WS1]);
     assert.equal((await call(LU,'hub_rpc_delivery_orders',10)).length,0,'outro workspace nao acessa pedido nem com modulo');
