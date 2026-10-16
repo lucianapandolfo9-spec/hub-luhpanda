@@ -1,0 +1,12 @@
+{
+  "name": "hub-testes-multi-empresa",
+  "private": true,
+  "type": "module",
+  "description": "Testes de isolamento multi-empresa em PGlite (sem banco real)",
+  "scripts": {
+    "test": "node isolamento.test.mjs && node compat.test.mjs && node --test integracao.test.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8"
+  }
+}
