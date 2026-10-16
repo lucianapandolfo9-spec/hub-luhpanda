@@ -46,6 +46,7 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
       await db.exec(read('migrations/20261008112355_multiempresa_integracao_modulos.sql'));
     }
     await db.exec(read('migrations/054_entitlements_estoque_contator.sql'));
+    await db.exec(read('migrations/055_delivery_inbox.sql'));
     const WS1 = (await db.query(`select id from hub.workspaces where slug='luhpanda'`)).rows[0].id;
     const WS2 = randomUUID();
     await db.query(`insert into hub.workspaces(id,nome,slug,status) values($1,'Outra empresa','outra','ativo')`,[WS2]);
@@ -93,5 +94,38 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
     await db.query("update hub.workspace_modulos set ativo=true where workspace_id=$1",[WS2]);
     assert.equal((await call(BIA,'hub_rpc_modules_snapshot')).products[0].id,stockB.prod,'reativacao restaura leitura sem mover dados');
     assert.equal((await call(BIA,'hub_rpc_modules_snapshot')).advisory.length,1,'reativacao fiscal restaura leitura');
+
+    // Delivery: nenhum workspace recebe o pacote novo automaticamente.
+    await assert.rejects(call(BIA,'hub_rpc_delivery_orders',30),/acesso negado/);
+    await db.query("insert into hub.delivery_connections(workspace_id,provider,external_store_id,ativo,nome) values($1,'ifood','loja-delivery-b',true,'Loja B')",[WS2]);
+    await assert.rejects(call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',
+      {externalStoreId:'loja-delivery-b',externalOrderId:'pedido-1',externalEventId:'e-1',status:'novo'}),/nao contratado/);
+    await db.query("insert into hub.workspace_modulos(workspace_id,modulo_slug) values($1,'pedidos_delivery')",[WS2]);
+    const deliveryEvent={externalStoreId:'loja-delivery-b',externalOrderId:'pedido-1',
+      externalEventId:'e-1',status:'novo',sourceStatus:'PLACED',occurredAt:'2026-10-10T10:00:00Z',
+      customer:{phone:'NAO_PERSISTIR'}};
+    const created=await call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',deliveryEvent);
+    assert.equal(created.duplicate,false);
+    assert.equal((await call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',deliveryEvent)).duplicate,true);
+    assert.equal((await db.query('select count(*)::int as n from hub.delivery_events')).rows[0].n,1,'retry nao duplica evento');
+    assert.equal((await call(BIA,'hub_rpc_delivery_orders',10)).length,1,'dono do workspace ve apenas seu pedido');
+    await db.query("insert into hub.workspace_modulos(workspace_id,modulo_slug) values($1,'pedidos_delivery')",[WS1]);
+    assert.equal((await call(LU,'hub_rpc_delivery_orders',10)).length,0,'outro workspace nao acessa pedido nem com modulo');
+    const late={...deliveryEvent,externalEventId:'e-2',status:'confirmado',occurredAt:'2026-10-10T11:00:00Z'};
+    await call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',late);
+    await call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',{...deliveryEvent,externalEventId:'e-3',
+      status:'novo',occurredAt:'2026-10-10T09:00:00Z'});
+    assert.equal((await call(BIA,'hub_rpc_delivery_orders',10))[0].status,'confirmado','evento velho nao regride status');
+    assert.equal((await db.query('select count(*)::int as n from hub.delivery_orders')).rows[0].n,1);
+    assert.equal(JSON.stringify((await db.query('select * from hub.delivery_events')).rows).includes('NAO_PERSISTIR'),
+      false,'payload com dados pessoais nao foi salvo');
+    await db.query("update hub.workspace_modulos set ativo=false where workspace_id=$1 and modulo_slug='pedidos_delivery'",[WS2]);
+    await assert.rejects(call(BIA,'hub_rpc_delivery_orders',10),/acesso negado/,'revogacao corta acesso a pedidos');
+    await assert.rejects(call('service','hub_rpc_delivery_ingest','ifood','loja-delivery-b',
+      {...deliveryEvent,externalEventId:'e-4'}),/nao contratado/,'revogacao corta job');
+    await assert.rejects(call('service','hub_rpc_delivery_ingest','ifood','loja-nao-vinculada',
+      {...deliveryEvent,externalStoreId:'loja-nao-vinculada',externalEventId:'e-5'}),/nao autorizada/);
+    await db.query("update hub.workspace_modulos set ativo=true where workspace_id=$1 and modulo_slug='pedidos_delivery'",[WS2]);
+    assert.equal((await call(BIA,'hub_rpc_delivery_orders',10)).length,1,'reativar permite consultar historico antigo');
   } finally { await db.close(); }
 });
