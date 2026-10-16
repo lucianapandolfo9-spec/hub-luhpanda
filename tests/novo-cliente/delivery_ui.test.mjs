@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const source=fs.readFileSync('integrations/delivery/inbox-ui.js','utf8');
-const index=fs.readFileSync('index.html','utf8');
+const source=fs.readFileSync(new URL('../../integrations/delivery/inbox-ui.js',import.meta.url),'utf8');
+const index=fs.readFileSync(new URL('../../index.html',import.meta.url),'utf8');
 const encode=s=>String(s==null?'':s).replace(/[&<>"']/g, x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 const setup=rpc=>{
   const ctx={root:{innerHTML:''},shell:(_active,body)=>body,esc:encode,
