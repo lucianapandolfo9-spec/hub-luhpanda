@@ -45,9 +45,12 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
     if (!process.env.SKIP_INTEGRATION_FIX) {
       await db.exec(read('migrations/20261008112355_multiempresa_integracao_modulos.sql'));
     }
+    await db.exec(read('migrations/054_entitlements_estoque_contator.sql'));
     const WS1 = (await db.query(`select id from hub.workspaces where slug='luhpanda'`)).rows[0].id;
     const WS2 = randomUUID();
     await db.query(`insert into hub.workspaces(id,nome,slug,status) values($1,'Outra empresa','outra','ativo')`,[WS2]);
+    // Plano de teste: sem flags iniciais, ativacao explicita por pacote.
+    await db.query("insert into hub.workspace_modulos(workspace_id,modulo_slug) values($1,'estoque'),($1,'fiscal')",[WS2]);
     await db.query(`insert into hub.workspace_membros(workspace_id,user_id,papel) values($1,$2,'dono'),($1,$3,'consulta')`,[WS2,BIA.id,CON.id]);
     await call(BIA,'hub_rpc_onboarding_salvar_empresa',{cnpj:'12.ABC.345/01DE-35',razao_social:'Outra empresa'});
     const snapBefore = await call(BIA,'hub_rpc_modules_snapshot');
@@ -75,5 +78,20 @@ test('Integração real: Estoque, Contator, Novo cliente e DocuSeal isolados por
     assert.equal((await db.query('select status from hub.contratos where id=$1',[clientB.contrato_id])).rows[0].status,'ativo','webhook resolve ws2 pelo submission ID');
     assert.equal((await call('service','hub_rpc_docuseal_registrar_evento',event)).ativacao.ja_estava_ativo,true);
     assert.equal((await db.query('select workspace_id from hub.clientes where id=$1',[clientA.cliente_id])).rows[0].workspace_id,WS1);
+
+    // Licenciamento: teste de tentativa DIRETA da RPC, sem depender do menu.
+    await db.query("insert into hub.advisory_records(workspace_id,kind,data) values($1,'action','{}'::jsonb)",[WS2]);
+    assert.equal((await call(BIA,'hub_rpc_modules_snapshot')).advisory.length,1);
+    await db.query("update hub.workspace_modulos set ativo=false where workspace_id=$1 and modulo_slug='estoque'",[WS2]);
+    const semEstoque=await call(BIA,'hub_rpc_modules_snapshot');
+    assert.equal(semEstoque.products.length,0,'revogacao estoque oculta ate a leitura por RPC');
+    assert.equal(semEstoque.advisory.length,1,'fiscal continua ativo quando estoque e revogado');
+    await assert.rejects(call(BIA,'hub_rpc_stock_save','location',{name:'Nao autorizado'}), /row-level security|policy|permission/i);
+    assert.equal((await call(LU,'hub_rpc_modules_snapshot')).products[0].id,stockA.prod,'licenca de outro workspace nao interfere');
+    await db.query("update hub.workspace_modulos set ativo=false where workspace_id=$1 and modulo_slug='fiscal'",[WS2]);
+    assert.equal((await call(BIA,'hub_rpc_modules_snapshot')).advisory.length,0,'revogacao fiscal nao vaza registros');
+    await db.query("update hub.workspace_modulos set ativo=true where workspace_id=$1",[WS2]);
+    assert.equal((await call(BIA,'hub_rpc_modules_snapshot')).products[0].id,stockB.prod,'reativacao restaura leitura sem mover dados');
+    assert.equal((await call(BIA,'hub_rpc_modules_snapshot')).advisory.length,1,'reativacao fiscal restaura leitura');
   } finally { await db.close(); }
 });
