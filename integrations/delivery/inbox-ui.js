@@ -59,6 +59,7 @@ function filtroPedidosDeliveryProvedor(provider) {
   pedidosDeliveryProvedor = Object.prototype.hasOwnProperty.call(PEDIDOS_ORIGEM, provider)
     ? provider : 'todos';
   pedidosDeliveryLoja = 'todas';
+  pedidosDeliveryFiltro = 'todos'; // Outro canal pode não conter o status do canal anterior.
   desenharPedidosDelivery();
 }
 function filtroPedidosDeliveryLoja(connectionId) {
