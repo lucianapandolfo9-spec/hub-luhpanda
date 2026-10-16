@@ -1,0 +1,126 @@
+.module-tabs,
+.module-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 16px 0;
+}
+.module-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.module-kpis strong {
+  display: block;
+  font-size: 24px;
+  margin-top: 8px;
+}
+.module-panel {
+  margin: 18px 0;
+}
+.module-panel h3 {
+  margin: 0 0 14px;
+}
+.module-table {
+  overflow-x: auto;
+}
+.module-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.module-table td,
+.module-table th {
+  padding: 12px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line, #333);
+  vertical-align: top;
+}
+.module-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.module-fields .field {
+  margin: 0;
+  min-width: 0;
+}
+.module-fields input,
+.module-fields select,
+.module-fields textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.module-full {
+  grid-column: 1/-1;
+}
+.module-print {
+  display: none;
+}
+@media (max-width: 720px) {
+  .module-fields {
+    grid-template-columns: 1fr;
+  }
+  .module-actions .btn {
+    min-height: 44px;
+  }
+  .module-table td {
+    min-width: 100px;
+  }
+  .module-tabs .btn {
+    flex-grow: 1;
+  }
+  .module-kpis {
+    grid-template-columns: 1fr 1fr;
+  }
+  .module-kpis strong {
+    font-size: 20px;
+  }
+}
+@media print {
+  body > * {
+    display: none !important;
+  }
+  body > .module-print {
+    display: block !important;
+    background: white;
+    color: black;
+    padding: 24px;
+  }
+  .module-print section {
+    break-inside: avoid;
+  }
+  .module-print pre {
+    white-space: pre-wrap;
+  }
+  .module-print p {
+    overflow-wrap: anywhere;
+  }
+}
+
+.module-wrap {
+  width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .module-table tbody td {
+    min-width: 0;
+  }
+  .module-table tbody td::before {
+    max-width: 48%;
+    white-space: normal;
+  }
+  .module-table tbody td:empty {
+    display: none;
+  }
+  .module-table tbody tr[hidden] {
+    display: none;
+  }
+}
+@media (max-width: 420px) {
+  .module-kpis {
+    grid-template-columns: 1fr;
+  }
+}
