@@ -1,0 +1,19 @@
+name: PWA
+on:
+  pull_request:
+    paths: ["sw.js", "config.js", "index.html", "manifest.webmanifest", "tests/pwa.test.cjs", ".github/workflows/pwa-checks.yml"]
+  push:
+    branches: [main]
+    paths: ["sw.js", "config.js", "index.html", "manifest.webmanifest", "tests/pwa.test.cjs"]
+permissions:
+  contents: read
+jobs:
+  pwa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: node --check sw.js && node --check config.js
+      - run: node --test tests/pwa.test.cjs
