@@ -158,7 +158,7 @@ begin
                        'em_entrega','concluido','cancelado','revisar') then
     raise exception 'evento invalido';
   end if;
-  if p_event ? 'externalStoreId' and p_event->>'externalStoreId' is distinct from p_store_id then
+  if nullif(btrim(coalesce(p_event->>'externalStoreId','')),'') is distinct from p_store_id then
     raise exception 'loja do evento nao confere';
   end if;
   if p_event ? 'occurredAt' and jsonb_typeof(p_event->'occurredAt')='string' then
@@ -184,6 +184,16 @@ begin
   select * into ev from hub.delivery_events
     where connection_id=c.id and external_event_id=v_event;
   if found then
+    -- O mesmo ID de evento nunca pode apontar para outro pedido da loja.
+    -- Falhar em vez de aceitar em silencio evita misturar historicos.
+    if not exists (
+      select 1 from hub.delivery_orders existing
+       where existing.id = ev.order_id
+         and existing.connection_id = c.id
+         and existing.external_order_id = v_order
+    ) then
+      raise exception 'colisao entre evento e pedido';
+    end if;
     return jsonb_build_object('duplicate',true,'orderId',ev.order_id);
   end if;
 
