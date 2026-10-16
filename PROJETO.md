@@ -1,13 +1,38 @@
 # Hub Luh Panda — PROJETO.md
 
 Painel único de operação da Luciana: carteira, funil, dinheiro, entrega, conteúdo e infra
-num lugar só. Documento mestre — ler antes de mexer em qualquer coisa.
+num lugar só. Documento mestre técnico — ler antes de mexer em qualquer coisa.
+
+> **O produto mora no [`README.md`](README.md).** Este arquivo é o **histórico técnico de
+> construção** do Hub (decisões de banco, blocos, migrations, workflows). Quando os dois
+> divergirem sobre o que o produto é, quanto custa ou o que vem depois, **vale o README**.
+> "Hub" é nome provisório; o nome comercial será escolhido depois.
+>
+> **Atualizado em 08/10/2026.** Trechos marcados com ⚠️ *(histórico)* descrevem o estado de
+> uma fase anterior e foram mantidos por registro.
 
 ## O que é
 
-Painel de operação — Fase 1 (Fundação + Carteira) e Fase 2 (Financeiro: dash, recebíveis,
-custos fixos, cobrança automática) no ar. Desenho completo do sistema inteiro está no
-Artifact aprovado (fluxograma) e no Obsidian Canvas dela (`Luh Panda/HUB - Canva Design.canvas`).
+Painel de operação, hoje de **usuário único** (a dona do projeto), a caminho de produto
+multi-empresa vendável (ver README).
+
+**Registro da `main` em 06/10/2026 (histórico):** Fases 1 e 2 (fundação, carteira, financeiro,
+recebíveis, custos fixos) e os Blocos B a G estão na `main`: CRM kanban, configuração de
+cobrança, conversas de WhatsApp, contratos com DocuSeal, reuniões com análise por IA, agenda
+Google, cliente por comissão (migration 032), arquivar cliente em cascata (033), recebíveis
+automáticos (034/035) e quarentena do legado do Certo Agro (036). As migrations **006 a 036
+constam aplicadas** no banco; cabeçalhos de arquivo dizendo "não aplicada" são históricos e
+**não** significam pendência. As 7 Edge Functions do repo (`wa-send`, `wa-groups`,
+`reuniao-analisar`, `docuseal-integrar`, `docuseal-webhook`, `agenda-google`,
+`google-oauth-callback`) estão **implantadas**.
+
+**Fora da `main`:** o PWA está em branch/PR (`feat/pwa-favicon-panda`) e o Estoque/Contator
+está implementado em branch (#3), com instalação e homologação pendentes. Multi-empresa de verdade tem desenho, migrations e testes no PR #15, **DRAFT**, sem instalação; o frontend e as integrações completas ainda são **a fazer**.
+
+**Revisão de 08/10/2026:** a main `002b430` também contém 038 (competência sempre no primeiro dia), 039 (atenção no dashboard), 040 (recebíveis na ficha), 043 (teto MEI proporcional no ano de abertura) e 044 (R$ 0 = sem cobrança). A 037 de auditoria está no PR #7; sua aplicação é relatada no PR, sem alteração de produção nesta revisão. Novo cliente/ativação estão no PR #12; DocuSeal no #11 DRAFT. As correções desta revisão usam migrations novas, preservando as históricas. O README e as descrições dos PRs distinguem código, instalação e homologação.
+
+O desenho do sistema vive no Artifact do fluxograma e no Obsidian Canvas dela. Pacotes,
+preços e decisões comerciais vivem no README.
 
 ## Stack
 
@@ -23,16 +48,24 @@ sem framework, publica no GitHub Pages. n8n na VPS Hostinger faz o trabalho pesa
 
 ## Banco
 
-Projeto Supabase **`arroba-certa`** (`tscnqvuzlfagotirgjbz`) — o mesmo do Certo Agro e do
-aprovi.ai. **Schema isolado `hub`**, ao lado de `public` (Certo Agro) e `posta_ai` (aprovi.ai).
-Nunca tocar nos outros dois schemas a partir daqui.
+Projeto Supabase atual (`tscnqvuzlfagotirgjbz`). **Já não se chama `arroba-certa`**: foi
+renomeado em 01/10/2026, e o banco do Certo Agro foi para projeto próprio em 30/09/2026.
+**Schema isolado `hub`**, ao lado de `posta_ai` (aprovi.ai) e de `_legado_certo_agro`
+(legado em quarentena, migration 036; os wrappers públicos da Hub e do aprovi.ai permanecem). Nunca tocar nos outros
+schemas a partir daqui.
 
-🔜 **Plano em aberto (anunciado 22/09/2026):** a Luciana vai pagar um projeto Supabase
-dedicado só pro Hub — esse compartilhamento com Certo Agro/aprovi.ai é temporário, não o
-desenho final (o Hub nasceu pra virar produto vendável/clonável). Ainda não aconteceu.
-Passo a passo da migração (criar projeto → portar schema `hub` → migrar dados reais →
-trocar chave no `config.js`/`index.html` → verificar logada → só então desligar o schema
-velho) documentado na skill `hubluhpanda`.
+**Decisão vigente (desenho de 06/10/2026):**
+
+- O Hub **fica neste projeto, junto do aprovi.ai**, que vira o módulo Marketing. Banco
+  compartilhado passou a ser o desenho, não um acidente temporário.
+- O produto será **banco único multi-empresa, isolado por workspace** (a fazer; ver README).
+- ⚠️ **Risco registrado:** produto vendido dividindo projeto com dados reais de outro
+  sistema e com legado em quarentena.
+- **Depois** vira um **banco pago pelas duas sócias** (a Isa entra no banco junto). Quando e
+  como migrar: **em aberto**.
+- ⚠️ *(histórico)* O plano de 22/09/2026 de "projeto Supabase dedicado só pro Hub" está
+  **superado** por esta decisão. O passo a passo de migração segue na skill `hubluhpanda` e
+  só vale quando a migração for definida.
 
 ### Por que dividir em `hub.*` + wrappers em `public.*`
 
@@ -49,26 +82,28 @@ direto.
 
 ### Guardas embutidas no banco (não em lembrete)
 
-- `hub.is_admin()` — `coalesce(auth.email(),'') = 'lucianapandolfo9@gmail.com'`. O `coalesce`
+- `hub.is_admin()` — `coalesce(auth.email(),'') = '<e-mail da dona do projeto>'`. O `coalesce`
   é obrigatório: sem ele, uma sessão sem e-mail (`NULL = 'email'` → `NULL`) passaria pela
   checagem. Bug real, já pago uma vez no aprovi.ai (ver `PROJETO.md` dele, linhas 87-97).
 - **Contrato não vira `ativo` sem porta de saída escrita** — `CHECK` físico na tabela
   `hub.contratos`. Testado: um `UPDATE` que tenta ativar sem `porta_saida_escrita_em` é
   recusado pelo Postgres, não pela aplicação.
 - **`tem_contrato` na carteira só é `true` para contrato `assinado`/`ativo`** — não basta
-  existir uma linha de contrato. Isso é o que faz o alerta "sem contrato formal" aparecer
-  pra 7 dos 8 clientes hoje (só Imperio Ruby tem contrato 001/2026 assinado).
+  existir uma linha de contrato. É isso que faz o alerta "sem contrato formal" aparecer.
 - Toda tabela tem trigger de auditoria (`hub.eventos_auditoria`) — quem mudou o quê, quando.
 - RLS em todas as tabelas: só `hub.is_admin()` lê/escreve.
 
-## Dados de hoje (seed real, aba "Set 2026" da planilha)
+## Dados de hoje (seed real, aba "Set 2026" da planilha) ⚠️ *(histórico)*
 
-Fonte: `Luh Panda - Financeiro`, id `1XGvkY3nwH-6wV8nKcezseLKmPIwUYbGOQWeX0IKRNq4`.
-**Só quem está na planilha entra aqui.** Capitalize, Bolão Fácil e Além Mar são projeto
-(não mensalidade) e ficam de fora até ela decidir incluir.
+O banco foi alimentado na Fase 1 com a carteira real da operação da dona (planilha
+financeira dela). Só entraram clientes de mensalidade; projetos avulsos ficaram de fora.
+Ordem de grandeza na época: 8 clientes, 10 serviços de catálogo, 8 contratos, 9 recebíveis
+do mês e 8 custos fixos.
 
-8 clientes · 10 serviços de catálogo · 8 contratos (só Imperio Ruby formal) · 9 recebíveis
-Set/2026 · 8 custos fixos.
+⚠️ **Esses dados são reais e o repositório é público.** Plano: trocar por dados fictícios e
+recriar o repositório limpo, **só com combinado e OK da Isa** (recriar muda a URL e fecha os
+PRs dela). Ainda não foi feito. Até lá, **nada novo e sensível entra neste repositório**.
+Ver README, seção 13.
 
 ## A planilha — agora é o hub que manda (Fase 2, decisão nova)
 
