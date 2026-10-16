@@ -15,6 +15,7 @@
 <div id="modal-root"></div>
 
 <script src="config.js"></script>
+<script src="integrations/delivery/inbox-ui.js"></script>
 <script>
 const root = document.getElementById('root');
 const modalRoot = document.getElementById('modal-root');
@@ -384,6 +385,9 @@ const NAV_GROUPS = [
     ['contratos','Contratos', NAV_ICONS.contratos, true],
     ['reunioes','Reuniões', NAV_ICONS.reunioes, true],
     ['agenda','Agenda', NAV_ICONS.agenda, true],
+  ]},
+  { label: 'Operação', items: [
+    ['pedidos','Pedidos de delivery', NAV_ICONS.briefcase, true],
   ]},
   { label: 'Marketing', items: [
     ['posts','Posts', NAV_ICONS.posts, false],
@@ -5348,6 +5352,7 @@ async function render(){
   if(page === 'contratos') return renderContratos();
   if(page === 'reunioes') return renderReunioes();
   if(page === 'agenda') return renderAgenda();
+  if(page === 'pedidos') return renderPedidosDelivery();
   if(['posts','trafego','criacao','dev'].includes(page)) return renderEmConstrucao(page);
   return renderDash();
 }
